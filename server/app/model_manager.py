@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import threading
+from collections.abc import Iterator
 from typing import Any
 
 import numpy as np
@@ -107,6 +108,13 @@ class ModelManager:
             kwargs["max_tokens"] = generation.max_new_tokens
         return kwargs
 
+    def _stream_generation_kwargs(self, payload: BaseGenerationRequest | CustomGenerationRequest | DesignGenerationRequest) -> dict[str, float | int | bool]:
+        return {
+            **self._generation_kwargs(payload.generation),
+            "stream": True,
+            "streaming_interval": payload.streaming_interval,
+        }
+
     def _apply_seed(self, seed: int | None) -> None:
         if seed is None:
             return
@@ -122,6 +130,29 @@ class ModelManager:
 
         result = collected[-1]
         return np.asarray(result.audio, dtype=np.float32), int(result.sample_rate)
+
+    def _iter_stream_results(
+        self,
+        results: Any,
+        *,
+        segment_index: int,
+        text: str,
+        sample_rate: int,
+    ) -> Iterator[dict[str, Any]]:
+        yielded = False
+        for result in results:
+            yielded = True
+            chunk_sample_rate = int(getattr(result, "sample_rate", sample_rate))
+            yield {
+                "segment_index": segment_index,
+                "text": text,
+                "audio": np.asarray(result.audio, dtype=np.float32),
+                "sample_rate": chunk_sample_rate,
+                "is_final_chunk": bool(getattr(result, "is_final_chunk", False)),
+            }
+
+        if not yielded:
+            raise RuntimeError("The model returned no audio.")
 
     def generate_custom(self, request: CustomGenerationRequest) -> tuple[list[Any], int]:
         self._validate_language(request.language)
@@ -200,3 +231,81 @@ class ModelManager:
             )
             wavs.append(wav)
         return wavs, sample_rate
+
+    def stream_custom(self, request: CustomGenerationRequest) -> Iterator[dict[str, Any]]:
+        self._validate_language(request.language)
+        self._ensure_speaker(request.speaker)
+        model = self.ensure_mode("custom")
+        self._apply_seed(request.generation.seed)
+        language = self._normalize_language(request.language)
+        generation_kwargs = self._stream_generation_kwargs(request)
+        sample_rate = int(model.sample_rate)
+
+        for segment_index, segment in enumerate(request.segments):
+            yield from self._iter_stream_results(
+                model.generate_custom_voice(
+                    text=segment,
+                    speaker=request.speaker,
+                    language=language,
+                    instruct=request.instruct,
+                    **generation_kwargs,
+                ),
+                segment_index=segment_index,
+                text=segment,
+                sample_rate=sample_rate,
+            )
+
+    def stream_design(self, request: DesignGenerationRequest) -> Iterator[dict[str, Any]]:
+        self._validate_language(request.language)
+        model = self.ensure_mode("design")
+        self._apply_seed(request.generation.seed)
+        language = self._normalize_language(request.language)
+        generation_kwargs = self._stream_generation_kwargs(request)
+        sample_rate = int(model.sample_rate)
+
+        for segment_index, segment in enumerate(request.segments):
+            yield from self._iter_stream_results(
+                model.generate_voice_design(
+                    text=segment,
+                    language=language,
+                    instruct=request.instruct,
+                    **generation_kwargs,
+                ),
+                segment_index=segment_index,
+                text=segment,
+                sample_rate=sample_rate,
+            )
+
+    def stream_clone(
+        self,
+        *,
+        payload: BaseGenerationRequest,
+        ref_audio_path: str,
+        ref_text: str | None,
+        x_vector_only_mode: bool,
+    ) -> Iterator[dict[str, Any]]:
+        self._validate_language(payload.language)
+        if x_vector_only_mode:
+            raise ValueError("The local MLX Qwen runtime does not support x-vector only mode yet. Provide a reference transcript and leave that option disabled.")
+        if not (ref_text or "").strip():
+            raise ValueError("Reference transcript is required unless x-vector only mode is enabled.")
+
+        model = self.ensure_mode("clone")
+        self._apply_seed(payload.generation.seed)
+        language = self._normalize_language(payload.language)
+        generation_kwargs = self._stream_generation_kwargs(payload)
+        sample_rate = int(model.sample_rate)
+
+        for segment_index, segment in enumerate(payload.segments):
+            yield from self._iter_stream_results(
+                model.generate(
+                    text=segment,
+                    lang_code=language,
+                    ref_audio=ref_audio_path,
+                    ref_text=ref_text,
+                    **generation_kwargs,
+                ),
+                segment_index=segment_index,
+                text=segment,
+                sample_rate=sample_rate,
+            )

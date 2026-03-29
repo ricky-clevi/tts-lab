@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -55,10 +56,41 @@ class FakeModelManager:
         self.custom_calls += 1
         return [np.zeros(16000, dtype=np.float32) for _ in payload.segments], 16000
 
+    def stream_custom(self, payload: CustomGenerationRequest):
+        self.ensure_mode("custom")
+        self.custom_calls += 1
+        for segment_index, segment in enumerate(payload.segments):
+            yield {
+                "segment_index": segment_index,
+                "text": segment,
+                "audio": np.full(4000, 0.1, dtype=np.float32),
+                "sample_rate": 16000,
+                "is_final_chunk": False,
+            }
+            yield {
+                "segment_index": segment_index,
+                "text": segment,
+                "audio": np.full(6000, 0.2, dtype=np.float32),
+                "sample_rate": 16000,
+                "is_final_chunk": True,
+            }
+
     def generate_design(self, payload: DesignGenerationRequest):
         self.ensure_mode("design")
         self.design_calls += 1
         return [np.ones(8000, dtype=np.float32) for _ in payload.segments], 16000
+
+    def stream_design(self, payload: DesignGenerationRequest):
+        self.ensure_mode("design")
+        self.design_calls += 1
+        for segment_index, segment in enumerate(payload.segments):
+            yield {
+                "segment_index": segment_index,
+                "text": segment,
+                "audio": np.ones(5000, dtype=np.float32),
+                "sample_rate": 16000,
+                "is_final_chunk": True,
+            }
 
     def generate_clone(self, *, payload: BaseGenerationRequest, ref_audio_path: str, ref_text: str | None, x_vector_only_mode: bool):
         assert Path(ref_audio_path).exists()
@@ -67,6 +99,21 @@ class FakeModelManager:
         if not x_vector_only_mode and not ref_text:
             raise ValueError("Reference transcript is required unless x-vector only mode is enabled.")
         return [np.full(12000, 0.3, dtype=np.float32) for _ in payload.segments], 24000
+
+    def stream_clone(self, *, payload: BaseGenerationRequest, ref_audio_path: str, ref_text: str | None, x_vector_only_mode: bool):
+        assert Path(ref_audio_path).exists()
+        self.ensure_mode("clone")
+        self.clone_calls += 1
+        if not x_vector_only_mode and not ref_text:
+            raise ValueError("Reference transcript is required unless x-vector only mode is enabled.")
+        for segment_index, segment in enumerate(payload.segments):
+            yield {
+                "segment_index": segment_index,
+                "text": segment,
+                "audio": np.full(7000, 0.3, dtype=np.float32),
+                "sample_rate": 24000,
+                "is_final_chunk": True,
+            }
 
 
 @pytest.fixture
@@ -154,3 +201,36 @@ def test_model_switch_and_repeat_mode_behavior(client):
     assert third.status_code == 200
     assert manager.ensure_calls == ["custom", "design"]
     assert manager.unload_calls == 1
+
+
+def test_stream_custom_generation_emits_chunks_and_final_run(client):
+    test_client, manager = client
+
+    with test_client.stream(
+        "POST",
+        "/api/stream/custom",
+        json={
+            "segments": ["Streaming Ryan preset voice."],
+            "language": "English",
+            "speaker": "Ryan",
+            "streaming_interval": 0.32,
+        },
+    ) as response:
+        assert response.status_code == 200
+        lines = [line for line in response.iter_lines() if line]
+
+    decoded = [json.loads(line) for line in lines]
+    event_types = [item["type"] for item in decoded]
+
+    assert event_types == [
+        "run_start",
+        "segment_start",
+        "audio_chunk",
+        "audio_chunk",
+        "segment_complete",
+        "run_complete",
+    ]
+    assert decoded[2]["pcm16_base64"]
+    assert decoded[3]["is_final_chunk"] is True
+    assert decoded[-1]["run"]["clips"][0]["audio_url"].startswith("/api/audio/")
+    assert manager.custom_calls == 1

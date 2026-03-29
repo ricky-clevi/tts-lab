@@ -1,8 +1,17 @@
-import { startTransition, useEffect, useState } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
 
-import { fetchCapabilities, fetchHealth, generateRun } from './api'
+import { fetchCapabilities, fetchHealth, generateRun, generateRunStream } from './api'
 import './App.css'
-import type { AudioClip, CapabilitiesResponse, GenerationRun, HealthResponse, Mode } from './types'
+import { StreamAudioPlayer } from './streamAudioPlayer'
+import type {
+  AudioClip,
+  CapabilitiesResponse,
+  GenerationRun,
+  HealthResponse,
+  Mode,
+  StreamRunEvent,
+  StreamSettings,
+} from './types'
 
 type StyleControls = {
   mood: string
@@ -56,6 +65,27 @@ type CloneFormState = {
     max_new_tokens: string
     seed: string
   }
+}
+
+type LiveSegmentState = {
+  segmentIndex: number
+  text: string
+  sampleRate: number
+  chunkCount: number
+  bufferedSeconds: number
+  status: 'queued' | 'streaming' | 'complete'
+  clip?: AudioClip
+}
+
+type LiveStreamState = {
+  status: 'idle' | 'streaming' | 'complete' | 'error'
+  mode: Mode | null
+  run: GenerationRun | null
+  segments: LiveSegmentState[]
+  chunksReceived: number
+  bufferedSeconds: number
+  playbackStarted: boolean
+  message: string
 }
 
 const MOOD_OPTIONS = [
@@ -191,6 +221,19 @@ function makeStyleControls(): StyleControls {
   }
 }
 
+function makeLiveStreamState(): LiveStreamState {
+  return {
+    status: 'idle',
+    mode: null,
+    run: null,
+    segments: [],
+    chunksReceived: 0,
+    bufferedSeconds: 0,
+    playbackStarted: false,
+    message: '',
+  }
+}
+
 function compactGenerationSettings(values: Record<string, string>) {
   return Object.entries(values).reduce<Record<string, number>>((accumulator, [key, value]) => {
     if (!value.trim()) {
@@ -308,6 +351,13 @@ function App() {
       seed: '',
     },
   })
+  const [streamSettings, setStreamSettings] = useState<StreamSettings>({
+    enabled: false,
+    autoplay: true,
+    streamingInterval: '0.32',
+  })
+  const [liveStream, setLiveStream] = useState<LiveStreamState>(makeLiveStreamState())
+  const playerRef = useRef<StreamAudioPlayer | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -364,6 +414,13 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    return () => {
+      void playerRef.current?.stop()
+      playerRef.current = null
+    }
+  }, [])
+
   const activeRun = runs.find((run) => run.run_id === activeRunId) ?? runs[0] ?? null
   const modeMeta = capabilities?.modes.find((item) => item.id === mode)
 
@@ -400,6 +457,28 @@ function App() {
     )
   }
 
+  function getStreamingInterval() {
+    const parsed = Number(streamSettings.streamingInterval)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0.32
+  }
+
+  async function stopLivePlayback() {
+    if (playerRef.current) {
+      await playerRef.current.stop()
+      playerRef.current = null
+    }
+    setLiveStream((current) => ({ ...current, playbackStarted: false }))
+  }
+
+  async function startLivePlayback() {
+    if (!playerRef.current) {
+      playerRef.current = new StreamAudioPlayer()
+    }
+
+    await playerRef.current.start()
+    setLiveStream((current) => ({ ...current, playbackStarted: true }))
+  }
+
   async function refreshHealth() {
     try {
       setHealth(await fetchHealth())
@@ -408,11 +487,186 @@ function App() {
     }
   }
 
+  async function handleStreamGenerate() {
+    const streamingInterval = getStreamingInterval()
+    await stopLivePlayback()
+    playerRef.current = new StreamAudioPlayer()
+
+    setLiveStream({
+      status: 'streaming',
+      mode,
+      run: null,
+      segments: [],
+      chunksReceived: 0,
+      bufferedSeconds: 0,
+      playbackStarted: false,
+      message: 'Waiting for the first audio chunk…',
+    })
+
+    const autoplay = streamSettings.autoplay
+    let completedRun: GenerationRun | null = null
+
+    if (autoplay) {
+      await startLivePlayback()
+      setLiveStream((current) => ({
+        ...current,
+        message: 'Opening the audio output and buffering the first live chunks…',
+      }))
+    }
+
+    const applyEvent = async (event: StreamRunEvent) => {
+      if (event.type === 'run_start') {
+        setLiveStream((current) => ({
+          ...current,
+          run: event.run,
+          message: 'Generating live audio…',
+        }))
+        return
+      }
+
+      if (event.type === 'segment_start') {
+        setLiveStream((current) => ({
+          ...current,
+          segments: [
+            ...current.segments,
+            {
+              segmentIndex: event.segment_index,
+              text: event.text,
+              sampleRate: event.sample_rate,
+              chunkCount: 0,
+              bufferedSeconds: 0,
+              status: 'streaming',
+            },
+          ],
+          message: `Streaming segment ${event.segment_index + 1}…`,
+        }))
+        return
+      }
+
+      if (event.type === 'audio_chunk') {
+        if (!playerRef.current) {
+          playerRef.current = new StreamAudioPlayer()
+        }
+
+        await playerRef.current.enqueueBase64Pcm16(event.pcm16_base64, event.sample_rate, {
+          autoplay,
+          forceStart: event.is_final_chunk,
+        })
+
+        setLiveStream((current) => ({
+          ...current,
+          chunksReceived: current.chunksReceived + 1,
+          bufferedSeconds: Number((current.bufferedSeconds + event.duration_seconds).toFixed(2)),
+          playbackStarted: current.playbackStarted || autoplay,
+          segments: current.segments.map((segment) =>
+            segment.segmentIndex === event.segment_index
+              ? {
+                  ...segment,
+                  chunkCount: segment.chunkCount + 1,
+                  bufferedSeconds: Number(
+                    (segment.bufferedSeconds + event.duration_seconds).toFixed(2),
+                  ),
+                  sampleRate: event.sample_rate,
+                  status: event.is_final_chunk ? 'complete' : 'streaming',
+                }
+              : segment,
+          ),
+        }))
+        return
+      }
+
+      if (event.type === 'segment_complete') {
+        setLiveStream((current) => ({
+          ...current,
+          segments: current.segments.map((segment) =>
+            segment.segmentIndex === event.segment_index
+              ? {
+                  ...segment,
+                  status: 'complete',
+                  clip: event.clip,
+                }
+              : segment,
+          ),
+          message: `Segment ${event.segment_index + 1} ready.`,
+        }))
+        return
+      }
+
+      if (event.type === 'run_complete') {
+        completedRun = event.run
+        startTransition(() => {
+          setRuns((current) => [event.run, ...current])
+          setActiveRunId(event.run.run_id)
+        })
+        setLiveStream((current) => ({
+          ...current,
+          status: 'complete',
+          run: event.run,
+          message: 'Live stream finished. Full clip saved to run history.',
+        }))
+        return
+      }
+
+      if (event.type === 'error') {
+        throw new Error(event.detail)
+      }
+    }
+
+    if (mode === 'custom') {
+      for await (const event of generateRunStream('custom', {
+        segments: customForm.segments.map((segment) => segment.text),
+        language: customForm.language,
+        speaker: customForm.speaker,
+        instruct: composeInstruction(customForm.instruct, customForm.style, 'custom'),
+        streaming_interval: streamingInterval,
+        generation: compactGenerationSettings(customForm.generation),
+      })) {
+        await applyEvent(event)
+      }
+    } else if (mode === 'design') {
+      for await (const event of generateRunStream('design', {
+        segments: designForm.segments.map((segment) => segment.text),
+        language: designForm.language,
+        instruct: composeInstruction(designForm.instruct, designForm.style, 'design'),
+        streaming_interval: streamingInterval,
+        generation: compactGenerationSettings(designForm.generation),
+      })) {
+        await applyEvent(event)
+      }
+    } else {
+      if (!cloneForm.referenceFile) {
+        throw new Error('Add a reference clip before running voice clone.')
+      }
+
+      const payload = new FormData()
+      payload.append('segments', JSON.stringify(cloneForm.segments.map((segment) => segment.text)))
+      payload.append('language', cloneForm.language)
+      payload.append('ref_text', cloneForm.refText)
+      payload.append('x_vector_only_mode', String(cloneForm.xVectorOnlyMode))
+      payload.append('generation', JSON.stringify(compactGenerationSettings(cloneForm.generation)))
+      payload.append('streaming_interval', String(streamingInterval))
+      payload.append('ref_audio', cloneForm.referenceFile)
+
+      for await (const event of generateRunStream('clone', payload)) {
+        await applyEvent(event)
+      }
+    }
+
+    if (completedRun) {
+      await refreshHealth()
+    }
+  }
+
   async function handleGenerate() {
     setError(null)
     setPending(true)
 
     try {
+      if (streamSettings.enabled) {
+        await handleStreamGenerate()
+        return
+      }
+
       let run: GenerationRun
 
       if (mode === 'custom') {
@@ -631,6 +885,132 @@ function App() {
         </div>
 
         <p className="style-preview">{stylePreview}</p>
+      </section>
+    )
+  }
+
+  function renderStreamControls() {
+    return (
+      <section className="stream-panel">
+        <div className="style-panel-head">
+          <div>
+            <p className="mode-label">Realtime streaming</p>
+            <p className="style-panel-copy">
+              Start playback from buffered chunks while Qwen is still generating the rest.
+            </p>
+          </div>
+        </div>
+
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={streamSettings.enabled}
+            onChange={(event) =>
+              setStreamSettings((current) => ({ ...current, enabled: event.target.checked }))
+            }
+          />
+          <span>Enable live audio streaming</span>
+        </label>
+
+        {streamSettings.enabled ? (
+          <div className="style-grid">
+            <label className="field">
+              <span className="field-label">Chunk interval (seconds)</span>
+              <input
+                className="text-input"
+                inputMode="decimal"
+                value={streamSettings.streamingInterval}
+                onChange={(event) =>
+                  setStreamSettings((current) => ({
+                    ...current,
+                    streamingInterval: event.target.value,
+                  }))
+                }
+                placeholder="0.32"
+              />
+            </label>
+
+            <label className="toggle stream-toggle">
+              <input
+                type="checkbox"
+                checked={streamSettings.autoplay}
+                onChange={(event) =>
+                  setStreamSettings((current) => ({ ...current, autoplay: event.target.checked }))
+                }
+              />
+              <span>Autoplay when buffer is ready</span>
+            </label>
+          </div>
+        ) : null}
+      </section>
+    )
+  }
+
+  function renderLiveStream() {
+    if (liveStream.status === 'idle') {
+      return null
+    }
+
+    return (
+      <section className="live-stream-card">
+        <div className="live-stream-head">
+          <div>
+            <p className="eyebrow">Live stream</p>
+            <p className="run-title">
+              {liveStream.mode ? `${liveStream.mode} stream` : 'Streaming generation'}
+            </p>
+            <p className="clip-copy">{liveStream.message}</p>
+          </div>
+          <div className="live-stream-actions">
+            {!streamSettings.autoplay && liveStream.status === 'streaming' ? (
+              <button className="ghost-button" type="button" onClick={() => void startLivePlayback()}>
+                {liveStream.playbackStarted ? 'Playback running' : 'Start playback'}
+              </button>
+            ) : null}
+            {liveStream.playbackStarted ? (
+              <button className="ghost-button" type="button" onClick={() => void stopLivePlayback()}>
+                Stop playback
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <dl className="clip-meta">
+          <div>
+            <dt>Status</dt>
+            <dd>{liveStream.status}</dd>
+          </div>
+          <div>
+            <dt>Chunks</dt>
+            <dd>{liveStream.chunksReceived}</dd>
+          </div>
+          <div>
+            <dt>Buffered</dt>
+            <dd>{liveStream.bufferedSeconds}s</dd>
+          </div>
+          <div>
+            <dt>Playback</dt>
+            <dd>{liveStream.playbackStarted ? 'active' : 'waiting'}</dd>
+          </div>
+        </dl>
+
+        <div className="live-segments">
+          {liveStream.segments.map((segment) => (
+            <article className="history-item live-segment" key={`live-${segment.segmentIndex}`}>
+              <span>
+                Segment {segment.segmentIndex + 1} · {segment.status}
+              </span>
+              <span>{segment.chunkCount} chunks</span>
+              <span>{segment.bufferedSeconds}s received</span>
+              <p className="clip-copy">{segment.text}</p>
+              {segment.clip ? (
+                <a className="ghost-button" href={segment.clip.audio_url} download={segment.clip.file_name}>
+                  Download segment
+                </a>
+              ) : null}
+            </article>
+          ))}
+        </div>
       </section>
     )
   }
@@ -904,6 +1284,8 @@ function App() {
               )}
             </>
           ) : null}
+
+          {renderStreamControls()}
         </div>
 
         <div className="controls-footer">
@@ -911,7 +1293,7 @@ function App() {
             Add segment
           </button>
           <button className="primary-button" type="button" onClick={handleGenerate} disabled={pending}>
-            {pending ? 'Generating…' : 'Generate audio'}
+            {pending ? 'Generating…' : streamSettings.enabled ? 'Start live stream' : 'Generate audio'}
           </button>
         </div>
 
@@ -927,12 +1309,14 @@ function App() {
           <p className="results-count">{runs.length} runs in memory</p>
         </header>
 
-        {runs.length === 0 ? (
+        {renderLiveStream()}
+
+        {runs.length === 0 && liveStream.status === 'idle' ? (
           <div className="empty-state">
             <p>No generations yet.</p>
             <p>Submit a run from the left panel to compare output quality here.</p>
           </div>
-        ) : (
+        ) : runs.length > 0 ? (
           <>
             <div className="history-list">
               {runs.map((run) => (
@@ -964,7 +1348,7 @@ function App() {
               </section>
             ) : null}
           </>
-        )}
+        ) : null}
       </section>
     </main>
   )

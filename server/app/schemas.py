@@ -23,6 +23,7 @@ class GenerationSettings(BaseModel):
 class BaseGenerationRequest(BaseModel):
     segments: list[str] = Field(min_length=1)
     language: str = "Auto"
+    streaming_interval: float = Field(default=0.32, ge=0.08, le=5.0)
     generation: GenerationSettings = Field(default_factory=GenerationSettings)
 
     @field_validator("segments")
@@ -118,4 +119,3 @@ class GenerationRunResponse(BaseModel):
     device: str
     created_at: datetime
     clips: list[AudioClipResponse]
-

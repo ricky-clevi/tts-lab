@@ -152,6 +152,16 @@
   gap: 0.85rem;
 }
 
+.stream-panel {
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(255, 252, 247, 0.88);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
 .style-panel-head {
   display: flex;
   justify-content: space-between;
@@ -182,6 +192,15 @@
   padding: 0.8rem 0.9rem;
   color: var(--muted);
   line-height: 1.55;
+}
+
+.stream-toggle {
+  align-self: end;
+  min-height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  padding: 0.85rem 0.95rem;
+  background: rgba(107, 122, 84, 0.06);
 }
 
 .field,
@@ -322,6 +341,40 @@
   gap: 1rem;
 }
 
+.live-stream-card {
+  border: 1px solid var(--line);
+  background: rgba(255, 253, 249, 0.92);
+  border-radius: 1rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.live-stream-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.live-stream-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: end;
+}
+
+.live-segments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.live-segment {
+  border-radius: 1rem;
+}
+
 .empty-state {
   padding: 1.4rem;
   color: var(--muted);
@@ -376,9 +429,19 @@
   .results-header,
   .status-strip,
   .run-meta,
-  .clip-head {
+  .clip-head,
+  .live-stream-head {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .style-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stream-toggle,
+  .style-grid-full {
+    grid-column: auto;
   }
 }
 
