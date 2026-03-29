@@ -1,0 +1,18 @@
+{
+  "name": "qwen3-tts-lab",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "npm --prefix web run build",
+    "dev": "concurrently -k -n server,web -c blue,green \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "./.venv312/bin/python -m uvicorn server.app.main:app --reload --host 127.0.0.1 --port 8001",
+    "dev:web": "npm --prefix web run dev -- --host 127.0.0.1 --port 5173",
+    "test": "npm run test:server && npm run test:web",
+    "test:server": "./.venv312/bin/python -m pytest tests/server",
+    "test:web": "npm --prefix web run test -- --run"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
+

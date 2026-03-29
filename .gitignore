@@ -1,0 +1,12 @@
+.DS_Store
+.venv/
+.venv*/
+.uv-venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+node_modules/
+dist/
+web/dist/
+server/generated/
