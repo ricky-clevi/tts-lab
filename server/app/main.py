@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -35,6 +36,8 @@ from .schemas import (
     ProviderTestResponse,
 )
 from .storage import AudioStorage, VoiceProfileStorage
+
+logger = logging.getLogger(__name__)
 
 
 def parse_json_field(name: str, raw_value: str | None, default: object | None = None) -> object:
@@ -468,6 +471,9 @@ def create_app(
                 yield stream_line({"type": "error", "detail": str(exc)})
             except RuntimeError as exc:
                 yield stream_line({"type": "error", "detail": str(exc)})
+            except Exception as exc:
+                logger.exception("Unhandled streaming generation error for mode=%s run_id=%s", mode, run_id)
+                yield stream_line({"type": "error", "detail": str(exc)})
 
         return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
@@ -761,8 +767,17 @@ def create_app(
                     await session.send({"type": "error", "detail": f"Unknown event '{event_type}'."})
         except WebSocketDisconnect:
             pass
+        except Exception as exc:
+            logger.exception("Unhandled conversation websocket error")
+            try:
+                await session.send({"type": "error", "detail": str(exc)})
+            except Exception:
+                pass
         finally:
-            await session.close()
+            try:
+                await session.close()
+            except Exception:
+                logger.exception("Conversation session cleanup failed")
 
     @app.get("/api/audio/{audio_id}")
     def get_audio(audio_id: str) -> FileResponse:

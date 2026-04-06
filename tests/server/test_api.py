@@ -197,6 +197,12 @@ class FakeAsrManager:
         )
 
 
+class ExplodingAsrManager(FakeAsrManager):
+    def transcribe_array(self, *, audio: np.ndarray, source_rate: int, model_id: str, language: str | None):
+        del audio, source_rate, model_id, language
+        raise RuntimeError("The ASR model failed to transcribe the buffered audio.")
+
+
 class FakeProviderService:
     async def test_provider(self, provider, config):
         if config.model == "bad-model":
@@ -615,6 +621,44 @@ def test_conversation_turn_commit_does_not_drop_socket_when_cancelling_speech(cl
                 break
 
         assert any(event_type in {"llm.status", "asr.final", "error"} for event_type in observed_types)
+
+
+def test_conversation_turn_commit_returns_error_without_disconnect_on_asr_failure(tmp_path: Path):
+    settings_store = ChatSettingsStore(tmp_path / "settings" / "chat.json")
+    initial_settings = settings_store.default_settings()
+    initial_settings.openai_compatible.api_key = "sk-saved-provider"
+    initial_settings.openai_compatible.model = "gpt-saved"
+    settings_store.save(initial_settings)
+    app = create_app(
+        tts_manager=FakeTtsManager(),
+        asr_manager=ExplodingAsrManager(),
+        audio_storage=AudioStorage(tmp_path / "audio"),
+        settings_store=settings_store,
+        provider_service=FakeProviderService(),
+    )
+
+    pcm16 = base64.b64encode((np.zeros(1600, dtype=np.int16)).tobytes()).decode("ascii")
+
+    with TestClient(app) as test_client:
+        with test_client.websocket_connect("/api/conversation/ws") as websocket:
+            assert websocket.receive_json()["type"] == "session.ready"
+            websocket.send_json(
+                {
+                    "type": "audio.append",
+                    "pcm16_base64": pcm16,
+                    "sample_rate": 16000,
+                }
+            )
+            websocket.send_json({"type": "turn.commit"})
+
+            assert websocket.receive_json() == {"type": "llm.status", "phase": "transcribing"}
+            error_event = websocket.receive_json()
+            assert error_event["type"] == "error"
+            assert error_event["detail"] == "The ASR model failed to transcribe the buffered audio."
+            assert websocket.receive_json() == {"type": "llm.status", "phase": "listening"}
+
+            websocket.send_json({"type": "session.configure", "settings": settings_store.redact(initial_settings).model_dump(mode="json")})
+            assert websocket.receive_json()["type"] == "session.ready"
 
 
 def test_conversation_can_speak_with_cloned_reply_voice(client, tmp_path: Path):

@@ -36,6 +36,12 @@ Start both services:
 npm run dev
 ```
 
+For a backend code watcher during development, use:
+
+```bash
+npm run dev:server:watch
+```
+
 That runs:
 
 - FastAPI on `http://127.0.0.1:8001`
@@ -68,4 +74,5 @@ npm run test:web
 - Voice Chat uses local Qwen ASR for transcription, your configured LLM provider for text generation, and local Qwen TTS for streamed reply speech.
 - Provider settings support OpenAI-compatible base URLs plus native Gemini and Anthropic tabs.
 - Only one heavy TTS checkpoint is kept in memory at a time. ASR is managed independently so transcription and speech playback can coexist in one session.
+- `npm run dev` starts the backend without Uvicorn reload so generated audio/settings files do not restart the Python process during testing.
 - Voice clone accepts a reference clip upload plus transcript, with an `xVectorOnlyMode` shortcut if you want to skip the transcript at lower quality.

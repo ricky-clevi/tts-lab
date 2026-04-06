@@ -179,13 +179,18 @@ class ConversationSession:
         self.last_partial_buffer_seconds = 0.0
         await self.send({"type": "llm.status", "phase": "transcribing"})
 
-        result = await asyncio.to_thread(
-            self.asr_manager.transcribe_array,
-            audio=snapshot,
-            source_rate=self.audio_sample_rate,
-            model_id=self.settings.defaults.asr_model,
-            language=self.settings.defaults.asr_language,
-        )
+        try:
+            result = await asyncio.to_thread(
+                self.asr_manager.transcribe_array,
+                audio=snapshot,
+                source_rate=self.audio_sample_rate,
+                model_id=self.settings.defaults.asr_model,
+                language=self.settings.defaults.asr_language,
+            )
+        except Exception as exc:
+            await self.send({"type": "error", "detail": str(exc)})
+            await self.send({"type": "llm.status", "phase": "listening"})
+            return
         if not result.text:
             await self.send({"type": "error", "detail": "The ASR model returned no transcript."})
             await self.send({"type": "llm.status", "phase": "listening"})

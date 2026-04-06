@@ -1,4 +1,5 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 
 import { AudioCapture } from './audioCapture'
 import {
@@ -29,7 +30,6 @@ import type {
   HealthResponse,
   Mode,
   ProviderId,
-  ProviderTestResponse,
   StreamRunEvent,
   StreamSettings,
   Workspace,
@@ -166,6 +166,16 @@ type ReplyVoiceCloneDraft = {
   pending: boolean
   preparedProfile: CloneVoiceProfileResponse | null
 }
+
+type ToastTone = 'success' | 'error'
+
+type Toast = {
+  id: string
+  tone: ToastTone
+  message: string
+}
+
+type SettingsSectionId = 'provider' | 'conversation' | 'asr' | 'replyVoice'
 
 const MOOD_OPTIONS = [
   { id: 'neutral', label: 'Neutral', prompt: 'Keep the emotional tone neutral, composed, and matter-of-fact.' },
@@ -437,12 +447,6 @@ function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [chatSettings, setChatSettings] = useState<ChatSettingsForm>(emptyChatSettings())
   const [providerTab, setProviderTab] = useState<ProviderId>('openai_compatible')
-  const [providerTest, setProviderTest] = useState<Record<ProviderId, ProviderTestResponse | null>>({
-    openai_compatible: null,
-    gemini: null,
-    anthropic: null,
-  })
-  const [settingsNotice, setSettingsNotice] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('custom')
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(false)
@@ -492,14 +496,24 @@ function App() {
     pending: false,
     preparedProfile: null,
   })
-  const [conversationNotice, setConversationNotice] = useState<string | null>(null)
   const [micActive, setMicActive] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(430)
+  const [collapsedSections, setCollapsedSections] = useState<Record<SettingsSectionId, boolean>>({
+    provider: false,
+    conversation: false,
+    asr: false,
+    replyVoice: false,
+  })
+  const [toasts, setToasts] = useState<Toast[]>([])
 
+  const shellRef = useRef<HTMLElement | null>(null)
   const playerRef = useRef<StreamAudioPlayer | null>(null)
   const chatPlayerRef = useRef<StreamAudioPlayer | null>(null)
   const captureRef = useRef<AudioCapture | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
   const socketPromiseRef = useRef<Promise<WebSocket> | null>(null)
+  const toastTimeoutsRef = useRef<Map<string, number>>(new Map())
+  const sessionReadySeenRef = useRef(false)
   const listeningEnabledRef = useRef(false)
   const speechDetectedRef = useRef(false)
   const silenceStartedAtRef = useRef<number | null>(null)
@@ -571,6 +585,10 @@ function App() {
       void chatPlayerRef.current?.stop()
       void captureRef.current?.stop()
       socketRef.current?.close()
+      for (const timeoutId of toastTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId)
+      }
+      toastTimeoutsRef.current.clear()
     }
   }, [])
 
@@ -617,6 +635,64 @@ function App() {
     }
     return chatSettings.anthropic
   }, [chatSettings, providerTab])
+
+  const shellStyle = useMemo(
+    () => ({ '--sidebar-width': `${sidebarWidth}px` }) as CSSProperties,
+    [sidebarWidth],
+  )
+
+  function dismissToast(toastId: string) {
+    const timeoutId = toastTimeoutsRef.current.get(toastId)
+    if (timeoutId) {
+      window.clearTimeout(timeoutId)
+      toastTimeoutsRef.current.delete(toastId)
+    }
+    setToasts((current) => current.filter((toast) => toast.id !== toastId))
+  }
+
+  function pushToast(tone: ToastTone, message: string) {
+    const id = makeId()
+    setToasts((current) => [...current, { id, tone, message }])
+    const timeoutId = window.setTimeout(() => {
+      toastTimeoutsRef.current.delete(id)
+      setToasts((current) => current.filter((toast) => toast.id !== id))
+    }, 4200)
+    toastTimeoutsRef.current.set(id, timeoutId)
+  }
+
+  function toggleSection(sectionId: SettingsSectionId) {
+    setCollapsedSections((current) => ({ ...current, [sectionId]: !current[sectionId] }))
+  }
+
+  function startSidebarResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (window.innerWidth <= 1180) {
+      return
+    }
+    event.preventDefault()
+    const shellBounds = shellRef.current?.getBoundingClientRect()
+    if (!shellBounds) {
+      return
+    }
+
+    const minWidth = 360
+    const maxWidth = Math.max(minWidth, Math.min(760, shellBounds.width - 520))
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const proposedWidth = moveEvent.clientX - shellBounds.left - 4
+      const nextWidth = Math.max(minWidth, Math.min(maxWidth, proposedWidth))
+      setSidebarWidth(nextWidth)
+    }
+
+    const handleUp = () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+      document.body.classList.remove('is-resizing')
+    }
+
+    document.body.classList.add('is-resizing')
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp, { once: true })
+  }
 
   function updateSegments(targetMode: Mode, updater: (segments: Segment[]) => Segment[]) {
     if (targetMode === 'custom') {
@@ -755,10 +831,12 @@ function App() {
         }
         socketRef.current = null
         socketPromiseRef.current = null
+        sessionReadySeenRef.current = false
         if (event.code !== 1000) {
           void captureRef.current?.stop()
           captureRef.current = null
-          setConversationNotice(
+          pushToast(
+            'error',
             event.code === 1006
               ? 'The conversation socket dropped unexpectedly. Refresh the page and try again.'
               : `The conversation socket closed unexpectedly (code ${event.code}).`,
@@ -784,7 +862,10 @@ function App() {
       const mappedSettings = mapSettingsResponseToForm(event.settings)
       setChatSettings(mappedSettings)
       setProviderTab(mappedSettings.defaults.activeProvider)
-      setConversationNotice('Voice chat connected.')
+      if (!sessionReadySeenRef.current) {
+        sessionReadySeenRef.current = true
+        pushToast('success', 'Voice chat connected.')
+      }
       return
     }
 
@@ -835,7 +916,7 @@ function App() {
     }
 
     if (event.type === 'error') {
-      setConversationNotice(event.detail)
+      pushToast('error', event.detail)
     }
   }
 
@@ -1042,14 +1123,13 @@ function App() {
   }
 
   async function handleSaveSettings() {
-    setSettingsNotice(null)
     setError(null)
     try {
       const saved = await saveChatSettings(serializeSettings(chatSettings))
       const mappedSettings = mapSettingsResponseToForm(saved)
       setChatSettings(mappedSettings)
       setProviderTab(mappedSettings.defaults.activeProvider)
-      setSettingsNotice('Settings saved on the local server.')
+      pushToast('success', 'Settings saved on the local server.')
       const socket = socketRef.current
       if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'session.configure', settings: serializeSettings(mappedSettings) }))
@@ -1060,7 +1140,6 @@ function App() {
   }
 
   async function handleProviderTest() {
-    setSettingsNotice(null)
     try {
       const draft =
         providerTab === 'openai_compatible'
@@ -1074,31 +1153,19 @@ function App() {
         model: draft.model,
         api_mode: providerTab === 'openai_compatible' ? draft.apiMode ?? null : null,
       } as never)
-      setProviderTest((current) => ({ ...current, [providerTab]: result }))
       if (result.success && providerTab === 'openai_compatible' && result.api_mode) {
         setChatSettings((current) => ({
           ...current,
           openaiCompatible: { ...current.openaiCompatible, apiMode: result.api_mode },
         }))
       }
+      pushToast(result.success ? 'success' : 'error', result.success ? `Connection OK in ${result.latency_ms ?? 0} ms.` : result.error ?? 'Provider test failed.')
     } catch (testError) {
-      setProviderTest((current) => ({
-        ...current,
-        [providerTab]: {
-          success: false,
-          provider: providerTab,
-          resolved_model: null,
-          latency_ms: null,
-          streaming_supported: false,
-          api_mode: null,
-          error: testError instanceof Error ? testError.message : 'Provider test failed.',
-        },
-      }))
+      pushToast('error', testError instanceof Error ? testError.message : 'Provider test failed.')
     }
   }
 
   async function startConversation() {
-    setConversationNotice(null)
     try {
       const socket = await ensureConversationSocket()
       if (micActive) {
@@ -1165,7 +1232,8 @@ function App() {
       captureRef.current = null
       setMicActive(false)
       setConversationStatus('idle')
-      setConversationNotice(
+      pushToast(
+        'error',
         conversationError instanceof Error ? conversationError.message : 'Unable to start the microphone.',
       )
     }
@@ -1209,13 +1277,13 @@ function App() {
       setConversationStatus('thinking')
       socket.send(JSON.stringify({ type: 'text.submit', text: cleaned }))
     } catch (submitError) {
-      setConversationNotice(submitError instanceof Error ? submitError.message : 'Unable to send the message.')
+      pushToast('error', submitError instanceof Error ? submitError.message : 'Unable to send the message.')
     }
   }
 
   async function handleFileTranscription() {
     if (!fileUpload) {
-      setConversationNotice('Choose an audio file before transcribing.')
+      pushToast('error', 'Choose an audio file before transcribing.')
       return
     }
     try {
@@ -1226,11 +1294,13 @@ function App() {
         sendToChat: fileSendToChat,
       })
       setFileTranscript(transcript)
+      pushToast('success', 'Transcription finished.')
       if (fileSendToChat && transcript.text) {
         await sendTypedMessage(transcript.text)
       }
     } catch (transcriptionError) {
-      setConversationNotice(
+      pushToast(
+        'error',
         transcriptionError instanceof Error ? transcriptionError.message : 'Unable to transcribe the file.',
       )
     }
@@ -1238,11 +1308,10 @@ function App() {
 
   async function handlePrepareReplyVoiceClone() {
     if (!replyVoiceCloneDraft.file) {
-      setConversationNotice('Choose a reference voice clip before preparing the cloned reply voice.')
+      pushToast('error', 'Choose a reference voice clip before preparing the cloned reply voice.')
       return
     }
 
-    setConversationNotice(null)
     setReplyVoiceCloneDraft((current) => ({ ...current, pending: true }))
     try {
       const profile = await createReplyVoiceCloneProfile({
@@ -1274,10 +1343,11 @@ function App() {
           },
         },
       }))
-      setConversationNotice(`Prepared cloned reply voice: ${profile.label}.`)
+      pushToast('success', `Prepared cloned reply voice: ${profile.label}.`)
     } catch (cloneError) {
       setReplyVoiceCloneDraft((current) => ({ ...current, pending: false }))
-      setConversationNotice(
+      pushToast(
+        'error',
         cloneError instanceof Error ? cloneError.message : 'Unable to prepare the cloned reply voice.',
       )
     }
@@ -1410,6 +1480,36 @@ function App() {
               />
               <span>Autoplay when buffer is ready</span>
             </label>
+          </div>
+        ) : null}
+      </section>
+    )
+  }
+
+  function renderSettingsSection(
+    sectionId: SettingsSectionId,
+    title: string,
+    children: ReactNode,
+    copy?: string,
+  ) {
+    const collapsed = collapsedSections[sectionId]
+    return (
+      <section className={`settings-section ${collapsed ? 'settings-section-collapsed' : ''}`}>
+        <button
+          className="settings-section-toggle"
+          type="button"
+          onClick={() => toggleSection(sectionId)}
+          aria-expanded={!collapsed}
+        >
+          <span className="settings-section-title">{title}</span>
+          <span className="settings-section-icon" aria-hidden="true">
+            {collapsed ? '+' : '−'}
+          </span>
+        </button>
+        {!collapsed ? (
+          <div className="settings-section-body">
+            {copy ? <p className="section-copy">{copy}</p> : null}
+            {children}
           </div>
         ) : null}
       </section>
@@ -1618,10 +1718,8 @@ function App() {
   }
 
   function renderProviderPanel() {
-    const testResult = providerTest[providerTab]
     return (
-      <section className="mode-summary">
-        <p className="mode-label">Provider</p>
+      <>
         <div className="provider-tabs">
           {(['openai_compatible', 'gemini', 'anthropic'] as ProviderId[]).map((provider) => (
             <button
@@ -1640,7 +1738,7 @@ function App() {
             </button>
           ))}
         </div>
-        <div className="field-stack">
+        <div className="responsive-field-grid">
           <label className="field">
             <span className="field-label">Base URL</span>
             <input
@@ -1677,7 +1775,6 @@ function App() {
         {providerTab === 'openai_compatible' && currentProviderConfig.apiMode ? (
           <p className="hint">Detected API mode: {currentProviderConfig.apiMode}</p>
         ) : null}
-        {testResult ? <p className={testResult.success ? 'hint' : 'error-banner'}>{testResult.success ? `Connection OK in ${testResult.latency_ms ?? 0} ms.` : testResult.error}</p> : null}
         <div className="controls-footer">
           <button className="ghost-button" type="button" onClick={() => void handleProviderTest()}>
             Test connection
@@ -1686,7 +1783,7 @@ function App() {
             Save settings
           </button>
         </div>
-      </section>
+      </>
     )
   }
 
@@ -1710,9 +1807,16 @@ function App() {
             Voice Chat
           </button>
         </div>
-        {renderProviderPanel()}
-        <section className="mode-summary">
-          <p className="mode-label">Conversation</p>
+        {renderSettingsSection(
+          'provider',
+          'Provider',
+          renderProviderPanel(),
+          'Pick the active LLM connection and keep credentials local to this server.',
+        )}
+        {renderSettingsSection(
+          'conversation',
+          'Conversation',
+          <>
           <div className="field-stack">
             <label className="field">
               <span className="field-label">Active provider</span>
@@ -1740,9 +1844,13 @@ function App() {
             </label>
           </div>
           <p className="hint">Reply chunking: sentence-sized speech streaming.</p>
-        </section>
-        <section className="mode-summary">
-          <p className="mode-label">ASR</p>
+          </>,
+          'Define how the assistant reasons and how long each reply can run.',
+        )}
+        {renderSettingsSection(
+          'asr',
+          'ASR',
+          <>
           <div className="advanced-grid">
             <label className="field">
               <span className="field-label">Model</span>
@@ -1791,9 +1899,13 @@ function App() {
             </button>
             {fileTranscript ? <p className="style-preview">{fileTranscript.text}</p> : null}
           </div>
-        </section>
-        <section className="mode-summary">
-          <p className="mode-label">Reply voice</p>
+          </>,
+          'Tune transcription behavior, turn timing, and file-based transcript import.',
+        )}
+        {renderSettingsSection(
+          'replyVoice',
+          'Reply voice',
+          <>
           <div className="advanced-grid">
             <label className="field">
               <span className="field-label">Voice mode</span>
@@ -1918,7 +2030,9 @@ function App() {
               {renderStyleControls(chatSettings.defaults.replyVoice.style, (key, value) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, style: { ...current.defaults.replyVoice.style, [key]: value } } } })), chatSettings.defaults.replyVoice.mode)}
             </>
           )}
-        </section>
+          </>,
+          'Choose whether the assistant speaks with a preset, designed, or cloned reply voice.',
+        )}
       </>
     )
   }
@@ -2030,8 +2144,6 @@ function App() {
           </div>
         </div>
         {liveCaption ? <div className="caption-strip">{liveCaption}</div> : null}
-        {conversationNotice ? <p className="error-banner">{conversationNotice}</p> : null}
-        {settingsNotice ? <p className="hint">{settingsNotice}</p> : null}
         <div className="chat-thread">
           {conversationMessages.length ? (
             conversationMessages.map((message) => (
@@ -2064,13 +2176,26 @@ function App() {
   }
 
   return (
-    <main className="shell">
+    <>
+      <main className="shell" ref={shellRef} style={shellStyle}>
       <section className="panel panel-controls">
         {workspace === 'tts' ? renderTtsControls() : renderVoiceChatControls()}
         {error ? <p className="error-banner">{error}</p> : null}
       </section>
+      <button className="shell-resizer" type="button" aria-label="Resize settings sidebar" onPointerDown={startSidebarResize} />
       <section className="panel panel-results">{workspace === 'tts' ? renderRunResults() : renderChatResults()}</section>
-    </main>
+      </main>
+      <div className="toast-stack" aria-live="polite" aria-atomic="true">
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`toast toast-${toast.tone}`} role="status">
+            <p className="toast-message">{toast.message}</p>
+            <button className="toast-dismiss" type="button" aria-label="Dismiss message" onClick={() => dismissToast(toast.id)}>
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+    </>
   )
 }
 

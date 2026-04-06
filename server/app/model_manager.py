@@ -41,6 +41,7 @@ from .schemas import (
 class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._inference_lock = threading.Lock()
         self._model: Any | None = None
         self.active_mode: Mode | None = None
         self.active_model_id: str | None = None
@@ -253,46 +254,48 @@ class TtsModelManager:
     def generate_custom(self, request: CustomGenerationRequest) -> tuple[list[Any], int]:
         self._validate_language(request.language)
         self._ensure_speaker(request.speaker)
-        model = self.ensure_mode("custom")
-        self._apply_seed(request.generation.seed)
-        language = self._normalize_language(request.language)
-        generation_kwargs = self._generation_kwargs(request.generation)
+        with self._inference_lock:
+            model = self.ensure_mode("custom")
+            self._apply_seed(request.generation.seed)
+            language = self._normalize_language(request.language)
+            generation_kwargs = self._generation_kwargs(request.generation)
 
-        wavs: list[np.ndarray] = []
-        sample_rate = int(model.sample_rate)
-        for segment in request.segments:
-            wav, sample_rate = self._collect_audio(
-                model.generate_custom_voice(
-                    text=segment,
-                    speaker=request.speaker,
-                    language=language,
-                    instruct=request.instruct,
-                    **generation_kwargs,
+            wavs: list[np.ndarray] = []
+            sample_rate = int(model.sample_rate)
+            for segment in request.segments:
+                wav, sample_rate = self._collect_audio(
+                    model.generate_custom_voice(
+                        text=segment,
+                        speaker=request.speaker,
+                        language=language,
+                        instruct=request.instruct,
+                        **generation_kwargs,
+                    )
                 )
-            )
-            wavs.append(wav)
-        return wavs, sample_rate
+                wavs.append(wav)
+            return wavs, sample_rate
 
     def generate_design(self, request: DesignGenerationRequest) -> tuple[list[Any], int]:
         self._validate_language(request.language)
-        model = self.ensure_mode("design")
-        self._apply_seed(request.generation.seed)
-        language = self._normalize_language(request.language)
-        generation_kwargs = self._generation_kwargs(request.generation)
+        with self._inference_lock:
+            model = self.ensure_mode("design")
+            self._apply_seed(request.generation.seed)
+            language = self._normalize_language(request.language)
+            generation_kwargs = self._generation_kwargs(request.generation)
 
-        wavs: list[np.ndarray] = []
-        sample_rate = int(model.sample_rate)
-        for segment in request.segments:
-            wav, sample_rate = self._collect_audio(
-                model.generate_voice_design(
-                    text=segment,
-                    language=language,
-                    instruct=request.instruct,
-                    **generation_kwargs,
+            wavs: list[np.ndarray] = []
+            sample_rate = int(model.sample_rate)
+            for segment in request.segments:
+                wav, sample_rate = self._collect_audio(
+                    model.generate_voice_design(
+                        text=segment,
+                        language=language,
+                        instruct=request.instruct,
+                        **generation_kwargs,
+                    )
                 )
-            )
-            wavs.append(wav)
-        return wavs, sample_rate
+                wavs.append(wav)
+            return wavs, sample_rate
 
     def generate_clone(
         self,
@@ -312,71 +315,80 @@ class TtsModelManager:
                 "Reference transcript is required unless x-vector only mode is enabled."
             )
 
-        model = self.ensure_mode("clone")
-        self._apply_seed(payload.generation.seed)
-        language = self._normalize_language(
-            self.resolve_clone_language(payload.language, payload.segments, ref_text)
-        )
-        generation_kwargs = self._generation_kwargs(payload.generation)
-
-        wavs: list[np.ndarray] = []
-        sample_rate = int(model.sample_rate)
-        for segment in payload.segments:
-            wav, sample_rate = self._collect_audio(
-                model.generate(
-                    text=segment,
-                    lang_code=language,
-                    ref_audio=ref_audio_path,
-                    ref_text=ref_text,
-                    **generation_kwargs,
-                )
+        with self._inference_lock:
+            model = self.ensure_mode("clone")
+            self._apply_seed(payload.generation.seed)
+            language = self._normalize_language(
+                self.resolve_clone_language(payload.language, payload.segments, ref_text)
             )
-            wavs.append(wav)
-        return wavs, sample_rate
+            generation_kwargs = self._generation_kwargs(payload.generation)
+
+            wavs: list[np.ndarray] = []
+            sample_rate = int(model.sample_rate)
+            for segment in payload.segments:
+                wav, sample_rate = self._collect_audio(
+                    model.generate(
+                        text=segment,
+                        lang_code=language,
+                        ref_audio=ref_audio_path,
+                        ref_text=ref_text,
+                        **generation_kwargs,
+                    )
+                )
+                wavs.append(wav)
+            return wavs, sample_rate
 
     def stream_custom(self, request: CustomGenerationRequest) -> Iterator[dict[str, Any]]:
         self._validate_language(request.language)
         self._ensure_speaker(request.speaker)
-        model = self.ensure_mode("custom")
-        self._apply_seed(request.generation.seed)
-        language = self._normalize_language(request.language)
-        generation_kwargs = self._stream_generation_kwargs(request)
-        sample_rate = int(model.sample_rate)
+        def iterator() -> Iterator[dict[str, Any]]:
+            with self._inference_lock:
+                model = self.ensure_mode("custom")
+                self._apply_seed(request.generation.seed)
+                language = self._normalize_language(request.language)
+                generation_kwargs = self._stream_generation_kwargs(request)
+                sample_rate = int(model.sample_rate)
 
-        for segment_index, segment in enumerate(request.segments):
-            yield from self._iter_stream_results(
-                model.generate_custom_voice(
-                    text=segment,
-                    speaker=request.speaker,
-                    language=language,
-                    instruct=request.instruct,
-                    **generation_kwargs,
-                ),
-                segment_index=segment_index,
-                text=segment,
-                sample_rate=sample_rate,
-            )
+                for segment_index, segment in enumerate(request.segments):
+                    yield from self._iter_stream_results(
+                        model.generate_custom_voice(
+                            text=segment,
+                            speaker=request.speaker,
+                            language=language,
+                            instruct=request.instruct,
+                            **generation_kwargs,
+                        ),
+                        segment_index=segment_index,
+                        text=segment,
+                        sample_rate=sample_rate,
+                    )
+
+        return iterator()
 
     def stream_design(self, request: DesignGenerationRequest) -> Iterator[dict[str, Any]]:
         self._validate_language(request.language)
-        model = self.ensure_mode("design")
-        self._apply_seed(request.generation.seed)
-        language = self._normalize_language(request.language)
-        generation_kwargs = self._stream_generation_kwargs(request)
-        sample_rate = int(model.sample_rate)
+        def iterator() -> Iterator[dict[str, Any]]:
+            with self._inference_lock:
+                model = self.ensure_mode("design")
+                self._apply_seed(request.generation.seed)
+                language = self._normalize_language(request.language)
+                generation_kwargs = self._stream_generation_kwargs(request)
+                sample_rate = int(model.sample_rate)
 
-        for segment_index, segment in enumerate(request.segments):
-            yield from self._iter_stream_results(
-                model.generate_voice_design(
-                    text=segment,
-                    language=language,
-                    instruct=request.instruct,
-                    **generation_kwargs,
-                ),
-                segment_index=segment_index,
-                text=segment,
-                sample_rate=sample_rate,
-            )
+                for segment_index, segment in enumerate(request.segments):
+                    yield from self._iter_stream_results(
+                        model.generate_voice_design(
+                            text=segment,
+                            language=language,
+                            instruct=request.instruct,
+                            **generation_kwargs,
+                        ),
+                        segment_index=segment_index,
+                        text=segment,
+                        sample_rate=sample_rate,
+                    )
+
+        return iterator()
 
     def stream_clone(
         self,
@@ -396,31 +408,35 @@ class TtsModelManager:
                 "Reference transcript is required unless x-vector only mode is enabled."
             )
 
-        model = self.ensure_mode("clone")
-        self._apply_seed(payload.generation.seed)
-        language = self._normalize_language(
-            self.resolve_clone_language(payload.language, payload.segments, ref_text)
-        )
-        generation_kwargs = self._generation_kwargs(payload.generation)
-        sample_rate = int(model.sample_rate)
-
-        for segment_index, segment in enumerate(payload.segments):
-            wav, sample_rate = self._collect_audio(
-                model.generate(
-                    text=segment,
-                    lang_code=language,
-                    ref_audio=ref_audio_path,
-                    ref_text=ref_text,
-                    **generation_kwargs,
+        def iterator() -> Iterator[dict[str, Any]]:
+            with self._inference_lock:
+                model = self.ensure_mode("clone")
+                self._apply_seed(payload.generation.seed)
+                language = self._normalize_language(
+                    self.resolve_clone_language(payload.language, payload.segments, ref_text)
                 )
-            )
-            yield from self._iter_chunked_audio(
-                wav,
-                sample_rate=sample_rate,
-                segment_index=segment_index,
-                text=segment,
-                streaming_interval=payload.streaming_interval,
-            )
+                generation_kwargs = self._generation_kwargs(payload.generation)
+                sample_rate = int(model.sample_rate)
+
+                for segment_index, segment in enumerate(payload.segments):
+                    wav, sample_rate = self._collect_audio(
+                        model.generate(
+                            text=segment,
+                            lang_code=language,
+                            ref_audio=ref_audio_path,
+                            ref_text=ref_text,
+                            **generation_kwargs,
+                        )
+                    )
+                    yield from self._iter_chunked_audio(
+                        wav,
+                        sample_rate=sample_rate,
+                        segment_index=segment_index,
+                        text=segment,
+                        streaming_interval=payload.streaming_interval,
+                    )
+
+        return iterator()
 
 
 class AsrModelManager:
@@ -509,9 +525,9 @@ class AsrModelManager:
         send_to_chat: bool = False,
     ) -> AsrTranscriptionResponse:
         normalized_language = self._normalize_language(language)
-        model = self.ensure_model(model_id)
         try:
             with self._inference_lock:
+                model = self.ensure_model(model_id)
                 result = model.generate(file_path, language=normalized_language)
         except Exception as exc:  # pragma: no cover - real runtime only
             raise RuntimeError("The ASR model failed to transcribe the uploaded audio.") from exc
@@ -544,10 +560,10 @@ class AsrModelManager:
         language: str | None,
     ) -> AsrTranscriptionResponse:
         normalized_language = self._normalize_language(language)
-        model = self.ensure_model(model_id)
         resampled = self._resample_audio(audio, source_rate, CONVERSATION_SAMPLE_RATE)
         try:
             with self._inference_lock:
+                model = self.ensure_model(model_id)
                 result = model.generate(resampled, language=normalized_language)
         except Exception as exc:  # pragma: no cover - real runtime only
             raise RuntimeError("The ASR model failed to transcribe the buffered audio.") from exc
