@@ -9,6 +9,7 @@ import wave
 
 import numpy as np
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from server.app.chat_store import ChatSettingsStore
@@ -23,7 +24,7 @@ from server.app.constants import (
     PROVIDER_CAPABILITIES,
     SPEAKERS,
 )
-from server.app.main import create_app, should_override_reference_text
+from server.app.main import create_app, prepare_audio_upload, should_override_reference_text
 from server.app.model_manager import TtsModelManager
 from server.app.schemas import (
     AsrCapabilityResponse,
@@ -297,6 +298,30 @@ def test_clone_reference_text_override_detects_target_text_pasted_as_reference()
     )
 
     assert should_override is True
+
+
+def test_prepare_audio_upload_transcodes_when_original_format_is_unsupported(tmp_path: Path, monkeypatch):
+    source = tmp_path / "sample.m4a"
+    source.write_bytes(b"fake-m4a")
+    converted = tmp_path / "sample.wav"
+    converted.write_bytes(make_wav_bytes())
+
+    calls: list[str] = []
+
+    def fake_validate(path: str):
+        calls.append(path)
+        if path.endswith(".m4a"):
+            raise HTTPException(status_code=400, detail="Invalid or unsupported audio file.")
+
+    monkeypatch.setattr("server.app.main.validate_audio_upload", fake_validate)
+    monkeypatch.setattr("server.app.main.transcode_audio_upload", lambda path: str(converted))
+
+    prepared_path, cleanup_paths = prepare_audio_upload(str(source))
+
+    assert prepared_path == str(converted)
+    assert cleanup_paths == [converted]
+    assert any(path.endswith(".m4a") for path in calls)
+    assert any(path.endswith(".wav") for path in calls)
 
 
 @pytest.fixture

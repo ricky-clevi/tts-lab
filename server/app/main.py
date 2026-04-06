@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import re
+import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -62,6 +64,78 @@ def validate_audio_upload(path: str) -> None:
             status_code=400,
             detail="Invalid or unsupported audio file.",
         ) from exc
+
+
+def transcode_audio_upload(path: str) -> str | None:
+    source = Path(path)
+    if source.suffix.lower() not in {".m4a", ".mp4", ".aac", ".mp3", ".webm", ".ogg"}:
+        return None
+
+    with NamedTemporaryFile(delete=False, suffix=".wav") as converted:
+        converted_path = converted.name
+
+    commands: list[list[str]] = []
+    ffmpeg_path = shutil.which("ffmpeg")
+    afconvert_path = shutil.which("afconvert")
+
+    if ffmpeg_path:
+        commands.append(
+            [
+                ffmpeg_path,
+                "-y",
+                "-i",
+                str(source),
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                "-ac",
+                "1",
+                converted_path,
+            ]
+        )
+    if afconvert_path:
+        commands.append(
+            [
+                afconvert_path,
+                "-f",
+                "WAVE",
+                "-d",
+                "LEI16",
+                str(source),
+                converted_path,
+            ]
+        )
+
+    for command in commands:
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return converted_path
+        except Exception:
+            continue
+
+    Path(converted_path).unlink(missing_ok=True)
+    return None
+
+
+def prepare_audio_upload(path: str) -> tuple[str, list[Path]]:
+    try:
+        validate_audio_upload(path)
+        return path, []
+    except HTTPException as original_exc:
+        converted_path = transcode_audio_upload(path)
+        if converted_path is None:
+            raise original_exc
+        try:
+            validate_audio_upload(converted_path)
+            return converted_path, [Path(converted_path)]
+        except HTTPException:
+            Path(converted_path).unlink(missing_ok=True)
+            raise original_exc
 
 
 def estimate_reference_audio_duration(path: str) -> float:
@@ -216,10 +290,11 @@ def create_app(
             temp_file.write(await audio.read())
             temp_path = temp_file.name
 
+        cleanup_paths: list[Path] = []
         try:
-            validate_audio_upload(temp_path)
+            prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
             return asr.transcribe_file(
-                file_path=temp_path,
+                file_path=prepared_path,
                 model_id=model_id,
                 language=language,
                 send_to_chat=send_to_chat,
@@ -230,6 +305,8 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
             Path(temp_path).unlink(missing_ok=True)
+            for cleanup_path in cleanup_paths:
+                cleanup_path.unlink(missing_ok=True)
 
     @app.post("/api/chat/reply-voice/clone-profile", response_model=CloneVoiceProfileResponse)
     async def create_clone_voice_profile(
@@ -243,24 +320,27 @@ def create_app(
             temp_file.write(await audio.read())
             temp_path = temp_file.name
 
+        cleanup_paths: list[Path] = []
         try:
-            validate_audio_upload(temp_path)
+            prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
             resolved_reference_text = resolve_clone_reference_text(
                 asr=asr,
-                ref_audio_path=temp_path,
+                ref_audio_path=prepared_path,
                 provided_ref_text=reference_text,
                 language=language,
                 x_vector_only_mode=False,
             )
             return voice_profiles.save_profile(
-                source_path=temp_path,
-                source_name=audio.filename or f"reference{suffix}",
+                source_path=prepared_path,
+                source_name=f"{Path(audio.filename or 'reference').stem}{Path(prepared_path).suffix}",
                 language=language,
                 reference_text=resolved_reference_text or "",
                 label=label,
             )
         finally:
             Path(temp_path).unlink(missing_ok=True)
+            for cleanup_path in cleanup_paths:
+                cleanup_path.unlink(missing_ok=True)
 
     @app.post("/api/generate/custom", response_model=GenerationRunResponse)
     def generate_custom(payload: CustomGenerationRequest) -> GenerationRunResponse:
@@ -497,10 +577,12 @@ def create_app(
             temp_file.write(await ref_audio.read())
             temp_path = temp_file.name
 
+        cleanup_paths: list[Path] = []
         try:
+            prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
             resolved_ref_text = resolve_clone_reference_text(
                 asr=asr,
-                ref_audio_path=temp_path,
+                ref_audio_path=prepared_path,
                 provided_ref_text=ref_text,
                 language=language,
                 x_vector_only_mode=x_vector_only_mode,
@@ -514,7 +596,7 @@ def create_app(
             payload = payload.model_copy(update={"language": resolved_language})
             wavs, sample_rate = tts.generate_clone(
                 payload=payload,
-                ref_audio_path=temp_path,
+                ref_audio_path=prepared_path,
                 ref_text=resolved_ref_text,
                 x_vector_only_mode=x_vector_only_mode,
             )
@@ -524,6 +606,8 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
             Path(temp_path).unlink(missing_ok=True)
+            for cleanup_path in cleanup_paths:
+                cleanup_path.unlink(missing_ok=True)
 
         clips = [
             storage.save_clip(
@@ -571,13 +655,15 @@ def create_app(
             temp_file.write(await ref_audio.read())
             temp_path = temp_file.name
 
+        cleanup_paths: list[Path] = []
         run_id = uuid4().hex
         created_at = datetime.now(timezone.utc)
 
         try:
+            prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
             resolved_ref_text = resolve_clone_reference_text(
                 asr=asr,
-                ref_audio_path=temp_path,
+                ref_audio_path=prepared_path,
                 provided_ref_text=ref_text,
                 language=language,
                 x_vector_only_mode=x_vector_only_mode,
@@ -591,15 +677,19 @@ def create_app(
             payload = payload.model_copy(update={"language": resolved_language})
             stream_iter = tts.stream_clone(
                 payload=payload,
-                ref_audio_path=temp_path,
+                ref_audio_path=prepared_path,
                 ref_text=resolved_ref_text,
                 x_vector_only_mode=x_vector_only_mode,
             )
         except ValueError as exc:
             Path(temp_path).unlink(missing_ok=True)
+            for cleanup_path in cleanup_paths:
+                cleanup_path.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             Path(temp_path).unlink(missing_ok=True)
+            for cleanup_path in cleanup_paths:
+                cleanup_path.unlink(missing_ok=True)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
         response = build_streaming_response(
@@ -625,6 +715,8 @@ def create_app(
                     yield chunk
             finally:
                 Path(temp_path).unlink(missing_ok=True)
+                for cleanup_path in cleanup_paths:
+                    cleanup_path.unlink(missing_ok=True)
 
         response.body_iterator = wrapped_iter()
         return response
