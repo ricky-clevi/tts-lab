@@ -362,24 +362,30 @@ class ConversationSession:
                 )
                 stream_factory = lambda: self.tts_manager.stream_design(request)
             else:
-                if not reply_voice.clone_audio_path or not reply_voice.clone_reference_text:
-                    await self.send(
-                        {
-                            "type": "error",
-                            "detail": "Reply voice clone is not prepared yet. Upload and prepare a cloned reply voice first.",
-                        }
-                    )
-                    continue
                 request = BaseGenerationRequest(
                     segments=[sentence],
                     language=reply_voice.language,
                 )
-                stream_factory = lambda: self.tts_manager.stream_clone(
-                    payload=request,
-                    ref_audio_path=reply_voice.clone_audio_path,
-                    ref_text=reply_voice.clone_reference_text,
-                    x_vector_only_mode=False,
-                )
+                if reply_voice.clone_embedding_path:
+                    stream_factory = lambda: self.tts_manager.stream_clone_cached(
+                        payload=request,
+                        speaker_embedding_path=reply_voice.clone_embedding_path,
+                    )
+                else:
+                    if not reply_voice.clone_audio_path or not reply_voice.clone_reference_text:
+                        await self.send(
+                            {
+                                "type": "error",
+                                "detail": "Reply voice clone is not prepared yet. Upload and prepare a cloned reply voice first.",
+                            }
+                        )
+                        continue
+                    stream_factory = lambda: self.tts_manager.stream_clone(
+                        payload=request,
+                        ref_audio_path=reply_voice.clone_audio_path,
+                        ref_text=reply_voice.clone_reference_text,
+                        x_vector_only_mode=False,
+                    )
 
             await self.send(
                 {

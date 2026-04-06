@@ -124,6 +124,7 @@ class ReplyVoiceSettings(BaseModel):
     clone_profile_label: str | None = None
     clone_audio_path: str | None = None
     clone_reference_text: str | None = None
+    clone_embedding_path: str | None = None
 
 
 class ChatDefaults(BaseModel):
@@ -272,6 +273,7 @@ class CloneVoiceProfileResponse(BaseModel):
     reference_text: str
     audio_file_name: str
     audio_path: str
+    speaker_embedding_path: str | None = None
     created_at: datetime
 
 

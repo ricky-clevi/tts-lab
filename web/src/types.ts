@@ -159,6 +159,7 @@ export type ReplyVoiceSettingsApi = {
   clone_profile_label: string | null
   clone_audio_path: string | null
   clone_reference_text: string | null
+  clone_embedding_path: string | null
 }
 
 export type ChatDefaultsApi = {
@@ -227,6 +228,7 @@ export type CloneVoiceProfileResponse = {
   reference_text: string
   audio_file_name: string
   audio_path: string
+  speaker_embedding_path: string | null
   created_at: string
 }
 

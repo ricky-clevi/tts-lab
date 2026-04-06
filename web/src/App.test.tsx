@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 
 import App from './App'
 
+const OriginalWebSocket = globalThis.WebSocket
+
 const capabilities = {
   active_mode: null,
   selected_device: 'cpu',
@@ -89,6 +91,7 @@ const chatSettings = {
       clone_profile_label: null,
       clone_audio_path: null,
       clone_reference_text: null,
+      clone_embedding_path: null,
       style: {
         mood: 'neutral',
         emotion_intensity: 'restrained',
@@ -208,6 +211,7 @@ function mockFetchSequence() {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  globalThis.WebSocket = OriginalWebSocket
 })
 
 test('switches to voice chat and shows provider controls', async () => {
@@ -408,4 +412,93 @@ test('shows provider test failures without clearing the form', async () => {
 
   expect(await screen.findByText('Provider rejected the configuration.')).toBeInTheDocument()
   expect(providerModelInput).toHaveValue('bad-model')
+})
+
+test('auto-prepares a cloned reply voice before sending a typed chat message', async () => {
+  let clonePrepareCalls = 0
+
+  class FakeWebSocket {
+    static OPEN = 1
+    readyState = FakeWebSocket.OPEN
+    onopen: (() => void) | null = null
+    onmessage: ((event: MessageEvent<string>) => void) | null = null
+    onclose: ((event: CloseEvent) => void) | null = null
+    onerror: (() => void) | null = null
+
+    constructor() {
+      queueMicrotask(() => {
+        this.onopen?.()
+      })
+    }
+
+    send(data: string) {
+      const payload = JSON.parse(data)
+      if (payload.type === 'session.configure') {
+        queueMicrotask(() => {
+          this.onmessage?.(
+            new MessageEvent('message', {
+              data: JSON.stringify({
+                type: 'session.ready',
+                settings: chatSettings,
+              }),
+            }),
+          )
+        })
+      }
+    }
+
+    close() {
+      this.onclose?.(new CloseEvent('close', { code: 1000 }))
+    }
+  }
+
+  globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
+
+  vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+    const url = String(input)
+
+    if (url.endsWith('/api/capabilities')) {
+      return Promise.resolve(new Response(JSON.stringify(capabilities)))
+    }
+    if (url.endsWith('/api/health')) {
+      return Promise.resolve(new Response(JSON.stringify(health)))
+    }
+    if (url.endsWith('/api/settings/chat')) {
+      return Promise.resolve(new Response(JSON.stringify(chatSettings)))
+    }
+    if (url.endsWith('/api/chat/reply-voice/clone-profile')) {
+      clonePrepareCalls += 1
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            id: 'clone-voice-profile',
+            label: 'Support agent voice',
+            language: 'Korean',
+            reference_text: '안녕하세요.',
+            audio_file_name: 'clone-voice-profile.wav',
+            audio_path: '/tmp/clone-voice-profile.wav',
+            speaker_embedding_path: '/tmp/clone-voice-profile.speaker.npy',
+            created_at: '2026-04-06T10:00:00Z',
+          }),
+        ),
+      )
+    }
+    return Promise.resolve(new Response('{}', { status: 404 }))
+  })
+
+  render(<App />)
+
+  await screen.findByText('Qwen3-TTS Lab')
+  await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
+  await userEvent.selectOptions(screen.getByLabelText(/voice mode/i), 'clone')
+  await userEvent.upload(
+    screen.getByLabelText(/reference voice clip/i),
+    new File(['fake-audio'], 'voice.wav', { type: 'audio/wav' }),
+  )
+  await userEvent.type(screen.getByPlaceholderText(/type a message for the connected llm/i), '안녕하세요')
+  await userEvent.click(screen.getByRole('button', { name: /send message/i }))
+
+  await waitFor(() => {
+    expect(clonePrepareCalls).toBe(1)
+  })
 })

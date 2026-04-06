@@ -69,12 +69,18 @@ class VoiceProfileStorage:
         language: str,
         reference_text: str,
         label: str | None = None,
+        speaker_embedding: np.ndarray | None = None,
     ) -> CloneVoiceProfileResponse:
         profile_id = uuid4().hex
         extension = Path(source_name).suffix or ".wav"
         audio_file_name = f"{profile_id}{extension}"
         destination = self.root / audio_file_name
         shutil.copy2(source_path, destination)
+        speaker_embedding_path: str | None = None
+        if speaker_embedding is not None:
+            embedding_path = self.root / f"{profile_id}.speaker.npy"
+            np.save(embedding_path, np.asarray(speaker_embedding, dtype=np.float32))
+            speaker_embedding_path = str(embedding_path)
         created_at = datetime.now(timezone.utc)
         response = CloneVoiceProfileResponse(
             id=profile_id,
@@ -83,6 +89,7 @@ class VoiceProfileStorage:
             reference_text=reference_text,
             audio_file_name=audio_file_name,
             audio_path=str(destination),
+            speaker_embedding_path=speaker_embedding_path,
             created_at=created_at,
         )
         metadata_path = self.root / f"{profile_id}.json"
@@ -92,12 +99,20 @@ class VoiceProfileStorage:
         )
         return response
 
-    def get_path(self, profile_id: str) -> Path:
+    def get_profile(self, profile_id: str) -> CloneVoiceProfileResponse:
         metadata_path = self.root / f"{profile_id}.json"
         if not metadata_path.exists():
             raise FileNotFoundError(profile_id)
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-        path = Path(str(payload["audio_path"]))
+        response = CloneVoiceProfileResponse.model_validate(payload)
+        if not Path(response.audio_path).exists():
+            raise FileNotFoundError(profile_id)
+        if response.speaker_embedding_path and not Path(response.speaker_embedding_path).exists():
+            response.speaker_embedding_path = None
+        return response
+
+    def get_path(self, profile_id: str) -> Path:
+        path = Path(self.get_profile(profile_id).audio_path)
         if not path.exists():
             raise FileNotFoundError(profile_id)
         return path

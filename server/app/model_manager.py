@@ -4,6 +4,7 @@ import gc
 import threading
 from collections.abc import Iterator
 import re
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -42,6 +43,7 @@ class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._inference_lock = threading.Lock()
+        self._clone_embedding_cache: dict[str, np.ndarray] = {}
         self._model: Any | None = None
         self.active_mode: Mode | None = None
         self.active_model_id: str | None = None
@@ -251,6 +253,118 @@ class TtsModelManager:
                 "is_final_chunk": end >= audio.size,
             }
 
+    def _supports_cached_clone_embedding(self, model: Any) -> bool:
+        return callable(getattr(model, "extract_speaker_embedding", None)) and getattr(
+            model, "speaker_encoder", None
+        ) is not None
+
+    def _extract_clone_speaker_embedding_unlocked(
+        self,
+        *,
+        model: Any,
+        ref_audio_path: str,
+    ) -> np.ndarray:
+        if not self._supports_cached_clone_embedding(model):
+            raise RuntimeError(
+                "The local clone model does not expose a reusable speaker embedding API."
+            )
+
+        from mlx_audio.utils import load_audio
+
+        audio = load_audio(ref_audio_path, sample_rate=int(model.sample_rate))
+        speaker_embedding = model.extract_speaker_embedding(audio, sr=int(model.sample_rate))
+        embedding = np.asarray(speaker_embedding, dtype=np.float32)
+        if embedding.ndim == 1:
+            embedding = embedding.reshape(1, -1)
+        return embedding
+
+    def prepare_clone_speaker_embedding(self, *, ref_audio_path: str) -> np.ndarray:
+        with self._inference_lock:
+            model = self.ensure_mode("clone")
+            return self._extract_clone_speaker_embedding_unlocked(
+                model=model,
+                ref_audio_path=ref_audio_path,
+            )
+
+    def _load_cached_clone_speaker_embedding(self, embedding_path: str) -> np.ndarray:
+        cache_key = str(Path(embedding_path).resolve())
+        cached = self._clone_embedding_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        embedding = np.asarray(np.load(cache_key), dtype=np.float32)
+        if embedding.ndim == 1:
+            embedding = embedding.reshape(1, -1)
+        self._clone_embedding_cache[cache_key] = embedding
+        return embedding
+
+    def _generate_clone_with_speaker_embedding(
+        self,
+        *,
+        model: Any,
+        text: str,
+        language: str,
+        speaker_embedding: np.ndarray,
+        generation_kwargs: dict[str, float | int | bool],
+    ) -> Any:
+        if not self._supports_cached_clone_embedding(model):
+            raise RuntimeError(
+                "The local clone model does not expose a reusable speaker embedding API."
+            )
+
+        import mlx.core as mx
+
+        cached_embedding = mx.array(np.asarray(speaker_embedding, dtype=np.float32))
+        original_extract = model.extract_speaker_embedding
+
+        def use_cached_embedding(_audio, sr: int = int(model.sample_rate)):
+            del sr
+            return cached_embedding
+
+        model.extract_speaker_embedding = use_cached_embedding
+        try:
+            return model.generate(
+                text=text,
+                lang_code=language,
+                ref_audio=mx.zeros((max(400, int(model.sample_rate * 0.1)),), dtype=mx.float32),
+                ref_text=None,
+                **generation_kwargs,
+            )
+        finally:
+            model.extract_speaker_embedding = original_extract
+
+    def generate_clone_cached(
+        self,
+        *,
+        payload: BaseGenerationRequest,
+        speaker_embedding_path: str,
+    ) -> tuple[list[Any], int]:
+        self._validate_language(payload.language)
+
+        with self._inference_lock:
+            model = self.ensure_mode("clone")
+            self._apply_seed(payload.generation.seed)
+            language = self._normalize_language(
+                self.resolve_clone_language(payload.language, payload.segments, None)
+            )
+            generation_kwargs = self._generation_kwargs(payload.generation)
+            speaker_embedding = self._load_cached_clone_speaker_embedding(speaker_embedding_path)
+
+            wavs: list[np.ndarray] = []
+            sample_rate = int(model.sample_rate)
+            for segment in payload.segments:
+                wav, sample_rate = self._collect_audio(
+                    self._generate_clone_with_speaker_embedding(
+                        model=model,
+                        text=segment,
+                        language=language,
+                        speaker_embedding=speaker_embedding,
+                        generation_kwargs=generation_kwargs,
+                    )
+                )
+                wavs.append(wav)
+            return wavs, sample_rate
+
     def generate_custom(self, request: CustomGenerationRequest) -> tuple[list[Any], int]:
         self._validate_language(request.language)
         self._ensure_speaker(request.speaker)
@@ -306,14 +420,11 @@ class TtsModelManager:
         x_vector_only_mode: bool,
     ) -> tuple[list[Any], int]:
         self._validate_language(payload.language)
-        if x_vector_only_mode:
-            raise ValueError(
-                "The local MLX Qwen runtime does not support x-vector only mode yet. Provide a reference transcript and leave that option disabled."
-            )
         if not (ref_text or "").strip():
-            raise ValueError(
-                "Reference transcript is required unless x-vector only mode is enabled."
-            )
+            if not x_vector_only_mode:
+                raise ValueError(
+                    "Reference transcript is required unless x-vector only mode is enabled."
+                )
 
         with self._inference_lock:
             model = self.ensure_mode("clone")
@@ -325,9 +436,25 @@ class TtsModelManager:
 
             wavs: list[np.ndarray] = []
             sample_rate = int(model.sample_rate)
+            speaker_embedding = (
+                self._extract_clone_speaker_embedding_unlocked(
+                    model=model,
+                    ref_audio_path=ref_audio_path,
+                )
+                if x_vector_only_mode
+                else None
+            )
             for segment in payload.segments:
-                wav, sample_rate = self._collect_audio(
-                    model.generate(
+                result = (
+                    self._generate_clone_with_speaker_embedding(
+                        model=model,
+                        text=segment,
+                        language=language,
+                        speaker_embedding=speaker_embedding,
+                        generation_kwargs=generation_kwargs,
+                    )
+                    if speaker_embedding is not None
+                    else model.generate(
                         text=segment,
                         lang_code=language,
                         ref_audio=ref_audio_path,
@@ -335,6 +462,7 @@ class TtsModelManager:
                         **generation_kwargs,
                     )
                 )
+                wav, sample_rate = self._collect_audio(result)
                 wavs.append(wav)
             return wavs, sample_rate
 
@@ -399,14 +527,11 @@ class TtsModelManager:
         x_vector_only_mode: bool,
     ) -> Iterator[dict[str, Any]]:
         self._validate_language(payload.language)
-        if x_vector_only_mode:
-            raise ValueError(
-                "The local MLX Qwen runtime does not support x-vector only mode yet. Provide a reference transcript and leave that option disabled."
-            )
         if not (ref_text or "").strip():
-            raise ValueError(
-                "Reference transcript is required unless x-vector only mode is enabled."
-            )
+            if not x_vector_only_mode:
+                raise ValueError(
+                    "Reference transcript is required unless x-vector only mode is enabled."
+                )
 
         def iterator() -> Iterator[dict[str, Any]]:
             with self._inference_lock:
@@ -415,10 +540,37 @@ class TtsModelManager:
                 language = self._normalize_language(
                     self.resolve_clone_language(payload.language, payload.segments, ref_text)
                 )
-                generation_kwargs = self._generation_kwargs(payload.generation)
+                generation_kwargs = (
+                    self._stream_generation_kwargs(payload)
+                    if x_vector_only_mode
+                    else self._generation_kwargs(payload.generation)
+                )
                 sample_rate = int(model.sample_rate)
+                speaker_embedding = (
+                    self._extract_clone_speaker_embedding_unlocked(
+                        model=model,
+                        ref_audio_path=ref_audio_path,
+                    )
+                    if x_vector_only_mode
+                    else None
+                )
 
                 for segment_index, segment in enumerate(payload.segments):
+                    if speaker_embedding is not None:
+                        yield from self._iter_stream_results(
+                            self._generate_clone_with_speaker_embedding(
+                                model=model,
+                                text=segment,
+                                language=language,
+                                speaker_embedding=speaker_embedding,
+                                generation_kwargs=generation_kwargs,
+                            ),
+                            segment_index=segment_index,
+                            text=segment,
+                            sample_rate=sample_rate,
+                        )
+                        continue
+
                     wav, sample_rate = self._collect_audio(
                         model.generate(
                             text=segment,
@@ -434,6 +586,43 @@ class TtsModelManager:
                         segment_index=segment_index,
                         text=segment,
                         streaming_interval=payload.streaming_interval,
+                    )
+
+        return iterator()
+
+    def stream_clone_cached(
+        self,
+        *,
+        payload: BaseGenerationRequest,
+        speaker_embedding_path: str,
+    ) -> Iterator[dict[str, Any]]:
+        self._validate_language(payload.language)
+
+        def iterator() -> Iterator[dict[str, Any]]:
+            with self._inference_lock:
+                model = self.ensure_mode("clone")
+                self._apply_seed(payload.generation.seed)
+                language = self._normalize_language(
+                    self.resolve_clone_language(payload.language, payload.segments, None)
+                )
+                generation_kwargs = self._stream_generation_kwargs(payload)
+                sample_rate = int(model.sample_rate)
+                speaker_embedding = self._load_cached_clone_speaker_embedding(
+                    speaker_embedding_path
+                )
+
+                for segment_index, segment in enumerate(payload.segments):
+                    yield from self._iter_stream_results(
+                        self._generate_clone_with_speaker_embedding(
+                            model=model,
+                            text=segment,
+                            language=language,
+                            speaker_embedding=speaker_embedding,
+                            generation_kwargs=generation_kwargs,
+                        ),
+                        segment_index=segment_index,
+                        text=segment,
+                        sample_rate=sample_rate,
                     )
 
         return iterator()

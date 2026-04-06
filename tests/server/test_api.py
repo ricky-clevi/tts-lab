@@ -53,6 +53,8 @@ class FakeTtsManager:
         self.custom_calls = 0
         self.design_calls = 0
         self.clone_calls = 0
+        self.clone_cached_calls = 0
+        self.prepare_clone_embedding_calls = 0
         self.ensure_calls: list[str] = []
         self.unload_calls = 0
 
@@ -162,6 +164,25 @@ class FakeTtsManager:
                 "segment_index": segment_index,
                 "text": segment,
                 "audio": np.full(7000, 0.3, dtype=np.float32),
+                "sample_rate": 24000,
+                "is_final_chunk": True,
+            }
+
+    def prepare_clone_speaker_embedding(self, *, ref_audio_path: str):
+        assert Path(ref_audio_path).exists()
+        self.ensure_mode("clone")
+        self.prepare_clone_embedding_calls += 1
+        return np.asarray([[0.25, 0.5, 0.75]], dtype=np.float32)
+
+    def stream_clone_cached(self, *, payload: BaseGenerationRequest, speaker_embedding_path: str):
+        assert Path(speaker_embedding_path).exists()
+        self.ensure_mode("clone")
+        self.clone_cached_calls += 1
+        for segment_index, segment in enumerate(payload.segments):
+            yield {
+                "segment_index": segment_index,
+                "text": segment,
+                "audio": np.full(7000, 0.35, dtype=np.float32),
                 "sample_rate": 24000,
                 "is_final_chunk": True,
             }
@@ -513,8 +534,27 @@ def test_clone_generation_auto_transcribes_reference_when_text_is_missing(client
     assert asr_manager.transcribe_file_calls == 1
 
 
+def test_clone_generation_supports_x_vector_only_mode_without_reference_text(client):
+    test_client, manager, asr_manager, _settings = client
+    response = test_client.post(
+        "/api/generate/clone",
+        data={
+            "segments": json.dumps(["Clone this sentence in the uploaded voice."]),
+            "language": "English",
+            "x_vector_only_mode": "true",
+            "generation": json.dumps({}),
+        },
+        files={"ref_audio": ("reference.wav", make_wav_bytes(), "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["clips"][0]["x_vector_only_mode"] is True
+    assert manager.clone_calls == 1
+    assert asr_manager.transcribe_file_calls == 0
+
+
 def test_create_clone_voice_profile_auto_transcribes_reference(client):
-    test_client, _manager, asr_manager, _settings = client
+    test_client, manager, asr_manager, _settings = client
     response = test_client.post(
         "/api/chat/reply-voice/clone-profile",
         data={"language": "English", "label": "Agent Voice"},
@@ -526,7 +566,9 @@ def test_create_clone_voice_profile_auto_transcribes_reference(client):
     assert body["label"] == "Agent Voice"
     assert body["reference_text"] == "Uploaded sample transcript."
     assert body["audio_path"].endswith(".wav")
+    assert body["speaker_embedding_path"].endswith(".speaker.npy")
     assert asr_manager.transcribe_file_calls == 1
+    assert manager.prepare_clone_embedding_calls == 1
 
 
 def test_stream_custom_generation_emits_chunks_and_final_run(client):
@@ -665,6 +707,8 @@ def test_conversation_can_speak_with_cloned_reply_voice(client, tmp_path: Path):
     test_client, manager, _asr, _settings = client
     reference_path = tmp_path / "clone-reference.wav"
     reference_path.write_bytes(make_wav_bytes())
+    embedding_path = tmp_path / "clone-reference.speaker.npy"
+    np.save(embedding_path, np.asarray([[0.1, 0.2, 0.3]], dtype=np.float32))
 
     with test_client.websocket_connect("/api/conversation/ws") as websocket:
         ready = websocket.receive_json()
@@ -674,6 +718,7 @@ def test_conversation_can_speak_with_cloned_reply_voice(client, tmp_path: Path):
         settings["defaults"]["reply_voice"]["clone_profile_label"] = "Clone Voice"
         settings["defaults"]["reply_voice"]["clone_audio_path"] = str(reference_path)
         settings["defaults"]["reply_voice"]["clone_reference_text"] = "Uploaded sample transcript."
+        settings["defaults"]["reply_voice"]["clone_embedding_path"] = str(embedding_path)
 
         websocket.send_json({"type": "session.configure", "settings": settings})
         websocket.receive_json()
@@ -689,3 +734,4 @@ def test_conversation_can_speak_with_cloned_reply_voice(client, tmp_path: Path):
     assert "tts.segment_start" in event_types
     assert "tts.audio_chunk" in event_types
     assert manager.ensure_calls[-1] == "clone"
+    assert manager.clone_cached_calls >= 1

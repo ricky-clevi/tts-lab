@@ -333,13 +333,17 @@ def create_app(
                 language=language,
                 x_vector_only_mode=False,
             )
+            speaker_embedding = tts.prepare_clone_speaker_embedding(ref_audio_path=prepared_path)
             return voice_profiles.save_profile(
                 source_path=prepared_path,
                 source_name=f"{Path(audio.filename or 'reference').stem}{Path(prepared_path).suffix}",
                 language=language,
                 reference_text=resolved_reference_text or "",
                 label=label,
+                speaker_embedding=speaker_embedding,
             )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
             Path(temp_path).unlink(missing_ok=True)
             for cleanup_path in cleanup_paths:

@@ -131,6 +131,7 @@ type ChatSettingsForm = {
       cloneProfileLabel: string
       cloneAudioPath: string
       cloneReferenceText: string
+      cloneEmbeddingPath: string
     }
   }
   openaiCompatible: {
@@ -326,6 +327,7 @@ function mapSettingsResponseToForm(response: ChatSettingsResponse): ChatSettings
         cloneProfileLabel: response.defaults.reply_voice.clone_profile_label ?? '',
         cloneAudioPath: response.defaults.reply_voice.clone_audio_path ?? '',
         cloneReferenceText: response.defaults.reply_voice.clone_reference_text ?? '',
+        cloneEmbeddingPath: response.defaults.reply_voice.clone_embedding_path ?? '',
         style: {
           mood: response.defaults.reply_voice.style.mood,
           emotionIntensity: response.defaults.reply_voice.style.emotion_intensity,
@@ -383,6 +385,7 @@ function serializeSettings(form: ChatSettingsForm): ChatSettingsDraft {
         clone_profile_label: form.defaults.replyVoice.cloneProfileLabel || null,
         clone_audio_path: form.defaults.replyVoice.cloneAudioPath || null,
         clone_reference_text: form.defaults.replyVoice.cloneReferenceText || null,
+        clone_embedding_path: form.defaults.replyVoice.cloneEmbeddingPath || null,
         style: {
           mood: form.defaults.replyVoice.style.mood,
           emotion_intensity: form.defaults.replyVoice.style.emotionIntensity,
@@ -432,12 +435,24 @@ function emptyChatSettings(defaultAsrModel = ''): ChatSettingsForm {
         cloneProfileLabel: '',
         cloneAudioPath: '',
         cloneReferenceText: '',
+        cloneEmbeddingPath: '',
         style: makeStyleControls(),
       },
     },
     openaiCompatible: { baseUrl: '', apiKey: '', model: '', apiMode: null },
     gemini: { baseUrl: '', apiKey: '', model: '', apiMode: null },
     anthropic: { baseUrl: '', apiKey: '', model: '', apiMode: null },
+  }
+}
+
+function clearPreparedReplyVoice(replyVoice: ChatSettingsForm['defaults']['replyVoice']) {
+  return {
+    ...replyVoice,
+    cloneProfileId: '',
+    cloneProfileLabel: '',
+    cloneAudioPath: '',
+    cloneReferenceText: '',
+    cloneEmbeddingPath: '',
   }
 }
 
@@ -606,6 +621,7 @@ function App() {
           reference_text: replyVoice.cloneReferenceText,
           audio_file_name: replyVoice.cloneAudioPath.split('/').pop() ?? 'reference.wav',
           audio_path: replyVoice.cloneAudioPath,
+          speaker_embedding_path: replyVoice.cloneEmbeddingPath || null,
           created_at: new Date().toISOString(),
         },
       }))
@@ -618,6 +634,7 @@ function App() {
     }))
   }, [
     chatSettings.defaults.replyVoice.cloneAudioPath,
+    chatSettings.defaults.replyVoice.cloneEmbeddingPath,
     chatSettings.defaults.replyVoice.cloneProfileId,
     chatSettings.defaults.replyVoice.cloneProfileLabel,
     chatSettings.defaults.replyVoice.cloneReferenceText,
@@ -774,10 +791,12 @@ function App() {
     })
   }
 
-  async function ensureConversationSocket() {
+  async function ensureConversationSocket(settingsOverride?: ChatSettingsForm) {
+    const effectiveSettings = settingsOverride ?? chatSettings
+
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(
-        JSON.stringify({ type: 'session.configure', settings: serializeSettings(chatSettings) }),
+        JSON.stringify({ type: 'session.configure', settings: serializeSettings(effectiveSettings) }),
       )
       return socketRef.current
     }
@@ -815,7 +834,7 @@ function App() {
       socket.onopen = () => {
         settled = true
         window.clearTimeout(timeoutId)
-        socket.send(JSON.stringify({ type: 'session.configure', settings: serializeSettings(chatSettings) }))
+        socket.send(JSON.stringify({ type: 'session.configure', settings: serializeSettings(effectiveSettings) }))
         resolve(socket)
       }
 
@@ -858,6 +877,70 @@ function App() {
 
     socketPromiseRef.current = socketPromise
     return socketPromise
+  }
+
+  async function prepareReplyVoiceClone(auto = false) {
+    if (!replyVoiceCloneDraft.file) {
+      throw new Error('Choose a reference voice clip before preparing the cloned reply voice.')
+    }
+
+    const profile = await createReplyVoiceCloneProfile({
+      file: replyVoiceCloneDraft.file,
+      language: chatSettings.defaults.replyVoice.language,
+      label: replyVoiceCloneDraft.label || replyVoiceCloneDraft.file.name.replace(/\.[^.]+$/, ''),
+      referenceText: replyVoiceCloneDraft.referenceText,
+    })
+
+    setReplyVoiceCloneDraft((current) => ({
+      ...current,
+      pending: false,
+      preparedProfile: profile,
+      referenceText: profile.reference_text,
+      label: profile.label,
+    }))
+
+    const nextSettings: ChatSettingsForm = {
+      ...chatSettings,
+      defaults: {
+        ...chatSettings.defaults,
+        replyVoice: {
+          ...chatSettings.defaults.replyVoice,
+          mode: 'clone',
+          cloneProfileId: profile.id,
+          cloneProfileLabel: profile.label,
+          cloneAudioPath: profile.audio_path,
+          cloneReferenceText: profile.reference_text,
+          cloneEmbeddingPath: profile.speaker_embedding_path ?? '',
+          language: profile.language,
+        },
+      },
+    }
+
+    setChatSettings(nextSettings)
+    pushToast('success', auto ? `Prepared cloned voice automatically: ${profile.label}.` : `Prepared cloned reply voice: ${profile.label}.`)
+    return nextSettings
+  }
+
+  async function ensureReplyVoiceReady() {
+    if (chatSettings.defaults.replyVoice.mode !== 'clone') {
+      return chatSettings
+    }
+
+    if (
+      chatSettings.defaults.replyVoice.cloneAudioPath &&
+      chatSettings.defaults.replyVoice.cloneReferenceText &&
+      chatSettings.defaults.replyVoice.cloneEmbeddingPath
+    ) {
+      return chatSettings
+    }
+
+    setReplyVoiceCloneDraft((current) => ({ ...current, pending: true }))
+    try {
+      return await prepareReplyVoiceClone(true)
+    } catch (cloneError) {
+      setReplyVoiceCloneDraft((current) => ({ ...current, pending: false }))
+      throw cloneError
+    }
   }
 
   async function handleConversationEvent(event: ConversationServerEvent) {
@@ -1170,7 +1253,8 @@ function App() {
 
   async function startConversation() {
     try {
-      const socket = await ensureConversationSocket()
+      const effectiveSettings = await ensureReplyVoiceReady()
+      const socket = await ensureConversationSocket(effectiveSettings)
       if (micActive) {
         return
       }
@@ -1271,7 +1355,8 @@ function App() {
       return
     }
     try {
-      const socket = await ensureConversationSocket()
+      const effectiveSettings = await ensureReplyVoiceReady()
+      const socket = await ensureConversationSocket(effectiveSettings)
       setConversationMessages((current) => [
         ...current,
         { id: makeId(), role: 'user', text: cleaned, state: 'final' },
@@ -1310,43 +1395,9 @@ function App() {
   }
 
   async function handlePrepareReplyVoiceClone() {
-    if (!replyVoiceCloneDraft.file) {
-      pushToast('error', 'Choose a reference voice clip before preparing the cloned reply voice.')
-      return
-    }
-
     setReplyVoiceCloneDraft((current) => ({ ...current, pending: true }))
     try {
-      const profile = await createReplyVoiceCloneProfile({
-        file: replyVoiceCloneDraft.file,
-        language: chatSettings.defaults.replyVoice.language,
-        label: replyVoiceCloneDraft.label || replyVoiceCloneDraft.file.name.replace(/\.[^.]+$/, ''),
-        referenceText: replyVoiceCloneDraft.referenceText,
-      })
-
-      setReplyVoiceCloneDraft((current) => ({
-        ...current,
-        pending: false,
-        preparedProfile: profile,
-        referenceText: profile.reference_text,
-        label: profile.label,
-      }))
-      setChatSettings((current) => ({
-        ...current,
-        defaults: {
-          ...current.defaults,
-          replyVoice: {
-            ...current.defaults.replyVoice,
-            mode: 'clone',
-            cloneProfileId: profile.id,
-            cloneProfileLabel: profile.label,
-            cloneAudioPath: profile.audio_path,
-            cloneReferenceText: profile.reference_text,
-            language: profile.language,
-          },
-        },
-      }))
-      pushToast('success', `Prepared cloned reply voice: ${profile.label}.`)
+      await prepareReplyVoiceClone(false)
     } catch (cloneError) {
       setReplyVoiceCloneDraft((current) => ({ ...current, pending: false }))
       pushToast(
@@ -1697,10 +1748,10 @@ function App() {
               <p className="hint">This field must match the uploaded reference clip only. Do not paste the long target text here.</p>
               <p className="hint">Leave the transcript blank to let local Qwen ASR transcribe the reference clip automatically before cloning.</p>
               <label className="toggle">
-                <input type="checkbox" checked={cloneForm.xVectorOnlyMode} disabled />
+                <input type="checkbox" checked={cloneForm.xVectorOnlyMode} onChange={(event) => setCloneForm((current) => ({ ...current, xVectorOnlyMode: event.target.checked }))} />
                 <span>X-vector only mode</span>
               </label>
-              <p className="hint">The local MLX runtime still requires a transcript-backed clone path, so x-vector only mode is currently unavailable.</p>
+              <p className="hint">Uses a speaker-embedding-only clone path for faster synthesis. Transcript-backed clone usually preserves style and pronunciation better.</p>
               {renderSegments(cloneForm.segments)}
               {renderGenerationControls(cloneForm.generation, (key, value) => setCloneForm((current) => ({ ...current, generation: { ...current.generation, [key]: value } })))}
             </>
@@ -1977,10 +2028,21 @@ function App() {
                   type="file"
                   accept="audio/*"
                   onChange={(event) =>
-                    setReplyVoiceCloneDraft((current) => ({
-                      ...current,
-                      file: event.target.files?.[0] ?? null,
-                    }))
+                    {
+                      const nextFile = event.target.files?.[0] ?? null
+                      setReplyVoiceCloneDraft((current) => ({
+                        ...current,
+                        file: nextFile,
+                        preparedProfile: null,
+                      }))
+                      setChatSettings((current) => ({
+                        ...current,
+                        defaults: {
+                          ...current.defaults,
+                          replyVoice: clearPreparedReplyVoice(current.defaults.replyVoice),
+                        },
+                      }))
+                    }
                   }
                 />
               </label>
@@ -2001,7 +2063,7 @@ function App() {
                     Ready: {chatSettings.defaults.replyVoice.cloneProfileLabel}
                   </p>
                 ) : (
-                  <p className="hint">Prepare a reference clip once, then reuse it for streamed assistant replies.</p>
+                  <p className="hint">Prepare a reference clip once, cache its Qwen speaker embedding, then reuse it for faster streamed assistant replies.</p>
                 )}
                 {chatSettings.defaults.replyVoice.cloneReferenceText ? (
                   <p className="style-preview">{chatSettings.defaults.replyVoice.cloneReferenceText}</p>
@@ -2014,10 +2076,21 @@ function App() {
                   value={replyVoiceCloneDraft.referenceText}
                   rows={3}
                   onChange={(event) =>
-                    setReplyVoiceCloneDraft((current) => ({
-                      ...current,
-                      referenceText: event.target.value,
-                    }))
+                    {
+                      const nextReferenceText = event.target.value
+                      setReplyVoiceCloneDraft((current) => ({
+                        ...current,
+                        referenceText: nextReferenceText,
+                        preparedProfile: null,
+                      }))
+                      setChatSettings((current) => ({
+                        ...current,
+                        defaults: {
+                          ...current.defaults,
+                          replyVoice: clearPreparedReplyVoice(current.defaults.replyVoice),
+                        },
+                      }))
+                    }
                   }
                   placeholder="Leave blank to let local Qwen ASR transcribe the reference clip."
                 />
