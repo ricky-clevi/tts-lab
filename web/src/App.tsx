@@ -1,16 +1,38 @@
-import { startTransition, useEffect, useRef, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 
-import { fetchCapabilities, fetchHealth, generateRun, generateRunStream } from './api'
+import { AudioCapture } from './audioCapture'
+import {
+  createReplyVoiceCloneProfile,
+  createConversationSocket,
+  fetchCapabilities,
+  fetchChatSettings,
+  fetchHealth,
+  generateRun,
+  generateRunStream,
+  saveChatSettings,
+  testChatProvider,
+  transcribeAsrFile,
+} from './api'
 import './App.css'
 import { StreamAudioPlayer } from './streamAudioPlayer'
 import type {
+  AsrTranscriptionResponse,
   AudioClip,
   CapabilitiesResponse,
+  ChatMessage,
+  CloneVoiceProfileResponse,
+  ChatSettingsDraft,
+  ChatSettingsResponse,
+  ConversationServerEvent,
+  ConversationStatus,
   GenerationRun,
   HealthResponse,
   Mode,
+  ProviderId,
+  ProviderTestResponse,
   StreamRunEvent,
   StreamSettings,
+  Workspace,
 } from './types'
 
 type StyleControls = {
@@ -88,119 +110,96 @@ type LiveStreamState = {
   message: string
 }
 
+type ChatSettingsForm = {
+  defaults: {
+    activeProvider: ProviderId
+    systemPrompt: string
+    temperature: string
+    maxOutputTokens: string
+    asrModel: string
+    asrLanguage: string
+    silenceTimeoutMs: string
+    maxTurnSeconds: string
+    liveCaptions: boolean
+    replyVoice: {
+      mode: 'custom' | 'design' | 'clone'
+      language: string
+      speaker: string
+      instruct: string
+      style: StyleControls
+      cloneProfileId: string
+      cloneProfileLabel: string
+      cloneAudioPath: string
+      cloneReferenceText: string
+    }
+  }
+  openaiCompatible: {
+    baseUrl: string
+    apiKey: string
+    model: string
+    apiMode?: 'responses' | 'chat_completions' | null
+    hasApiKey?: boolean
+    maskedApiKey?: string | null
+  }
+  gemini: {
+    baseUrl: string
+    apiKey: string
+    model: string
+    apiMode?: 'responses' | 'chat_completions' | null
+    hasApiKey?: boolean
+    maskedApiKey?: string | null
+  }
+  anthropic: {
+    baseUrl: string
+    apiKey: string
+    model: string
+    apiMode?: 'responses' | 'chat_completions' | null
+    hasApiKey?: boolean
+    maskedApiKey?: string | null
+  }
+}
+
+type ReplyVoiceCloneDraft = {
+  file: File | null
+  label: string
+  referenceText: string
+  pending: boolean
+  preparedProfile: CloneVoiceProfileResponse | null
+}
+
 const MOOD_OPTIONS = [
-  {
-    id: 'neutral',
-    label: 'Neutral',
-    prompt: 'Keep the emotional tone neutral, composed, and matter-of-fact.',
-  },
-  {
-    id: 'calm',
-    label: 'Calm',
-    prompt: 'Sound calm, relaxed, and emotionally steady.',
-  },
-  {
-    id: 'warm',
-    label: 'Warm',
-    prompt: 'Sound warm, friendly, and reassuring.',
-  },
-  {
-    id: 'happy',
-    label: 'Happy',
-    prompt: 'Sound lightly happy and upbeat without becoming cartoonish.',
-  },
-  {
-    id: 'confident',
-    label: 'Confident',
-    prompt: 'Sound confident, assured, and articulate.',
-  },
-  {
-    id: 'serious',
-    label: 'Serious',
-    prompt: 'Sound serious, focused, and professional.',
-  },
-  {
-    id: 'empathetic',
-    label: 'Empathetic',
-    prompt: 'Sound empathetic and caring while staying controlled.',
-  },
-  {
-    id: 'sad',
-    label: 'Sad',
-    prompt: 'Sound gently sad and reflective without audible crying.',
-  },
+  { id: 'neutral', label: 'Neutral', prompt: 'Keep the emotional tone neutral, composed, and matter-of-fact.' },
+  { id: 'calm', label: 'Calm', prompt: 'Sound calm, relaxed, and emotionally steady.' },
+  { id: 'warm', label: 'Warm', prompt: 'Sound warm, friendly, and reassuring.' },
+  { id: 'happy', label: 'Happy', prompt: 'Sound lightly happy and upbeat without becoming cartoonish.' },
+  { id: 'confident', label: 'Confident', prompt: 'Sound confident, assured, and articulate.' },
+  { id: 'serious', label: 'Serious', prompt: 'Sound serious, focused, and professional.' },
+  { id: 'empathetic', label: 'Empathetic', prompt: 'Sound empathetic and caring while staying controlled.' },
+  { id: 'sad', label: 'Sad', prompt: 'Sound gently sad and reflective without audible crying.' },
 ]
 
 const EMOTION_INTENSITY_OPTIONS = [
-  {
-    id: 'restrained',
-    label: 'Restrained',
-    prompt: 'Keep emotional expression restrained and subtle.',
-  },
-  {
-    id: 'balanced',
-    label: 'Balanced',
-    prompt: 'Use moderate emotional expression with natural variation.',
-  },
-  {
-    id: 'expressive',
-    label: 'Expressive',
-    prompt: 'Allow stronger emotional expression when the text supports it.',
-  },
+  { id: 'restrained', label: 'Restrained', prompt: 'Keep emotional expression restrained and subtle.' },
+  { id: 'balanced', label: 'Balanced', prompt: 'Use moderate emotional expression with natural variation.' },
+  { id: 'expressive', label: 'Expressive', prompt: 'Allow stronger emotional expression when the text supports it.' },
 ]
 
 const PACE_OPTIONS = [
-  {
-    id: 'slower',
-    label: 'Slower',
-    prompt: 'Use a slightly slower speaking pace with clear phrasing.',
-  },
-  {
-    id: 'steady',
-    label: 'Steady',
-    prompt: 'Maintain a steady, natural speaking pace.',
-  },
-  {
-    id: 'faster',
-    label: 'Faster',
-    prompt: 'Use a slightly quicker pace while staying intelligible.',
-  },
+  { id: 'slower', label: 'Slower', prompt: 'Use a slightly slower speaking pace with clear phrasing.' },
+  { id: 'steady', label: 'Steady', prompt: 'Maintain a steady, natural speaking pace.' },
+  { id: 'faster', label: 'Faster', prompt: 'Use a slightly quicker pace while staying intelligible.' },
 ]
 
 const ENERGY_OPTIONS = [
-  {
-    id: 'soft',
-    label: 'Soft',
-    prompt: 'Keep the vocal energy soft and low-pressure.',
-  },
-  {
-    id: 'balanced',
-    label: 'Balanced',
-    prompt: 'Use balanced vocal energy with a natural conversational lift.',
-  },
-  {
-    id: 'high',
-    label: 'High',
-    prompt: 'Use stronger vocal energy and clearer emphasis.',
-  },
+  { id: 'soft', label: 'Soft', prompt: 'Keep the vocal energy soft and low-pressure.' },
+  { id: 'balanced', label: 'Balanced', prompt: 'Use balanced vocal energy with a natural conversational lift.' },
+  { id: 'high', label: 'High', prompt: 'Use stronger vocal energy and clearer emphasis.' },
 ]
 
 const EXPRESSIVENESS_OPTIONS = [
-  {
-    id: 'controlled',
-    label: 'Controlled',
-    prompt: 'Keep prosody controlled with limited melodrama.',
-  },
-  {
-    id: 'natural',
-    label: 'Natural',
-    prompt: 'Use natural prosodic variation and human-like emphasis.',
-  },
-  {
-    id: 'dramatic',
-    label: 'Dramatic',
-    prompt: 'Allow broader pitch movement and more dramatic phrasing.',
-  },
+  { id: 'controlled', label: 'Controlled', prompt: 'Keep prosody controlled with limited melodrama.' },
+  { id: 'natural', label: 'Natural', prompt: 'Use natural prosodic variation and human-like emphasis.' },
+  { id: 'dramatic', label: 'Dramatic', prompt: 'Allow broader pitch movement and more dramatic phrasing.' },
 ]
 
 function makeId() {
@@ -258,7 +257,6 @@ function buildWaveformBars(seed: string) {
   for (const character of seed) {
     value += character.charCodeAt(0)
   }
-
   for (let index = 0; index < 28; index += 1) {
     value = (value * 1664525 + 1013904223) % 4294967296
     bars.push(18 + (value % 44))
@@ -266,18 +264,11 @@ function buildWaveformBars(seed: string) {
   return bars
 }
 
-function optionPrompt(
-  options: Array<{ id: string; label: string; prompt: string }>,
-  id: string,
-) {
+function optionPrompt(options: Array<{ id: string; prompt: string }>, id: string) {
   return options.find((option) => option.id === id)?.prompt ?? ''
 }
 
-function composeInstruction(
-  baseInstruction: string,
-  style: StyleControls,
-  mode: 'custom' | 'design',
-) {
+function composeInstruction(baseInstruction: string, style: StyleControls, mode: 'custom' | 'design') {
   const guidance = [
     mode === 'custom' ? 'Preserve the core identity of the selected preset speaker.' : '',
     optionPrompt(MOOD_OPTIONS, style.mood),
@@ -304,9 +295,154 @@ function composeInstruction(
   return guidance.join(' ')
 }
 
+function mapSettingsResponseToForm(response: ChatSettingsResponse): ChatSettingsForm {
+  return {
+    defaults: {
+      activeProvider: response.defaults.active_provider,
+      systemPrompt: response.defaults.system_prompt,
+      temperature: String(response.defaults.temperature),
+      maxOutputTokens: String(response.defaults.max_output_tokens),
+      asrModel: response.defaults.asr_model,
+      asrLanguage: response.defaults.asr_language,
+      silenceTimeoutMs: String(response.defaults.silence_timeout_ms),
+      maxTurnSeconds: String(response.defaults.max_turn_seconds),
+      liveCaptions: response.defaults.live_captions,
+      replyVoice: {
+        mode: response.defaults.reply_voice.mode,
+        language: response.defaults.reply_voice.language,
+        speaker: response.defaults.reply_voice.speaker,
+        instruct: response.defaults.reply_voice.instruct,
+        cloneProfileId: response.defaults.reply_voice.clone_profile_id ?? '',
+        cloneProfileLabel: response.defaults.reply_voice.clone_profile_label ?? '',
+        cloneAudioPath: response.defaults.reply_voice.clone_audio_path ?? '',
+        cloneReferenceText: response.defaults.reply_voice.clone_reference_text ?? '',
+        style: {
+          mood: response.defaults.reply_voice.style.mood,
+          emotionIntensity: response.defaults.reply_voice.style.emotion_intensity,
+          pace: response.defaults.reply_voice.style.pace,
+          energy: response.defaults.reply_voice.style.energy,
+          expressiveness: response.defaults.reply_voice.style.expressiveness,
+        },
+      },
+    },
+    openaiCompatible: {
+      baseUrl: response.openai_compatible.base_url ?? '',
+      apiKey: '',
+      model: response.openai_compatible.model,
+      apiMode: response.openai_compatible.api_mode,
+      hasApiKey: response.openai_compatible.has_api_key,
+      maskedApiKey: response.openai_compatible.masked_api_key,
+    },
+    gemini: {
+      baseUrl: response.gemini.base_url ?? '',
+      apiKey: '',
+      model: response.gemini.model,
+      apiMode: null,
+      hasApiKey: response.gemini.has_api_key,
+      maskedApiKey: response.gemini.masked_api_key,
+    },
+    anthropic: {
+      baseUrl: response.anthropic.base_url ?? '',
+      apiKey: '',
+      model: response.anthropic.model,
+      apiMode: null,
+      hasApiKey: response.anthropic.has_api_key,
+      maskedApiKey: response.anthropic.masked_api_key,
+    },
+  }
+}
+
+function serializeSettings(form: ChatSettingsForm): ChatSettingsDraft {
+  return {
+    defaults: {
+      active_provider: form.defaults.activeProvider,
+      system_prompt: form.defaults.systemPrompt,
+      temperature: Number(form.defaults.temperature) || 0.7,
+      max_output_tokens: Number(form.defaults.maxOutputTokens) || 512,
+      asr_model: form.defaults.asrModel,
+      asr_language: form.defaults.asrLanguage,
+      silence_timeout_ms: Number(form.defaults.silenceTimeoutMs) || 1200,
+      max_turn_seconds: Number(form.defaults.maxTurnSeconds) || 45,
+      live_captions: form.defaults.liveCaptions,
+      reply_voice: {
+        mode: form.defaults.replyVoice.mode,
+        language: form.defaults.replyVoice.language,
+        speaker: form.defaults.replyVoice.speaker,
+        instruct: form.defaults.replyVoice.instruct,
+        clone_profile_id: form.defaults.replyVoice.cloneProfileId || null,
+        clone_profile_label: form.defaults.replyVoice.cloneProfileLabel || null,
+        clone_audio_path: form.defaults.replyVoice.cloneAudioPath || null,
+        clone_reference_text: form.defaults.replyVoice.cloneReferenceText || null,
+        style: {
+          mood: form.defaults.replyVoice.style.mood,
+          emotion_intensity: form.defaults.replyVoice.style.emotionIntensity,
+          pace: form.defaults.replyVoice.style.pace,
+          energy: form.defaults.replyVoice.style.energy,
+          expressiveness: form.defaults.replyVoice.style.expressiveness,
+        },
+      },
+    },
+    openai_compatible: {
+      base_url: form.openaiCompatible.baseUrl || '',
+      api_key: form.openaiCompatible.apiKey,
+      model: form.openaiCompatible.model,
+      api_mode: form.openaiCompatible.apiMode ?? null,
+    },
+    gemini: {
+      base_url: form.gemini.baseUrl || '',
+      api_key: form.gemini.apiKey,
+      model: form.gemini.model,
+    },
+    anthropic: {
+      base_url: form.anthropic.baseUrl || '',
+      api_key: form.anthropic.apiKey,
+      model: form.anthropic.model,
+    },
+  }
+}
+
+function emptyChatSettings(defaultAsrModel = ''): ChatSettingsForm {
+  return {
+    defaults: {
+      activeProvider: 'openai_compatible',
+      systemPrompt: 'You are a concise, helpful voice assistant.',
+      temperature: '0.7',
+      maxOutputTokens: '512',
+      asrModel: defaultAsrModel,
+      asrLanguage: 'Auto',
+      silenceTimeoutMs: '1200',
+      maxTurnSeconds: '45',
+      liveCaptions: true,
+      replyVoice: {
+        mode: 'custom',
+        language: 'English',
+        speaker: 'Ryan',
+        instruct: '',
+        cloneProfileId: '',
+        cloneProfileLabel: '',
+        cloneAudioPath: '',
+        cloneReferenceText: '',
+        style: makeStyleControls(),
+      },
+    },
+    openaiCompatible: { baseUrl: '', apiKey: '', model: '', apiMode: null },
+    gemini: { baseUrl: '', apiKey: '', model: '', apiMode: null },
+    anthropic: { baseUrl: '', apiKey: '', model: '', apiMode: null },
+  }
+}
+
 function App() {
+  const [workspace, setWorkspace] = useState<Workspace>('tts')
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null)
   const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [chatSettings, setChatSettings] = useState<ChatSettingsForm>(emptyChatSettings())
+  const [providerTab, setProviderTab] = useState<ProviderId>('openai_compatible')
+  const [providerTest, setProviderTest] = useState<Record<ProviderId, ProviderTestResponse | null>>({
+    openai_compatible: null,
+    gemini: null,
+    anthropic: null,
+  })
+  const [settingsNotice, setSettingsNotice] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>('custom')
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(false)
@@ -319,37 +455,22 @@ function App() {
     instruct: '',
     style: makeStyleControls(),
     segments: [makeSegment()],
-    generation: {
-      temperature: '',
-      top_p: '',
-      max_new_tokens: '',
-      seed: '',
-    },
+    generation: { temperature: '', top_p: '', max_new_tokens: '', seed: '' },
   })
   const [designForm, setDesignForm] = useState<DesignFormState>({
     language: 'English',
     instruct: '',
     style: makeStyleControls(),
     segments: [makeSegment()],
-    generation: {
-      temperature: '',
-      top_p: '',
-      max_new_tokens: '',
-      seed: '',
-    },
+    generation: { temperature: '', top_p: '', max_new_tokens: '', seed: '' },
   })
   const [cloneForm, setCloneForm] = useState<CloneFormState>({
-    language: 'English',
+    language: 'Auto',
     refText: '',
     xVectorOnlyMode: false,
     referenceFile: null,
     segments: [makeSegment()],
-    generation: {
-      temperature: '',
-      top_p: '',
-      max_new_tokens: '',
-      seed: '',
-    },
+    generation: { temperature: '', top_p: '', max_new_tokens: '', seed: '' },
   })
   const [streamSettings, setStreamSettings] = useState<StreamSettings>({
     enabled: false,
@@ -357,16 +478,42 @@ function App() {
     streamingInterval: '0.32',
   })
   const [liveStream, setLiveStream] = useState<LiveStreamState>(makeLiveStreamState())
+  const [conversationStatus, setConversationStatus] = useState<ConversationStatus>('idle')
+  const [conversationMessages, setConversationMessages] = useState<ChatMessage[]>([])
+  const [liveCaption, setLiveCaption] = useState('')
+  const [typedMessage, setTypedMessage] = useState('')
+  const [fileUpload, setFileUpload] = useState<File | null>(null)
+  const [fileTranscript, setFileTranscript] = useState<AsrTranscriptionResponse | null>(null)
+  const [fileSendToChat, setFileSendToChat] = useState(false)
+  const [replyVoiceCloneDraft, setReplyVoiceCloneDraft] = useState<ReplyVoiceCloneDraft>({
+    file: null,
+    label: '',
+    referenceText: '',
+    pending: false,
+    preparedProfile: null,
+  })
+  const [conversationNotice, setConversationNotice] = useState<string | null>(null)
+  const [micActive, setMicActive] = useState(false)
+
   const playerRef = useRef<StreamAudioPlayer | null>(null)
+  const chatPlayerRef = useRef<StreamAudioPlayer | null>(null)
+  const captureRef = useRef<AudioCapture | null>(null)
+  const socketRef = useRef<WebSocket | null>(null)
+  const socketPromiseRef = useRef<Promise<WebSocket> | null>(null)
+  const listeningEnabledRef = useRef(false)
+  const speechDetectedRef = useRef(false)
+  const silenceStartedAtRef = useRef<number | null>(null)
+  const speechStartedAtRef = useRef<number | null>(null)
 
   useEffect(() => {
     let alive = true
 
     async function loadBootData() {
       try {
-        const [capabilitiesResponse, healthResponse] = await Promise.all([
+        const [capabilitiesResponse, healthResponse, chatSettingsResponse] = await Promise.all([
           fetchCapabilities(),
           fetchHealth(),
+          fetchChatSettings(),
         ])
 
         if (!alive) {
@@ -375,6 +522,10 @@ function App() {
 
         setCapabilities(capabilitiesResponse)
         setHealth(healthResponse)
+        const mappedSettings = mapSettingsResponseToForm(chatSettingsResponse)
+        setChatSettings(mappedSettings)
+        setProviderTab(mappedSettings.defaults.activeProvider)
+
         setCustomForm((current) => ({
           ...current,
           language: capabilitiesResponse.languages.includes(current.language)
@@ -417,24 +568,65 @@ function App() {
   useEffect(() => {
     return () => {
       void playerRef.current?.stop()
-      playerRef.current = null
+      void chatPlayerRef.current?.stop()
+      void captureRef.current?.stop()
+      socketRef.current?.close()
     }
   }, [])
 
+  useEffect(() => {
+    const replyVoice = chatSettings.defaults.replyVoice
+    if (replyVoice.cloneProfileId && replyVoice.cloneAudioPath) {
+      setReplyVoiceCloneDraft((current) => ({
+        ...current,
+        label: current.label || replyVoice.cloneProfileLabel,
+        referenceText: current.referenceText || replyVoice.cloneReferenceText,
+        preparedProfile: {
+          id: replyVoice.cloneProfileId,
+          label: replyVoice.cloneProfileLabel,
+          language: replyVoice.language,
+          reference_text: replyVoice.cloneReferenceText,
+          audio_file_name: replyVoice.cloneAudioPath.split('/').pop() ?? 'reference.wav',
+          audio_path: replyVoice.cloneAudioPath,
+          created_at: new Date().toISOString(),
+        },
+      }))
+      return
+    }
+
+    setReplyVoiceCloneDraft((current) => ({
+      ...current,
+      preparedProfile: null,
+    }))
+  }, [
+    chatSettings.defaults.replyVoice.cloneAudioPath,
+    chatSettings.defaults.replyVoice.cloneProfileId,
+    chatSettings.defaults.replyVoice.cloneProfileLabel,
+    chatSettings.defaults.replyVoice.cloneReferenceText,
+    chatSettings.defaults.replyVoice.language,
+  ])
+
   const activeRun = runs.find((run) => run.run_id === activeRunId) ?? runs[0] ?? null
   const modeMeta = capabilities?.modes.find((item) => item.id === mode)
+  const currentProviderConfig = useMemo(() => {
+    if (providerTab === 'openai_compatible') {
+      return chatSettings.openaiCompatible
+    }
+    if (providerTab === 'gemini') {
+      return chatSettings.gemini
+    }
+    return chatSettings.anthropic
+  }, [chatSettings, providerTab])
 
   function updateSegments(targetMode: Mode, updater: (segments: Segment[]) => Segment[]) {
     if (targetMode === 'custom') {
       setCustomForm((current) => ({ ...current, segments: updater(current.segments) }))
       return
     }
-
     if (targetMode === 'design') {
       setDesignForm((current) => ({ ...current, segments: updater(current.segments) }))
       return
     }
-
     setCloneForm((current) => ({ ...current, segments: updater(current.segments) }))
   }
 
@@ -443,12 +635,7 @@ function App() {
   }
 
   function removeSegment(segmentId: string) {
-    updateSegments(mode, (segments) => {
-      if (segments.length === 1) {
-        return segments
-      }
-      return segments.filter((segment) => segment.id !== segmentId)
-    })
+    updateSegments(mode, (segments) => (segments.length === 1 ? segments : segments.filter((segment) => segment.id !== segmentId)))
   }
 
   function updateSegment(segmentId: string, value: string) {
@@ -474,7 +661,6 @@ function App() {
     if (!playerRef.current) {
       playerRef.current = new StreamAudioPlayer()
     }
-
     await playerRef.current.start()
     setLiveStream((current) => ({ ...current, playbackStarted: true }))
   }
@@ -484,6 +670,172 @@ function App() {
       setHealth(await fetchHealth())
     } catch {
       // Ignore transient refresh failures after generation.
+    }
+  }
+
+  function upsertAssistantDraft(text: string, state: 'draft' | 'final') {
+    setConversationMessages((current) => {
+      const last = current[current.length - 1]
+      if (last?.role === 'assistant') {
+        return [...current.slice(0, -1), { ...last, text, state }]
+      }
+      return [...current, { id: makeId(), role: 'assistant', text, state }]
+    })
+  }
+
+  function setProviderConfig(provider: ProviderId, updater: (value: ChatSettingsForm[typeof provider extends never ? never : 'openaiCompatible']) => object) {
+    setChatSettings((current) => {
+      if (provider === 'openai_compatible') {
+        return { ...current, openaiCompatible: updater(current.openaiCompatible) as ChatSettingsForm['openaiCompatible'] }
+      }
+      if (provider === 'gemini') {
+        return { ...current, gemini: updater(current.gemini) as ChatSettingsForm['gemini'] }
+      }
+      return { ...current, anthropic: updater(current.anthropic) as ChatSettingsForm['anthropic'] }
+    })
+  }
+
+  async function ensureConversationSocket() {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({ type: 'session.configure', settings: serializeSettings(chatSettings) }),
+      )
+      return socketRef.current
+    }
+
+    if (socketPromiseRef.current) {
+      return socketPromiseRef.current
+    }
+
+    const socketPromise = new Promise<WebSocket>((resolve, reject) => {
+      const socket = createConversationSocket()
+      socketRef.current = socket
+      let settled = false
+      const timeoutId = window.setTimeout(() => {
+        if (settled) {
+          return
+        }
+        settled = true
+        socket.close()
+        socketRef.current = null
+        socketPromiseRef.current = null
+        reject(new Error('Unable to connect to the conversation server. Check that the local API is running and refresh the page.'))
+      }, 5000)
+
+      const settleFailure = (message: string) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        window.clearTimeout(timeoutId)
+        socketRef.current = null
+        socketPromiseRef.current = null
+        reject(new Error(message))
+      }
+
+      socket.onopen = () => {
+        settled = true
+        window.clearTimeout(timeoutId)
+        socket.send(JSON.stringify({ type: 'session.configure', settings: serializeSettings(chatSettings) }))
+        resolve(socket)
+      }
+
+      socket.onerror = () => {
+        settleFailure('Unable to open the conversation socket. Check the local frontend proxy or backend websocket path.')
+      }
+
+      socket.onclose = (event) => {
+        if (!settled) {
+          settleFailure(
+            event.code === 1006
+              ? 'The conversation socket closed before it connected. Refresh the page and try again.'
+              : `The conversation socket closed before it connected (code ${event.code}).`,
+          )
+          return
+        }
+        socketRef.current = null
+        socketPromiseRef.current = null
+        if (event.code !== 1000) {
+          void captureRef.current?.stop()
+          captureRef.current = null
+          setConversationNotice(
+            event.code === 1006
+              ? 'The conversation socket dropped unexpectedly. Refresh the page and try again.'
+              : `The conversation socket closed unexpectedly (code ${event.code}).`,
+          )
+          setConversationStatus('idle')
+          setMicActive(false)
+          listeningEnabledRef.current = false
+        }
+      }
+
+      socket.onmessage = (messageEvent) => {
+        const event = JSON.parse(String(messageEvent.data)) as ConversationServerEvent
+        void handleConversationEvent(event)
+      }
+    })
+
+    socketPromiseRef.current = socketPromise
+    return socketPromise
+  }
+
+  async function handleConversationEvent(event: ConversationServerEvent) {
+    if (event.type === 'session.ready') {
+      const mappedSettings = mapSettingsResponseToForm(event.settings)
+      setChatSettings(mappedSettings)
+      setProviderTab(mappedSettings.defaults.activeProvider)
+      setConversationNotice('Voice chat connected.')
+      return
+    }
+
+    if (event.type === 'asr.partial') {
+      setLiveCaption(event.text)
+      return
+    }
+
+    if (event.type === 'asr.final') {
+      setLiveCaption('')
+      setConversationMessages((current) => [
+        ...current,
+        { id: makeId(), role: 'user', text: event.text, state: 'final' },
+      ])
+      return
+    }
+
+    if (event.type === 'llm.status') {
+      setConversationStatus(event.phase)
+      if (event.phase === 'listening' && micActive) {
+        listeningEnabledRef.current = true
+        speechDetectedRef.current = false
+        silenceStartedAtRef.current = null
+        speechStartedAtRef.current = null
+      }
+      return
+    }
+
+    if (event.type === 'llm.delta') {
+      upsertAssistantDraft(event.text, 'draft')
+      return
+    }
+
+    if (event.type === 'assistant.complete') {
+      upsertAssistantDraft(event.text, 'final')
+      return
+    }
+
+    if (event.type === 'tts.audio_chunk') {
+      if (!chatPlayerRef.current) {
+        chatPlayerRef.current = new StreamAudioPlayer(0.35)
+      }
+      await chatPlayerRef.current.enqueueBase64Pcm16(event.pcm16_base64, event.sample_rate, {
+        autoplay: true,
+        forceStart: event.is_final_chunk,
+      })
+      return
+    }
+
+    if (event.type === 'error') {
+      setConversationNotice(event.detail)
     }
   }
 
@@ -516,14 +868,9 @@ function App() {
 
     const applyEvent = async (event: StreamRunEvent) => {
       if (event.type === 'run_start') {
-        setLiveStream((current) => ({
-          ...current,
-          run: event.run,
-          message: 'Generating live audio…',
-        }))
+        setLiveStream((current) => ({ ...current, run: event.run, message: 'Generating live audio…' }))
         return
       }
-
       if (event.type === 'segment_start') {
         setLiveStream((current) => ({
           ...current,
@@ -542,17 +889,14 @@ function App() {
         }))
         return
       }
-
       if (event.type === 'audio_chunk') {
         if (!playerRef.current) {
           playerRef.current = new StreamAudioPlayer()
         }
-
         await playerRef.current.enqueueBase64Pcm16(event.pcm16_base64, event.sample_rate, {
           autoplay,
           forceStart: event.is_final_chunk,
         })
-
         setLiveStream((current) => ({
           ...current,
           chunksReceived: current.chunksReceived + 1,
@@ -563,9 +907,7 @@ function App() {
               ? {
                   ...segment,
                   chunkCount: segment.chunkCount + 1,
-                  bufferedSeconds: Number(
-                    (segment.bufferedSeconds + event.duration_seconds).toFixed(2),
-                  ),
+                  bufferedSeconds: Number((segment.bufferedSeconds + event.duration_seconds).toFixed(2)),
                   sampleRate: event.sample_rate,
                   status: event.is_final_chunk ? 'complete' : 'streaming',
                 }
@@ -574,24 +916,16 @@ function App() {
         }))
         return
       }
-
       if (event.type === 'segment_complete') {
         setLiveStream((current) => ({
           ...current,
           segments: current.segments.map((segment) =>
-            segment.segmentIndex === event.segment_index
-              ? {
-                  ...segment,
-                  status: 'complete',
-                  clip: event.clip,
-                }
-              : segment,
+            segment.segmentIndex === event.segment_index ? { ...segment, status: 'complete', clip: event.clip } : segment,
           ),
           message: `Segment ${event.segment_index + 1} ready.`,
         }))
         return
       }
-
       if (event.type === 'run_complete') {
         completedRun = event.run
         startTransition(() => {
@@ -606,7 +940,6 @@ function App() {
         }))
         return
       }
-
       if (event.type === 'error') {
         throw new Error(event.detail)
       }
@@ -637,7 +970,6 @@ function App() {
       if (!cloneForm.referenceFile) {
         throw new Error('Add a reference clip before running voice clone.')
       }
-
       const payload = new FormData()
       payload.append('segments', JSON.stringify(cloneForm.segments.map((segment) => segment.text)))
       payload.append('language', cloneForm.language)
@@ -646,7 +978,6 @@ function App() {
       payload.append('generation', JSON.stringify(compactGenerationSettings(cloneForm.generation)))
       payload.append('streaming_interval', String(streamingInterval))
       payload.append('ref_audio', cloneForm.referenceFile)
-
       for await (const event of generateRunStream('clone', payload)) {
         await applyEvent(event)
       }
@@ -688,7 +1019,6 @@ function App() {
         if (!cloneForm.referenceFile) {
           throw new Error('Add a reference clip before running voice clone.')
         }
-
         const payload = new FormData()
         payload.append('segments', JSON.stringify(cloneForm.segments.map((segment) => segment.text)))
         payload.append('language', cloneForm.language)
@@ -711,6 +1041,248 @@ function App() {
     }
   }
 
+  async function handleSaveSettings() {
+    setSettingsNotice(null)
+    setError(null)
+    try {
+      const saved = await saveChatSettings(serializeSettings(chatSettings))
+      const mappedSettings = mapSettingsResponseToForm(saved)
+      setChatSettings(mappedSettings)
+      setProviderTab(mappedSettings.defaults.activeProvider)
+      setSettingsNotice('Settings saved on the local server.')
+      const socket = socketRef.current
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'session.configure', settings: serializeSettings(mappedSettings) }))
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save settings.')
+    }
+  }
+
+  async function handleProviderTest() {
+    setSettingsNotice(null)
+    try {
+      const draft =
+        providerTab === 'openai_compatible'
+          ? chatSettings.openaiCompatible
+          : providerTab === 'gemini'
+            ? chatSettings.gemini
+            : chatSettings.anthropic
+      const result = await testChatProvider(providerTab, {
+        base_url: draft.baseUrl,
+        api_key: draft.apiKey,
+        model: draft.model,
+        api_mode: providerTab === 'openai_compatible' ? draft.apiMode ?? null : null,
+      } as never)
+      setProviderTest((current) => ({ ...current, [providerTab]: result }))
+      if (result.success && providerTab === 'openai_compatible' && result.api_mode) {
+        setChatSettings((current) => ({
+          ...current,
+          openaiCompatible: { ...current.openaiCompatible, apiMode: result.api_mode },
+        }))
+      }
+    } catch (testError) {
+      setProviderTest((current) => ({
+        ...current,
+        [providerTab]: {
+          success: false,
+          provider: providerTab,
+          resolved_model: null,
+          latency_ms: null,
+          streaming_supported: false,
+          api_mode: null,
+          error: testError instanceof Error ? testError.message : 'Provider test failed.',
+        },
+      }))
+    }
+  }
+
+  async function startConversation() {
+    setConversationNotice(null)
+    try {
+      const socket = await ensureConversationSocket()
+      if (micActive) {
+        return
+      }
+
+      const capture = new AudioCapture()
+      captureRef.current = capture
+      listeningEnabledRef.current = true
+      speechDetectedRef.current = false
+      silenceStartedAtRef.current = null
+      speechStartedAtRef.current = null
+      setMicActive(true)
+      setConversationStatus('listening')
+
+      await capture.start({
+        targetSampleRate: capabilities?.conversation.input_sample_rate ?? 16000,
+        chunkDurationMs: 250,
+        onChunk: ({ pcm16Base64, sampleRate, rms }) => {
+          if (!listeningEnabledRef.current || socket.readyState !== WebSocket.OPEN) {
+            return
+          }
+          socket.send(JSON.stringify({ type: 'audio.append', pcm16_base64: pcm16Base64, sample_rate: sampleRate }))
+
+          if (rms > 0.018) {
+            if (!speechDetectedRef.current) {
+              speechStartedAtRef.current = Date.now()
+            }
+            speechDetectedRef.current = true
+            silenceStartedAtRef.current = null
+          } else {
+            if (!speechDetectedRef.current) {
+              return
+            }
+
+            if (silenceStartedAtRef.current === null) {
+              silenceStartedAtRef.current = Date.now()
+            }
+          }
+
+          const silenceTimeout = Number(chatSettings.defaults.silenceTimeoutMs) || 1200
+          const maxTurnMs = (Number(chatSettings.defaults.maxTurnSeconds) || 45) * 1000
+          const silenceExceeded =
+            silenceStartedAtRef.current !== null && Date.now() - silenceStartedAtRef.current >= silenceTimeout
+          const maxTurnExceeded =
+            speechStartedAtRef.current !== null && Date.now() - speechStartedAtRef.current >= maxTurnMs
+
+          if (silenceExceeded || maxTurnExceeded) {
+            listeningEnabledRef.current = false
+            speechDetectedRef.current = false
+            silenceStartedAtRef.current = null
+            speechStartedAtRef.current = null
+            setConversationStatus('transcribing')
+            socket.send(JSON.stringify({ type: 'turn.commit' }))
+          }
+        },
+      })
+    } catch (conversationError) {
+      listeningEnabledRef.current = false
+      speechDetectedRef.current = false
+      silenceStartedAtRef.current = null
+      speechStartedAtRef.current = null
+      await captureRef.current?.stop()
+      captureRef.current = null
+      setMicActive(false)
+      setConversationStatus('idle')
+      setConversationNotice(
+        conversationError instanceof Error ? conversationError.message : 'Unable to start the microphone.',
+      )
+    }
+  }
+
+  async function stopConversationListening() {
+    const socket = socketRef.current
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'turn.commit' }))
+    }
+    listeningEnabledRef.current = false
+    speechDetectedRef.current = false
+    silenceStartedAtRef.current = null
+    speechStartedAtRef.current = null
+    await captureRef.current?.stop()
+    captureRef.current = null
+    setMicActive(false)
+    setConversationStatus('idle')
+  }
+
+  async function interruptAssistant() {
+    socketRef.current?.send(JSON.stringify({ type: 'assistant.stop' }))
+    await chatPlayerRef.current?.stop()
+    chatPlayerRef.current = null
+    setConversationStatus(micActive ? 'listening' : 'idle')
+    listeningEnabledRef.current = micActive
+  }
+
+  async function sendTypedMessage(text: string) {
+    const cleaned = text.trim()
+    if (!cleaned) {
+      return
+    }
+    try {
+      const socket = await ensureConversationSocket()
+      setConversationMessages((current) => [
+        ...current,
+        { id: makeId(), role: 'user', text: cleaned, state: 'final' },
+      ])
+      setTypedMessage('')
+      setConversationStatus('thinking')
+      socket.send(JSON.stringify({ type: 'text.submit', text: cleaned }))
+    } catch (submitError) {
+      setConversationNotice(submitError instanceof Error ? submitError.message : 'Unable to send the message.')
+    }
+  }
+
+  async function handleFileTranscription() {
+    if (!fileUpload) {
+      setConversationNotice('Choose an audio file before transcribing.')
+      return
+    }
+    try {
+      const transcript = await transcribeAsrFile({
+        file: fileUpload,
+        modelId: chatSettings.defaults.asrModel,
+        language: chatSettings.defaults.asrLanguage,
+        sendToChat: fileSendToChat,
+      })
+      setFileTranscript(transcript)
+      if (fileSendToChat && transcript.text) {
+        await sendTypedMessage(transcript.text)
+      }
+    } catch (transcriptionError) {
+      setConversationNotice(
+        transcriptionError instanceof Error ? transcriptionError.message : 'Unable to transcribe the file.',
+      )
+    }
+  }
+
+  async function handlePrepareReplyVoiceClone() {
+    if (!replyVoiceCloneDraft.file) {
+      setConversationNotice('Choose a reference voice clip before preparing the cloned reply voice.')
+      return
+    }
+
+    setConversationNotice(null)
+    setReplyVoiceCloneDraft((current) => ({ ...current, pending: true }))
+    try {
+      const profile = await createReplyVoiceCloneProfile({
+        file: replyVoiceCloneDraft.file,
+        language: chatSettings.defaults.replyVoice.language,
+        label: replyVoiceCloneDraft.label || replyVoiceCloneDraft.file.name.replace(/\.[^.]+$/, ''),
+        referenceText: replyVoiceCloneDraft.referenceText,
+      })
+
+      setReplyVoiceCloneDraft((current) => ({
+        ...current,
+        pending: false,
+        preparedProfile: profile,
+        referenceText: profile.reference_text,
+        label: profile.label,
+      }))
+      setChatSettings((current) => ({
+        ...current,
+        defaults: {
+          ...current.defaults,
+          replyVoice: {
+            ...current.defaults.replyVoice,
+            mode: 'clone',
+            cloneProfileId: profile.id,
+            cloneProfileLabel: profile.label,
+            cloneAudioPath: profile.audio_path,
+            cloneReferenceText: profile.reference_text,
+            language: profile.language,
+          },
+        },
+      }))
+      setConversationNotice(`Prepared cloned reply voice: ${profile.label}.`)
+    } catch (cloneError) {
+      setReplyVoiceCloneDraft((current) => ({ ...current, pending: false }))
+      setConversationNotice(
+        cloneError instanceof Error ? cloneError.message : 'Unable to prepare the cloned reply voice.',
+      )
+    }
+  }
+
   function renderSegments(segments: Segment[]) {
     return segments.map((segment, index) => (
       <div className="segment-row" key={segment.id}>
@@ -725,76 +1297,42 @@ function App() {
           placeholder="Paste text to synthesize."
           rows={3}
         />
-        <button
-          className="ghost-button"
-          type="button"
-          onClick={() => removeSegment(segment.id)}
-          disabled={segments.length === 1}
-        >
+        <button className="ghost-button" type="button" onClick={() => removeSegment(segment.id)} disabled={segments.length === 1}>
           Remove segment
         </button>
       </div>
     ))
   }
 
-  function renderGenerationControls(
-    values: Record<string, string>,
-    onChange: (key: string, value: string) => void,
-  ) {
+  function renderGenerationControls(values: Record<string, string>, onChange: (key: string, value: string) => void) {
     return (
       <details className="advanced-panel">
         <summary>Advanced generation</summary>
         <div className="advanced-grid">
-          <label className="field">
-            <span className="field-label">Temperature</span>
-            <input
-              className="text-input"
-              inputMode="decimal"
-              value={values.temperature}
-              onChange={(event) => onChange('temperature', event.target.value)}
-              placeholder="0.7"
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">Top P</span>
-            <input
-              className="text-input"
-              inputMode="decimal"
-              value={values.top_p}
-              onChange={(event) => onChange('top_p', event.target.value)}
-              placeholder="0.9"
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">Max new tokens</span>
-            <input
-              className="text-input"
-              inputMode="numeric"
-              value={values.max_new_tokens}
-              onChange={(event) => onChange('max_new_tokens', event.target.value)}
-              placeholder="2048"
-            />
-          </label>
-          <label className="field">
-            <span className="field-label">Seed</span>
-            <input
-              className="text-input"
-              inputMode="numeric"
-              value={values.seed}
-              onChange={(event) => onChange('seed', event.target.value)}
-              placeholder="Optional"
-            />
-          </label>
+          {[
+            ['temperature', 'Temperature', '0.7', 'decimal'],
+            ['top_p', 'Top P', '0.9', 'decimal'],
+            ['max_new_tokens', 'Max new tokens', '2048', 'numeric'],
+            ['seed', 'Seed', 'Optional', 'numeric'],
+          ].map(([key, label, placeholder, inputMode]) => (
+            <label className="field" key={key}>
+              <span className="field-label">{label}</span>
+              <input
+                className="text-input"
+                inputMode={inputMode as 'decimal' | 'numeric'}
+                value={values[key] ?? ''}
+                onChange={(event) => onChange(key, event.target.value)}
+                placeholder={placeholder}
+              />
+            </label>
+          ))}
         </div>
       </details>
     )
   }
 
-  function renderStyleControls(
-    values: StyleControls,
-    onChange: (key: keyof StyleControls, value: string) => void,
-  ) {
-    const stylePreview = composeInstruction('', values, mode === 'design' ? 'design' : 'custom')
+  function renderStyleControls(values: StyleControls, onChange: (key: keyof StyleControls, value: string) => void, styleMode: 'custom' | 'design') {
+    const stylePreview = composeInstruction('', values, styleMode)
 
     return (
       <section className="style-panel">
@@ -806,84 +1344,30 @@ function App() {
             </p>
           </div>
         </div>
-
         <div className="style-grid">
-          <label className="field">
-            <span className="field-label">Mood</span>
-            <select
-              className="text-input"
-              value={values.mood}
-              onChange={(event) => onChange('mood', event.target.value)}
-            >
-              {MOOD_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            <span className="field-label">Emotion intensity</span>
-            <select
-              className="text-input"
-              value={values.emotionIntensity}
-              onChange={(event) => onChange('emotionIntensity', event.target.value)}
-            >
-              {EMOTION_INTENSITY_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            <span className="field-label">Pace</span>
-            <select
-              className="text-input"
-              value={values.pace}
-              onChange={(event) => onChange('pace', event.target.value)}
-            >
-              {PACE_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            <span className="field-label">Energy</span>
-            <select
-              className="text-input"
-              value={values.energy}
-              onChange={(event) => onChange('energy', event.target.value)}
-            >
-              {ENERGY_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field style-grid-full">
-            <span className="field-label">Expressiveness</span>
-            <select
-              className="text-input"
-              value={values.expressiveness}
-              onChange={(event) => onChange('expressiveness', event.target.value)}
-            >
-              {EXPRESSIVENESS_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {[
+            { key: 'mood', label: 'Mood', options: MOOD_OPTIONS },
+            { key: 'emotionIntensity', label: 'Emotion intensity', options: EMOTION_INTENSITY_OPTIONS },
+            { key: 'pace', label: 'Pace', options: PACE_OPTIONS },
+            { key: 'energy', label: 'Energy', options: ENERGY_OPTIONS },
+            { key: 'expressiveness', label: 'Expressiveness', options: EXPRESSIVENESS_OPTIONS },
+          ].map(({ key, label, options }) => (
+            <label className={`field ${key === 'expressiveness' ? 'style-grid-full' : ''}`} key={key}>
+              <span className="field-label">{label}</span>
+              <select
+                className="text-input"
+                value={values[key as keyof StyleControls]}
+                onChange={(event) => onChange(key as keyof StyleControls, event.target.value)}
+              >
+                {options.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
         </div>
-
         <p className="style-preview">{stylePreview}</p>
       </section>
     )
@@ -895,23 +1379,17 @@ function App() {
         <div className="style-panel-head">
           <div>
             <p className="mode-label">Realtime streaming</p>
-            <p className="style-panel-copy">
-              Start playback from buffered chunks while Qwen is still generating the rest.
-            </p>
+            <p className="style-panel-copy">Start playback from buffered chunks while Qwen is still generating the rest.</p>
           </div>
         </div>
-
         <label className="toggle">
           <input
             type="checkbox"
             checked={streamSettings.enabled}
-            onChange={(event) =>
-              setStreamSettings((current) => ({ ...current, enabled: event.target.checked }))
-            }
+            onChange={(event) => setStreamSettings((current) => ({ ...current, enabled: event.target.checked }))}
           />
           <span>Enable live audio streaming</span>
         </label>
-
         {streamSettings.enabled ? (
           <div className="style-grid">
             <label className="field">
@@ -920,23 +1398,15 @@ function App() {
                 className="text-input"
                 inputMode="decimal"
                 value={streamSettings.streamingInterval}
-                onChange={(event) =>
-                  setStreamSettings((current) => ({
-                    ...current,
-                    streamingInterval: event.target.value,
-                  }))
-                }
+                onChange={(event) => setStreamSettings((current) => ({ ...current, streamingInterval: event.target.value }))}
                 placeholder="0.32"
               />
             </label>
-
             <label className="toggle stream-toggle">
               <input
                 type="checkbox"
                 checked={streamSettings.autoplay}
-                onChange={(event) =>
-                  setStreamSettings((current) => ({ ...current, autoplay: event.target.checked }))
-                }
+                onChange={(event) => setStreamSettings((current) => ({ ...current, autoplay: event.target.checked }))}
               />
               <span>Autoplay when buffer is ready</span>
             </label>
@@ -956,9 +1426,7 @@ function App() {
         <div className="live-stream-head">
           <div>
             <p className="eyebrow">Live stream</p>
-            <p className="run-title">
-              {liveStream.mode ? `${liveStream.mode} stream` : 'Streaming generation'}
-            </p>
+            <p className="run-title">{liveStream.mode ? `${liveStream.mode} stream` : 'Streaming generation'}</p>
             <p className="clip-copy">{liveStream.message}</p>
           </div>
           <div className="live-stream-actions">
@@ -974,7 +1442,6 @@ function App() {
             ) : null}
           </div>
         </div>
-
         <dl className="clip-meta">
           <div>
             <dt>Status</dt>
@@ -989,106 +1456,52 @@ function App() {
             <dd>{liveStream.bufferedSeconds}s</dd>
           </div>
           <div>
-            <dt>Playback</dt>
-            <dd>{liveStream.playbackStarted ? 'active' : 'waiting'}</dd>
+            <dt>Mode</dt>
+            <dd>{liveStream.mode ?? 'N/A'}</dd>
           </div>
         </dl>
-
-        <div className="live-segments">
-          {liveStream.segments.map((segment) => (
-            <article className="history-item live-segment" key={`live-${segment.segmentIndex}`}>
-              <span>
-                Segment {segment.segmentIndex + 1} · {segment.status}
-              </span>
-              <span>{segment.chunkCount} chunks</span>
-              <span>{segment.bufferedSeconds}s received</span>
-              <p className="clip-copy">{segment.text}</p>
-              {segment.clip ? (
-                <a className="ghost-button" href={segment.clip.audio_url} download={segment.clip.file_name}>
-                  Download segment
-                </a>
-              ) : null}
-            </article>
-          ))}
-        </div>
       </section>
     )
   }
 
-  function renderClip(clip: AudioClip) {
-    const waveformBars = buildWaveformBars(clip.id)
-
+  function renderTtsControls() {
     return (
-      <article className="clip-card" key={clip.id}>
-        <div className="clip-head">
-          <div>
-            <p className="clip-name">{clip.file_name}</p>
-            <p className="clip-copy">{clip.text}</p>
-          </div>
-          <a className="ghost-button" href={clip.audio_url} download={clip.file_name}>
-            Download
-          </a>
-        </div>
-        <div className="waveform" aria-hidden="true">
-          {waveformBars.map((height, index) => (
-            <span key={`${clip.id}-${index}`} style={{ height }} />
-          ))}
-        </div>
-        <audio className="audio-player" controls src={clip.audio_url}>
-          Your browser does not support the audio element.
-        </audio>
-        <dl className="clip-meta">
-          <div>
-            <dt>Language</dt>
-            <dd>{clip.language}</dd>
-          </div>
-          <div>
-            <dt>Sample rate</dt>
-            <dd>{clip.sample_rate} Hz</dd>
-          </div>
-          <div>
-            <dt>Duration</dt>
-            <dd>{clip.duration_seconds}s</dd>
-          </div>
-          {clip.speaker ? (
-            <div>
-              <dt>Speaker</dt>
-              <dd>{clip.speaker}</dd>
-            </div>
-          ) : null}
-        </dl>
-      </article>
-    )
-  }
-
-  if (loading) {
-    return <main className="shell loading-state">Loading local Qwen3-TTS lab…</main>
-  }
-
-  return (
-    <main className="shell">
-      <section className="panel panel-controls">
-        <header className="hero">
+      <>
+        <div className="hero">
           <p className="eyebrow">Local speech evaluation</p>
           <h1>Qwen3-TTS Lab</h1>
-          <p className="lead">
-            Switch between preset voices, natural-language voice design, and voice cloning without
-            leaving the same session.
-          </p>
-        </header>
+          <p className="lead">Switch between preset voices, natural-language voice design, and voice cloning without leaving the same session.</p>
+        </div>
 
         <div className="status-strip">
-          <span>Device: {health?.selected_device ?? 'unknown'}</span>
+          <span>Device: {health?.selected_device ?? '—'}</span>
           <span>Active mode: {health?.active_mode ?? 'idle'}</span>
         </div>
 
-        <div className="tabs" role="tablist" aria-label="Generation modes">
+        <div className="workspace-tabs">
+          <button className={workspace === 'tts' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('tts')}>
+            TTS Lab
+          </button>
+          <button className={workspace === 'chat' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('chat')}>
+            Voice Chat
+          </button>
+        </div>
+
+        <div className="tabs">
           {capabilities?.modes.map((item) => (
             <button
               key={item.id}
-              className={`tab ${item.id === mode ? 'tab-active' : ''}`}
+              className={item.id === mode ? 'tab tab-active' : 'tab'}
               type="button"
-              onClick={() => setMode(item.id)}
+              onClick={() => {
+                setMode(item.id)
+                if (item.id === 'clone') {
+                  setCloneForm((current) => ({
+                    ...current,
+                    language: current.language === 'English' ? 'Auto' : current.language,
+                  }))
+                }
+              }}
             >
               {item.label}
             </button>
@@ -1097,22 +1510,16 @@ function App() {
 
         <section className="mode-summary">
           <p className="mode-label">{modeMeta?.label}</p>
-          <p>{modeMeta?.description}</p>
-          <code>{modeMeta?.checkpoint}</code>
+          <p className="lead">{modeMeta?.description}</p>
+          <p className="hint">{modeMeta?.checkpoint}</p>
         </section>
 
-        <div className="editor">
+        <section className="editor">
           {mode === 'custom' ? (
             <>
               <label className="field">
                 <span className="field-label">Language</span>
-                <select
-                  className="text-input"
-                  value={customForm.language}
-                  onChange={(event) =>
-                    setCustomForm((current) => ({ ...current, language: event.target.value }))
-                  }
-                >
+                <select className="text-input" value={customForm.language} onChange={(event) => setCustomForm((current) => ({ ...current, language: event.target.value }))}>
                   {capabilities?.languages.map((language) => (
                     <option key={language} value={language}>
                       {language}
@@ -1122,13 +1529,7 @@ function App() {
               </label>
               <label className="field">
                 <span className="field-label">Speaker</span>
-                <select
-                  className="text-input"
-                  value={customForm.speaker}
-                  onChange={(event) =>
-                    setCustomForm((current) => ({ ...current, speaker: event.target.value }))
-                  }
-                >
+                <select className="text-input" value={customForm.speaker} onChange={(event) => setCustomForm((current) => ({ ...current, speaker: event.target.value }))}>
                   {capabilities?.speakers.map((speaker) => (
                     <option key={speaker.id} value={speaker.id}>
                       {speaker.name}
@@ -1136,35 +1537,13 @@ function App() {
                   ))}
                 </select>
               </label>
-              <p className="hint">
-                {capabilities?.speakers.find((speaker) => speaker.id === customForm.speaker)
-                  ?.description ?? ''}
-              </p>
-              {renderStyleControls(customForm.style, (key, value) =>
-                setCustomForm((current) => ({
-                  ...current,
-                  style: { ...current.style, [key]: value },
-                }))
-              )}
               <label className="field">
                 <span className="field-label">Additional instruction</span>
-                <textarea
-                  className="text-input"
-                  rows={3}
-                  value={customForm.instruct}
-                  onChange={(event) =>
-                    setCustomForm((current) => ({ ...current, instruct: event.target.value }))
-                  }
-                  placeholder="Optional extra guidance beyond the mood controls."
-                />
+                <textarea className="text-input segment-input" value={customForm.instruct} onChange={(event) => setCustomForm((current) => ({ ...current, instruct: event.target.value }))} rows={3} />
               </label>
+              {renderStyleControls(customForm.style, (key, value) => setCustomForm((current) => ({ ...current, style: { ...current.style, [key]: value } })), 'custom')}
               {renderSegments(customForm.segments)}
-              {renderGenerationControls(customForm.generation, (key, value) =>
-                setCustomForm((current) => ({
-                  ...current,
-                  generation: { ...current.generation, [key]: value },
-                }))
-              )}
+              {renderGenerationControls(customForm.generation, (key, value) => setCustomForm((current) => ({ ...current, generation: { ...current.generation, [key]: value } })))}
             </>
           ) : null}
 
@@ -1172,13 +1551,7 @@ function App() {
             <>
               <label className="field">
                 <span className="field-label">Language</span>
-                <select
-                  className="text-input"
-                  value={designForm.language}
-                  onChange={(event) =>
-                    setDesignForm((current) => ({ ...current, language: event.target.value }))
-                  }
-                >
+                <select className="text-input" value={designForm.language} onChange={(event) => setDesignForm((current) => ({ ...current, language: event.target.value }))}>
                   {capabilities?.languages.map((language) => (
                     <option key={language} value={language}>
                       {language}
@@ -1188,29 +1561,11 @@ function App() {
               </label>
               <label className="field">
                 <span className="field-label">Voice persona</span>
-                <textarea
-                  className="text-input"
-                  rows={4}
-                  value={designForm.instruct}
-                  onChange={(event) =>
-                    setDesignForm((current) => ({ ...current, instruct: event.target.value }))
-                  }
-                  placeholder="Describe the target timbre, persona, age, accent, or speaking style."
-                />
+                <textarea className="text-input segment-input" value={designForm.instruct} onChange={(event) => setDesignForm((current) => ({ ...current, instruct: event.target.value }))} rows={4} />
               </label>
-              {renderStyleControls(designForm.style, (key, value) =>
-                setDesignForm((current) => ({
-                  ...current,
-                  style: { ...current.style, [key]: value },
-                }))
-              )}
+              {renderStyleControls(designForm.style, (key, value) => setDesignForm((current) => ({ ...current, style: { ...current.style, [key]: value } })), 'design')}
               {renderSegments(designForm.segments)}
-              {renderGenerationControls(designForm.generation, (key, value) =>
-                setDesignForm((current) => ({
-                  ...current,
-                  generation: { ...current.generation, [key]: value },
-                }))
-              )}
+              {renderGenerationControls(designForm.generation, (key, value) => setDesignForm((current) => ({ ...current, generation: { ...current.generation, [key]: value } })))}
             </>
           ) : null}
 
@@ -1218,13 +1573,7 @@ function App() {
             <>
               <label className="field">
                 <span className="field-label">Language</span>
-                <select
-                  className="text-input"
-                  value={cloneForm.language}
-                  onChange={(event) =>
-                    setCloneForm((current) => ({ ...current, language: event.target.value }))
-                  }
-                >
+                <select className="text-input" value={cloneForm.language} onChange={(event) => setCloneForm((current) => ({ ...current, language: event.target.value }))}>
                   {capabilities?.languages.map((language) => (
                     <option key={language} value={language}>
                       {language}
@@ -1232,124 +1581,495 @@ function App() {
                   ))}
                 </select>
               </label>
+              <p className="hint">Auto is recommended for cloned voices unless you know the target language should be forced.</p>
               <label className="field">
                 <span className="field-label">Reference audio</span>
+                <input className="text-input" type="file" accept="audio/*" onChange={(event) => setCloneForm((current) => ({ ...current, referenceFile: event.target.files?.[0] ?? null }))} />
+              </label>
+              <label className="field">
+                <span className="field-label">Reference transcript</span>
+                <textarea className="text-input segment-input" value={cloneForm.refText} onChange={(event) => setCloneForm((current) => ({ ...current, refText: event.target.value }))} rows={3} />
+              </label>
+              <p className="hint">This field must match the uploaded reference clip only. Do not paste the long target text here.</p>
+              <p className="hint">Leave the transcript blank to let local Qwen ASR transcribe the reference clip automatically before cloning.</p>
+              <label className="toggle">
+                <input type="checkbox" checked={cloneForm.xVectorOnlyMode} disabled />
+                <span>X-vector only mode</span>
+              </label>
+              <p className="hint">The local MLX runtime still requires a transcript-backed clone path, so x-vector only mode is currently unavailable.</p>
+              {renderSegments(cloneForm.segments)}
+              {renderGenerationControls(cloneForm.generation, (key, value) => setCloneForm((current) => ({ ...current, generation: { ...current.generation, [key]: value } })))}
+            </>
+          ) : null}
+
+          {renderStreamControls()}
+
+          <div className="controls-footer">
+            <button className="ghost-button" type="button" onClick={addSegment}>
+              Add segment
+            </button>
+            <button className="primary-button" type="button" onClick={() => void handleGenerate()} disabled={pending}>
+              {pending ? 'Generating…' : 'Generate audio'}
+            </button>
+          </div>
+        </section>
+      </>
+    )
+  }
+
+  function renderProviderPanel() {
+    const testResult = providerTest[providerTab]
+    return (
+      <section className="mode-summary">
+        <p className="mode-label">Provider</p>
+        <div className="provider-tabs">
+          {(['openai_compatible', 'gemini', 'anthropic'] as ProviderId[]).map((provider) => (
+            <button
+              key={provider}
+              className={providerTab === provider ? 'tab tab-active' : 'tab'}
+              type="button"
+              onClick={() => {
+                setProviderTab(provider)
+                setChatSettings((current) => ({
+                  ...current,
+                  defaults: { ...current.defaults, activeProvider: provider },
+                }))
+              }}
+            >
+              {provider === 'openai_compatible' ? 'OpenAI-compatible' : provider === 'gemini' ? 'Gemini' : 'Anthropic'}
+            </button>
+          ))}
+        </div>
+        <div className="field-stack">
+          <label className="field">
+            <span className="field-label">Base URL</span>
+            <input
+              className="text-input"
+              value={currentProviderConfig.baseUrl}
+              onChange={(event) =>
+                setProviderConfig(providerTab, (current) => ({ ...current, baseUrl: event.target.value }))
+              }
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">API key</span>
+            <input
+              className="text-input"
+              type="password"
+              value={currentProviderConfig.apiKey}
+              onChange={(event) =>
+                setProviderConfig(providerTab, (current) => ({ ...current, apiKey: event.target.value }))
+              }
+              placeholder={currentProviderConfig.hasApiKey ? currentProviderConfig.maskedApiKey ?? 'Saved locally' : 'Enter API key'}
+            />
+          </label>
+          <label className="field">
+            <span className="field-label">Model</span>
+            <input
+              className="text-input"
+              value={currentProviderConfig.model}
+              onChange={(event) =>
+                setProviderConfig(providerTab, (current) => ({ ...current, model: event.target.value }))
+              }
+            />
+          </label>
+        </div>
+        {providerTab === 'openai_compatible' && currentProviderConfig.apiMode ? (
+          <p className="hint">Detected API mode: {currentProviderConfig.apiMode}</p>
+        ) : null}
+        {testResult ? <p className={testResult.success ? 'hint' : 'error-banner'}>{testResult.success ? `Connection OK in ${testResult.latency_ms ?? 0} ms.` : testResult.error}</p> : null}
+        <div className="controls-footer">
+          <button className="ghost-button" type="button" onClick={() => void handleProviderTest()}>
+            Test connection
+          </button>
+          <button className="primary-button" type="button" onClick={() => void handleSaveSettings()}>
+            Save settings
+          </button>
+        </div>
+      </section>
+    )
+  }
+
+  function renderVoiceChatControls() {
+    return (
+      <>
+        <div className="hero">
+          <p className="eyebrow">Realtime speech loop</p>
+          <h1>Voice Chat</h1>
+          <p className="lead">Talk into local Qwen ASR, route the transcript through your chosen LLM, then hear the reply through local Qwen TTS.</p>
+        </div>
+        <div className="status-strip">
+          <span>ASR: {(health?.active_asr_model ?? chatSettings.defaults.asrModel) || 'idle'}</span>
+          <span>Phase: {conversationStatus}</span>
+        </div>
+        <div className="workspace-tabs">
+          <button className={workspace === 'tts' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('tts')}>
+            TTS Lab
+          </button>
+          <button className={workspace === 'chat' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('chat')}>
+            Voice Chat
+          </button>
+        </div>
+        {renderProviderPanel()}
+        <section className="mode-summary">
+          <p className="mode-label">Conversation</p>
+          <div className="field-stack">
+            <label className="field">
+              <span className="field-label">Active provider</span>
+              <select className="text-input" value={chatSettings.defaults.activeProvider} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, activeProvider: event.target.value as ProviderId } }))}>
+                {capabilities?.chat.providers.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {provider.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">System prompt</span>
+              <textarea className="text-input segment-input" value={chatSettings.defaults.systemPrompt} rows={4} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, systemPrompt: event.target.value } }))} />
+            </label>
+          </div>
+          <div className="advanced-grid">
+            <label className="field">
+              <span className="field-label">Temperature</span>
+              <input className="text-input" inputMode="decimal" value={chatSettings.defaults.temperature} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, temperature: event.target.value } }))} />
+            </label>
+            <label className="field">
+              <span className="field-label">Max output tokens</span>
+              <input className="text-input" inputMode="numeric" value={chatSettings.defaults.maxOutputTokens} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, maxOutputTokens: event.target.value } }))} />
+            </label>
+          </div>
+          <p className="hint">Reply chunking: sentence-sized speech streaming.</p>
+        </section>
+        <section className="mode-summary">
+          <p className="mode-label">ASR</p>
+          <div className="advanced-grid">
+            <label className="field">
+              <span className="field-label">Model</span>
+              <select className="text-input" value={chatSettings.defaults.asrModel} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, asrModel: event.target.value } }))}>
+                {capabilities?.asr.models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Language</span>
+              <select className="text-input" value={chatSettings.defaults.asrLanguage} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, asrLanguage: event.target.value } }))}>
+                {capabilities?.languages.map((language) => (
+                  <option key={language} value={language}>
+                    {language}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Silence timeout ms</span>
+              <input className="text-input" inputMode="numeric" value={chatSettings.defaults.silenceTimeoutMs} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, silenceTimeoutMs: event.target.value } }))} />
+            </label>
+            <label className="field">
+              <span className="field-label">Max turn seconds</span>
+              <input className="text-input" inputMode="numeric" value={chatSettings.defaults.maxTurnSeconds} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, maxTurnSeconds: event.target.value } }))} />
+            </label>
+          </div>
+          <label className="toggle">
+            <input type="checkbox" checked={chatSettings.defaults.liveCaptions} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, liveCaptions: event.target.checked } }))} />
+            <span>Live captions</span>
+          </label>
+          <div className="upload-card">
+            <label className="field">
+              <span className="field-label">Upload audio for transcription</span>
+              <input className="text-input" type="file" accept="audio/*" onChange={(event) => setFileUpload(event.target.files?.[0] ?? null)} />
+            </label>
+            <label className="toggle">
+              <input type="checkbox" checked={fileSendToChat} onChange={(event) => setFileSendToChat(event.target.checked)} />
+              <span>Send transcript into chat after transcription</span>
+            </label>
+            <button className="ghost-button" type="button" onClick={() => void handleFileTranscription()}>
+              Transcribe file
+            </button>
+            {fileTranscript ? <p className="style-preview">{fileTranscript.text}</p> : null}
+          </div>
+        </section>
+        <section className="mode-summary">
+          <p className="mode-label">Reply voice</p>
+          <div className="advanced-grid">
+            <label className="field">
+              <span className="field-label">Voice mode</span>
+              <select
+                className="text-input"
+                value={chatSettings.defaults.replyVoice.mode}
+                onChange={(event) =>
+                  setChatSettings((current) => {
+                    const nextMode = event.target.value as 'custom' | 'design' | 'clone'
+                    return {
+                      ...current,
+                      defaults: {
+                        ...current.defaults,
+                        replyVoice: {
+                          ...current.defaults.replyVoice,
+                          mode: nextMode,
+                          language:
+                            nextMode === 'clone' && current.defaults.replyVoice.language === 'English'
+                              ? 'Auto'
+                              : current.defaults.replyVoice.language,
+                        },
+                      },
+                    }
+                  })
+                }
+              >
+                <option value="custom">Custom Voice</option>
+                <option value="design">Voice Design</option>
+                <option value="clone">Cloned Voice</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Language</span>
+              <select className="text-input" value={chatSettings.defaults.replyVoice.language} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, language: event.target.value } } }))}>
+                {capabilities?.languages.map((language) => (
+                  <option key={language} value={language}>
+                    {language}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {chatSettings.defaults.replyVoice.mode === 'custom' ? (
+              <label className="field">
+                <span className="field-label">Speaker</span>
+                <select className="text-input" value={chatSettings.defaults.replyVoice.speaker} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, speaker: event.target.value } } }))}>
+                  {capabilities?.speakers.map((speaker) => (
+                    <option key={speaker.id} value={speaker.id}>
+                      {speaker.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+          {chatSettings.defaults.replyVoice.mode === 'clone' ? (
+            <div className="upload-card">
+              <label className="field">
+                <span className="field-label">Reference voice clip</span>
                 <input
                   className="text-input"
                   type="file"
                   accept="audio/*"
                   onChange={(event) =>
-                    setCloneForm((current) => ({
+                    setReplyVoiceCloneDraft((current) => ({
                       ...current,
-                      referenceFile: event.target.files?.[0] ?? null,
+                      file: event.target.files?.[0] ?? null,
                     }))
                   }
                 />
               </label>
               <label className="field">
+                <span className="field-label">Voice label</span>
+                <input
+                  className="text-input"
+                  value={replyVoiceCloneDraft.label}
+                  onChange={(event) =>
+                    setReplyVoiceCloneDraft((current) => ({ ...current, label: event.target.value }))
+                  }
+                  placeholder="Support agent voice"
+                />
+              </label>
+              <label className="field">
                 <span className="field-label">Reference transcript</span>
                 <textarea
-                  className="text-input"
+                  className="text-input segment-input"
+                  value={replyVoiceCloneDraft.referenceText}
                   rows={3}
-                  value={cloneForm.refText}
                   onChange={(event) =>
-                    setCloneForm((current) => ({ ...current, refText: event.target.value }))
-                  }
-                  placeholder="Transcript for the uploaded reference clip."
-                />
-              </label>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={cloneForm.xVectorOnlyMode}
-                  onChange={(event) =>
-                    setCloneForm((current) => ({
+                    setReplyVoiceCloneDraft((current) => ({
                       ...current,
-                      xVectorOnlyMode: event.target.checked,
+                      referenceText: event.target.value,
                     }))
                   }
+                  placeholder="Leave blank to let local Qwen ASR transcribe the reference clip."
                 />
-                <span>Use x-vector only mode</span>
               </label>
-              <p className="hint">
-                Clone mode follows the reference clip directly, so structured mood controls are only
-                available in Custom Voice and Voice Design.
-              </p>
-              {renderSegments(cloneForm.segments)}
-              {renderGenerationControls(cloneForm.generation, (key, value) =>
-                setCloneForm((current) => ({
-                  ...current,
-                  generation: { ...current.generation, [key]: value },
-                }))
-              )}
+              <div className="controls-footer">
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => void handlePrepareReplyVoiceClone()}
+                  disabled={replyVoiceCloneDraft.pending}
+                >
+                  {replyVoiceCloneDraft.pending ? 'Preparing…' : 'Prepare cloned voice'}
+                </button>
+              </div>
+              {chatSettings.defaults.replyVoice.cloneProfileLabel ? (
+                <p className="hint">
+                  Ready: {chatSettings.defaults.replyVoice.cloneProfileLabel}
+                </p>
+              ) : null}
+              {chatSettings.defaults.replyVoice.cloneReferenceText ? (
+                <p className="style-preview">{chatSettings.defaults.replyVoice.cloneReferenceText}</p>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <label className="field">
+                <span className="field-label">Base guidance</span>
+                <textarea className="text-input segment-input" value={chatSettings.defaults.replyVoice.instruct} rows={3} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, instruct: event.target.value } } }))} />
+              </label>
+              {renderStyleControls(chatSettings.defaults.replyVoice.style, (key, value) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, style: { ...current.defaults.replyVoice.style, [key]: value } } } })), chatSettings.defaults.replyVoice.mode)}
             </>
-          ) : null}
+          )}
+        </section>
+      </>
+    )
+  }
 
-          {renderStreamControls()}
-        </div>
-
-        <div className="controls-footer">
-          <button className="ghost-button" type="button" onClick={addSegment}>
-            Add segment
-          </button>
-          <button className="primary-button" type="button" onClick={handleGenerate} disabled={pending}>
-            {pending ? 'Generating…' : streamSettings.enabled ? 'Start live stream' : 'Generate audio'}
-          </button>
-        </div>
-
-        {error ? <p className="error-banner">{error}</p> : null}
-      </section>
-
-      <section className="panel panel-results">
-        <header className="results-header">
+  function renderRunResults() {
+    return (
+      <>
+        <div className="results-header">
           <div>
             <p className="eyebrow">Session output</p>
             <h2>Run history</h2>
           </div>
           <p className="results-count">{runs.length} runs in memory</p>
-        </header>
-
+        </div>
         {renderLiveStream()}
-
-        {runs.length === 0 && liveStream.status === 'idle' ? (
-          <div className="empty-state">
-            <p>No generations yet.</p>
-            <p>Submit a run from the left panel to compare output quality here.</p>
-          </div>
-        ) : runs.length > 0 ? (
+        {runs.length ? (
           <>
             <div className="history-list">
               {runs.map((run) => (
-                <button
-                  key={run.run_id}
-                  className={`history-item ${activeRun?.run_id === run.run_id ? 'history-item-active' : ''}`}
-                  type="button"
-                  onClick={() => setActiveRunId(run.run_id)}
-                >
+                <button key={run.run_id} className={run.run_id === activeRun?.run_id ? 'history-item history-item-active' : 'history-item'} type="button" onClick={() => setActiveRunId(run.run_id)}>
                   <span>{run.mode}</span>
                   <span>{formatTimestamp(run.created_at)}</span>
                 </button>
               ))}
             </div>
-
             {activeRun ? (
-              <section className="run-detail">
+              <div className="run-detail">
                 <div className="run-meta">
-                  <div>
-                    <p className="run-title">{activeRun.mode}</p>
-                    <p>{activeRun.model_id}</p>
-                  </div>
-                  <div>
-                    <p>{formatTimestamp(activeRun.created_at)}</p>
-                    <p>Device: {activeRun.device}</p>
-                  </div>
+                  <span>{activeRun.model_id}</span>
+                  <span>{activeRun.device}</span>
                 </div>
-                <div className="clips">{activeRun.clips.map((clip) => renderClip(clip))}</div>
-              </section>
+                <div className="clips">
+                  {activeRun.clips.map((clip) => (
+                    <article className="clip-card" key={clip.id}>
+                      <div className="clip-head">
+                        <div>
+                          <p className="clip-name">{clip.file_name}</p>
+                          <p className="clip-copy">{clip.text}</p>
+                        </div>
+                        <a className="ghost-button" href={clip.audio_url} download={clip.file_name}>
+                          Download
+                        </a>
+                      </div>
+                      <div className="waveform" aria-hidden="true">
+                        {buildWaveformBars(clip.id).map((height, index) => (
+                          <span key={`${clip.id}-${index}`} style={{ height }} />
+                        ))}
+                      </div>
+                      <audio className="audio-player" controls src={clip.audio_url} />
+                      <dl className="clip-meta">
+                        <div>
+                          <dt>Language</dt>
+                          <dd>{clip.language}</dd>
+                        </div>
+                        <div>
+                          <dt>Sample rate</dt>
+                          <dd>{clip.sample_rate} Hz</dd>
+                        </div>
+                        <div>
+                          <dt>Duration</dt>
+                          <dd>{clip.duration_seconds}s</dd>
+                        </div>
+                        <div>
+                          <dt>Speaker</dt>
+                          <dd>{clip.speaker ?? 'Designed'}</dd>
+                        </div>
+                      </dl>
+                    </article>
+                  ))}
+                </div>
+              </div>
             ) : null}
           </>
-        ) : null}
+        ) : (
+          <div className="empty-state">No generations yet. Use the controls on the left to create your first clip.</div>
+        )}
+      </>
+    )
+  }
+
+  function renderChatResults() {
+    return (
+      <>
+        <div className="results-header">
+          <div>
+            <p className="eyebrow">Conversation</p>
+            <h2>Realtime voice loop</h2>
+          </div>
+          <p className="results-count">{conversationMessages.length} messages</p>
+        </div>
+        <div className="chat-status-card">
+          <div>
+            <p className="mode-label">State</p>
+            <p className="lead">{conversationStatus}</p>
+          </div>
+          <div className="chat-actions">
+            {!micActive ? (
+              <button className="primary-button" type="button" onClick={() => void startConversation()}>
+                Start conversation
+              </button>
+            ) : (
+              <button className="ghost-button" type="button" onClick={() => void stopConversationListening()}>
+                Stop listening
+              </button>
+            )}
+            <button className="ghost-button" type="button" onClick={() => void interruptAssistant()}>
+              Interrupt assistant
+            </button>
+          </div>
+        </div>
+        {liveCaption ? <div className="caption-strip">{liveCaption}</div> : null}
+        {conversationNotice ? <p className="error-banner">{conversationNotice}</p> : null}
+        {settingsNotice ? <p className="hint">{settingsNotice}</p> : null}
+        <div className="chat-thread">
+          {conversationMessages.length ? (
+            conversationMessages.map((message) => (
+              <article key={message.id} className={`chat-bubble chat-bubble-${message.role}`}>
+                <p className="eyebrow">{message.role === 'user' ? 'You' : 'Assistant'}</p>
+                <p className="chat-text">{message.text}</p>
+              </article>
+            ))
+          ) : (
+            <div className="empty-state">No conversation yet. Start the microphone or send a typed prompt to begin.</div>
+          )}
+        </div>
+        <div className="chat-composer">
+          <textarea className="text-input segment-input" value={typedMessage} rows={4} placeholder="Type a message for the connected LLM." onChange={(event) => setTypedMessage(event.target.value)} />
+          <div className="controls-footer">
+            <button className="ghost-button" type="button" onClick={() => setConversationMessages([])}>
+              Clear transcript
+            </button>
+            <button className="primary-button" type="button" onClick={() => void sendTypedMessage(typedMessage)}>
+              Send message
+            </button>
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  if (loading) {
+    return <div className="loading-state">Loading the local Qwen lab…</div>
+  }
+
+  return (
+    <main className="shell">
+      <section className="panel panel-controls">
+        {workspace === 'tts' ? renderTtsControls() : renderVoiceChatControls()}
+        {error ? <p className="error-banner">{error}</p> : null}
       </section>
+      <section className="panel panel-results">{workspace === 'tts' ? renderRunResults() : renderChatResults()}</section>
     </main>
   )
 }

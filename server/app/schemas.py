@@ -7,6 +7,17 @@ from pydantic import BaseModel, Field, field_validator
 
 
 Mode = Literal["custom", "design", "clone"]
+ProviderId = Literal["openai_compatible", "gemini", "anthropic"]
+OpenAICompatMode = Literal["responses", "chat_completions"]
+ReplyVoiceMode = Literal["custom", "design", "clone"]
+
+
+class StyleControls(BaseModel):
+    mood: str = "neutral"
+    emotion_intensity: str = "restrained"
+    pace: str = "steady"
+    energy: str = "balanced"
+    expressiveness: str = "controlled"
 
 
 class GenerationSettings(BaseModel):
@@ -16,8 +27,7 @@ class GenerationSettings(BaseModel):
     seed: int | None = Field(default=None, ge=0, le=2147483647)
 
     def to_generate_kwargs(self) -> dict[str, float | int]:
-        values = self.model_dump(exclude_none=True)
-        return values
+        return self.model_dump(exclude_none=True)
 
 
 class BaseGenerationRequest(BaseModel):
@@ -68,11 +78,118 @@ class DesignGenerationRequest(BaseGenerationRequest):
         return cleaned
 
 
+class ProviderSettingsInput(BaseModel):
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str = ""
+    api_mode: OpenAICompatMode | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def validate_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+    @field_validator("model")
+    @classmethod
+    def validate_model(cls, value: str) -> str:
+        return value.strip()
+
+
+class ProviderSettingsResponse(BaseModel):
+    base_url: str | None = None
+    model: str = ""
+    api_mode: OpenAICompatMode | None = None
+    has_api_key: bool = False
+    masked_api_key: str | None = None
+
+
+class ReplyVoiceSettings(BaseModel):
+    mode: ReplyVoiceMode = "custom"
+    language: str = "English"
+    speaker: str = "Ryan"
+    instruct: str = ""
+    style: StyleControls = Field(default_factory=StyleControls)
+    clone_profile_id: str | None = None
+    clone_profile_label: str | None = None
+    clone_audio_path: str | None = None
+    clone_reference_text: str | None = None
+
+
+class ChatDefaults(BaseModel):
+    active_provider: ProviderId = "openai_compatible"
+    system_prompt: str = "You are a concise, helpful voice assistant."
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_output_tokens: int = Field(default=512, ge=64, le=8192)
+    asr_model: str
+    asr_language: str = "Auto"
+    silence_timeout_ms: int = Field(default=1200, ge=300, le=6000)
+    max_turn_seconds: int = Field(default=45, ge=5, le=600)
+    live_captions: bool = True
+    reply_voice: ReplyVoiceSettings = Field(default_factory=ReplyVoiceSettings)
+
+
+class ChatSettingsInput(BaseModel):
+    defaults: ChatDefaults
+    openai_compatible: ProviderSettingsInput = Field(default_factory=ProviderSettingsInput)
+    gemini: ProviderSettingsInput = Field(default_factory=ProviderSettingsInput)
+    anthropic: ProviderSettingsInput = Field(default_factory=ProviderSettingsInput)
+
+
+class ChatSettingsResponse(BaseModel):
+    defaults: ChatDefaults
+    openai_compatible: ProviderSettingsResponse
+    gemini: ProviderSettingsResponse
+    anthropic: ProviderSettingsResponse
+
+
+class ProviderTestRequest(BaseModel):
+    provider: ProviderId
+    config: ProviderSettingsInput
+
+
+class ProviderTestResponse(BaseModel):
+    success: bool
+    provider: ProviderId
+    resolved_model: str | None = None
+    latency_ms: int | None = None
+    streaming_supported: bool = False
+    api_mode: OpenAICompatMode | None = None
+    error: str | None = None
+
+
+class AsrSegmentResponse(BaseModel):
+    text: str
+    start: float
+    end: float
+
+
+class AsrTranscriptionResponse(BaseModel):
+    text: str
+    language: str | None = None
+    duration_seconds: float
+    model_id: str
+    segments: list[AsrSegmentResponse] = Field(default_factory=list)
+    send_to_chat: bool = False
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"]
     active_mode: Mode | None = None
     active_model: str | None = None
     selected_device: str
+    active_asr_model: str | None = None
+    selected_asr_device: str | None = None
 
 
 class SpeakerResponse(BaseModel):
@@ -89,6 +206,39 @@ class ModeCapabilityResponse(BaseModel):
     checkpoint: str
 
 
+class AsrModelCapabilityResponse(BaseModel):
+    id: str
+    label: str
+    description: str
+    checkpoint: str
+
+
+class ProviderCapabilityResponse(BaseModel):
+    id: ProviderId
+    label: str
+    description: str
+    base_url_configurable: bool
+    native: bool
+
+
+class AsrCapabilityResponse(BaseModel):
+    default_model: str
+    models: list[AsrModelCapabilityResponse]
+
+
+class ChatCapabilityResponse(BaseModel):
+    providers: list[ProviderCapabilityResponse]
+    reply_chunking: Literal["sentence"]
+    voice_modes: list[ReplyVoiceMode]
+
+
+class ConversationCapabilityResponse(BaseModel):
+    mode: Literal["turn_based_hands_free"]
+    input_audio_format: str
+    input_sample_rate: int
+    websocket_path: str
+
+
 class CapabilitiesResponse(BaseModel):
     active_mode: Mode | None = None
     selected_device: str
@@ -96,6 +246,9 @@ class CapabilitiesResponse(BaseModel):
     speakers: list[SpeakerResponse]
     generation_knobs: dict[str, dict[str, float | int | None]]
     modes: list[ModeCapabilityResponse]
+    asr: AsrCapabilityResponse
+    chat: ChatCapabilityResponse
+    conversation: ConversationCapabilityResponse
 
 
 class AudioClipResponse(BaseModel):
@@ -110,6 +263,16 @@ class AudioClipResponse(BaseModel):
     speaker: str | None = None
     instruct: str | None = None
     x_vector_only_mode: bool | None = None
+
+
+class CloneVoiceProfileResponse(BaseModel):
+    id: str
+    label: str
+    language: str
+    reference_text: str
+    audio_file_name: str
+    audio_path: str
+    created_at: datetime
 
 
 class GenerationRunResponse(BaseModel):

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Final
 
+from .schemas import ProviderId
+
 LANGUAGES: Final[list[str]] = [
     "Auto",
     "Chinese",
@@ -22,6 +24,26 @@ MODEL_IDS: Final[dict[str, str]] = {
     "clone": "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit",
 }
 
+ASR_MODEL_IDS: Final[dict[str, str]] = {
+    "default": "mlx-community/Qwen3-ASR-1.7B-8bit",
+    "compact": "mlx-community/Qwen3-ASR-0.6B-8bit",
+}
+
+ASR_MODELS: Final[list[dict[str, str]]] = [
+    {
+        "id": ASR_MODEL_IDS["default"],
+        "label": "Qwen3-ASR 1.7B",
+        "description": "Highest-quality local multilingual Qwen ASR option for Apple Silicon.",
+        "checkpoint": ASR_MODEL_IDS["default"],
+    },
+    {
+        "id": ASR_MODEL_IDS["compact"],
+        "label": "Qwen3-ASR 0.6B",
+        "description": "Smaller local Qwen ASR model with lower memory and faster startup.",
+        "checkpoint": ASR_MODEL_IDS["compact"],
+    },
+]
+
 MODE_LABELS: Final[dict[str, str]] = {
     "custom": "Custom Voice",
     "design": "Voice Design",
@@ -40,6 +62,38 @@ GENERATION_KNOBS: Final[dict[str, dict[str, float | int | None]]] = {
     "max_new_tokens": {"default": 2048, "min": 64, "max": 8192},
     "seed": {"default": None, "min": 0, "max": 2147483647},
 }
+
+PROVIDER_CAPABILITIES: Final[list[dict[str, str | bool | ProviderId]]] = [
+    {
+        "id": "openai_compatible",
+        "label": "OpenAI-compatible",
+        "description": "Use a base URL, API key, and model name against OpenAI-style servers.",
+        "base_url_configurable": True,
+        "native": False,
+    },
+    {
+        "id": "gemini",
+        "label": "Gemini",
+        "description": "Use Gemini's native API with streamed text responses and local Qwen speech.",
+        "base_url_configurable": True,
+        "native": True,
+    },
+    {
+        "id": "anthropic",
+        "label": "Anthropic",
+        "description": "Use Claude's native Messages API with streamed text responses and local Qwen speech.",
+        "base_url_configurable": True,
+        "native": True,
+    },
+]
+
+DEFAULT_OPENAI_BASE_URL: Final[str] = "https://api.openai.com/v1"
+DEFAULT_GEMINI_BASE_URL: Final[str] = "https://generativelanguage.googleapis.com"
+DEFAULT_ANTHROPIC_BASE_URL: Final[str] = "https://api.anthropic.com"
+
+CONVERSATION_SAMPLE_RATE: Final[int] = 16000
+PARTIAL_TRANSCRIPTION_MIN_SECONDS: Final[float] = 0.9
+SENTENCE_BOUNDARY_CHARS: Final[tuple[str, ...]] = (".", "!", "?", "\n")
 
 SPEAKERS: Final[list[dict[str, str]]] = [
     {
@@ -97,4 +151,3 @@ SPEAKERS: Final[list[dict[str, str]]] = [
         "native_language": "Korean",
     },
 ]
-

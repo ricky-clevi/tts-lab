@@ -1,4 +1,17 @@
-import type { CapabilitiesResponse, GenerationRun, HealthResponse, Mode, StreamRunEvent } from './types'
+import type {
+  AsrTranscriptionResponse,
+  CapabilitiesResponse,
+  ChatSettingsDraft,
+  ChatSettingsResponse,
+  CloneVoiceProfileResponse,
+  GenerationRun,
+  HealthResponse,
+  Mode,
+  ProviderId,
+  ProviderSettingsDraft,
+  ProviderTestResponse,
+  StreamRunEvent,
+} from './types'
 
 const API_ROOT = '/api'
 
@@ -23,6 +36,68 @@ export async function fetchHealth() {
 
 export async function fetchCapabilities() {
   return parseJson<CapabilitiesResponse>(await fetch(`${API_ROOT}/capabilities`))
+}
+
+export async function fetchChatSettings() {
+  return parseJson<ChatSettingsResponse>(await fetch(`${API_ROOT}/settings/chat`))
+}
+
+export async function saveChatSettings(payload: ChatSettingsDraft) {
+  return parseJson<ChatSettingsResponse>(
+    await fetch(`${API_ROOT}/settings/chat`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  )
+}
+
+export async function testChatProvider(provider: ProviderId, config: ProviderSettingsDraft) {
+  return parseJson<ProviderTestResponse>(
+    await fetch(`${API_ROOT}/settings/chat/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, config }),
+    }),
+  )
+}
+
+export async function transcribeAsrFile(payload: {
+  file: File
+  modelId: string
+  language: string
+  sendToChat: boolean
+}) {
+  const formData = new FormData()
+  formData.append('audio', payload.file)
+  formData.append('model_id', payload.modelId)
+  formData.append('language', payload.language)
+  formData.append('send_to_chat', String(payload.sendToChat))
+  return parseJson<AsrTranscriptionResponse>(
+    await fetch(`${API_ROOT}/asr/transcribe`, {
+      method: 'POST',
+      body: formData,
+    }),
+  )
+}
+
+export async function createReplyVoiceCloneProfile(payload: {
+  file: File
+  language: string
+  label: string
+  referenceText: string
+}) {
+  const formData = new FormData()
+  formData.append('audio', payload.file)
+  formData.append('language', payload.language)
+  formData.append('label', payload.label)
+  formData.append('reference_text', payload.referenceText)
+  return parseJson<CloneVoiceProfileResponse>(
+    await fetch(`${API_ROOT}/chat/reply-voice/clone-profile`, {
+      method: 'POST',
+      body: formData,
+    }),
+  )
 }
 
 export async function generateRun(
@@ -128,4 +203,9 @@ export async function* generateRunStream(
   if (trailing) {
     yield JSON.parse(trailing) as StreamRunEvent
   }
+}
+
+export function createConversationSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return new WebSocket(`${protocol}//${window.location.host}${API_ROOT}/conversation/ws`)
 }

@@ -2,21 +2,37 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from uuid import uuid4
 
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+import soundfile as sf
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import ValidationError
 
-from .constants import MODEL_IDS
-from .model_manager import ModelManager
-from .schemas import BaseGenerationRequest, CapabilitiesResponse, CustomGenerationRequest, DesignGenerationRequest, GenerationRunResponse, HealthResponse
-from .storage import AudioStorage
+from .chat_store import ChatSettingsStore
+from .constants import ASR_MODEL_IDS, MODEL_IDS
+from .conversation import ConversationSession
+from .llm import ProviderService
+from .model_manager import AsrModelManager, TtsModelManager
+from .schemas import (
+    BaseGenerationRequest,
+    ChatSettingsInput,
+    ChatSettingsResponse,
+    CloneVoiceProfileResponse,
+    CustomGenerationRequest,
+    DesignGenerationRequest,
+    GenerationRunResponse,
+    HealthResponse,
+    ProviderTestRequest,
+    ProviderTestResponse,
+)
+from .storage import AudioStorage, VoiceProfileStorage
 
 
 def parse_json_field(name: str, raw_value: str | None, default: object | None = None) -> object:
@@ -38,14 +54,114 @@ def stream_line(payload: dict[str, object]) -> bytes:
     return (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def create_app(model_manager: ModelManager | None = None, audio_storage: AudioStorage | None = None) -> FastAPI:
+def validate_audio_upload(path: str) -> None:
+    try:
+        sf.info(path)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or unsupported audio file.",
+        ) from exc
+
+
+def estimate_reference_audio_duration(path: str) -> float:
+    info = sf.info(path)
+    if not info.samplerate:
+        return 0.0
+    return float(info.frames) / float(info.samplerate)
+
+
+def normalize_clone_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def should_override_reference_text(
+    *,
+    provided_ref_text: str | None,
+    target_segments: list[str],
+    ref_audio_duration_seconds: float,
+) -> bool:
+    cleaned = normalize_clone_text(provided_ref_text or "")
+    if not cleaned:
+        return False
+
+    target_text = normalize_clone_text("\n".join(target_segments))
+    if target_text and cleaned == target_text:
+        return True
+
+    text_length = len(cleaned)
+    if ref_audio_duration_seconds <= 0:
+        return False
+
+    chars_per_second = text_length / ref_audio_duration_seconds
+    if text_length >= 120 and chars_per_second > 18:
+        return True
+
+    if text_length >= 240 and ref_audio_duration_seconds < 12:
+        return True
+
+    return False
+
+
+def resolve_clone_reference_text(
+    *,
+    asr: AsrModelManager,
+    ref_audio_path: str,
+    provided_ref_text: str | None,
+    language: str,
+    x_vector_only_mode: bool,
+    target_segments: list[str] | None = None,
+) -> str | None:
+    cleaned = (provided_ref_text or "").strip()
+    if cleaned and not should_override_reference_text(
+        provided_ref_text=cleaned,
+        target_segments=target_segments or [],
+        ref_audio_duration_seconds=estimate_reference_audio_duration(ref_audio_path),
+    ):
+        return cleaned
+
+    if x_vector_only_mode:
+        return None
+
+    transcript = asr.transcribe_file(
+        file_path=ref_audio_path,
+        model_id=ASR_MODEL_IDS["default"],
+        language=language,
+        send_to_chat=False,
+    )
+    resolved = transcript.text.strip()
+    if not resolved:
+        raise HTTPException(
+            status_code=400,
+            detail="Reference transcript is required. Auto-transcription of the reference clip returned no text.",
+        )
+    return resolved
+
+
+def create_app(
+    tts_manager: TtsModelManager | None = None,
+    asr_manager: AsrModelManager | None = None,
+    audio_storage: AudioStorage | None = None,
+    voice_profile_storage: VoiceProfileStorage | None = None,
+    settings_store: ChatSettingsStore | None = None,
+    provider_service: ProviderService | None = None,
+    model_manager: TtsModelManager | None = None,
+) -> FastAPI:
     root = Path(__file__).resolve().parent.parent
     storage = audio_storage or AudioStorage(root / "generated" / "audio")
-    manager = model_manager or ModelManager()
+    voice_profiles = voice_profile_storage or VoiceProfileStorage(root / "generated" / "voice_profiles")
+    tts = tts_manager or model_manager or TtsModelManager()
+    asr = asr_manager or AsrModelManager()
+    settings = settings_store or ChatSettingsStore(root / "generated" / "settings" / "chat.json")
+    providers = provider_service or ProviderService()
 
-    app = FastAPI(title="Qwen3-TTS Local Lab", version="0.1.0")
-    app.state.model_manager = manager
+    app = FastAPI(title="Qwen3 Local Voice Lab", version="0.2.0")
+    app.state.tts_manager = tts
+    app.state.asr_manager = asr
     app.state.audio_storage = storage
+    app.state.voice_profile_storage = voice_profiles
+    app.state.settings_store = settings
+    app.state.provider_service = providers
 
     app.add_middleware(
         CORSMiddleware,
@@ -59,19 +175,97 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
     def health() -> HealthResponse:
         return HealthResponse(
             status="ok",
-            active_mode=manager.active_mode,
-            active_model=manager.active_model_id,
-            selected_device=manager.selected_device,
+            active_mode=tts.active_mode,
+            active_model=tts.active_model_id,
+            selected_device=tts.selected_device,
+            active_asr_model=asr.active_model_id,
+            selected_asr_device=asr.selected_device,
         )
 
-    @app.get("/api/capabilities", response_model=CapabilitiesResponse)
-    def capabilities() -> CapabilitiesResponse:
-        return manager.capabilities()
+    @app.get("/api/capabilities")
+    def capabilities():
+        return tts.capabilities()
+
+    @app.get("/api/settings/chat", response_model=ChatSettingsResponse)
+    def get_chat_settings() -> ChatSettingsResponse:
+        return settings.redact(settings.load())
+
+    @app.put("/api/settings/chat", response_model=ChatSettingsResponse)
+    def put_chat_settings(payload: ChatSettingsInput) -> ChatSettingsResponse:
+        saved = settings.save(settings.merge_preserving_secrets(payload))
+        return settings.redact(saved)
+
+    @app.post("/api/settings/chat/test", response_model=ProviderTestResponse)
+    async def test_chat_settings(payload: ProviderTestRequest) -> ProviderTestResponse:
+        result = await providers.test_provider(payload.provider, payload.config)
+        if result.success and payload.provider == "openai_compatible" and result.api_mode:
+            current = settings.load()
+            current.openai_compatible.api_mode = result.api_mode
+            settings.save(current)
+        return result
+
+    @app.post("/api/asr/transcribe")
+    async def transcribe_audio(
+        audio: UploadFile = File(...),
+        model_id: str = Form(...),
+        language: str = Form("Auto"),
+        send_to_chat: bool = Form(False),
+    ):
+        suffix = Path(audio.filename or "audio.wav").suffix or ".wav"
+        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(await audio.read())
+            temp_path = temp_file.name
+
+        try:
+            validate_audio_upload(temp_path)
+            return asr.transcribe_file(
+                file_path=temp_path,
+                model_id=model_id,
+                language=language,
+                send_to_chat=send_to_chat,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+    @app.post("/api/chat/reply-voice/clone-profile", response_model=CloneVoiceProfileResponse)
+    async def create_clone_voice_profile(
+        audio: UploadFile = File(...),
+        language: str = Form("Auto"),
+        label: str | None = Form(None),
+        reference_text: str | None = Form(None),
+    ) -> CloneVoiceProfileResponse:
+        suffix = Path(audio.filename or "reference.wav").suffix or ".wav"
+        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(await audio.read())
+            temp_path = temp_file.name
+
+        try:
+            validate_audio_upload(temp_path)
+            resolved_reference_text = resolve_clone_reference_text(
+                asr=asr,
+                ref_audio_path=temp_path,
+                provided_ref_text=reference_text,
+                language=language,
+                x_vector_only_mode=False,
+            )
+            return voice_profiles.save_profile(
+                source_path=temp_path,
+                source_name=audio.filename or f"reference{suffix}",
+                language=language,
+                reference_text=resolved_reference_text or "",
+                label=label,
+            )
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
 
     @app.post("/api/generate/custom", response_model=GenerationRunResponse)
     def generate_custom(payload: CustomGenerationRequest) -> GenerationRunResponse:
         try:
-            wavs, sample_rate = manager.generate_custom(payload)
+            wavs, sample_rate = tts.generate_custom(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -93,7 +287,7 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
             run_id=uuid4().hex,
             mode="custom",
             model_id=MODEL_IDS["custom"],
-            device=manager.selected_device,
+            device=tts.selected_device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
         )
@@ -129,7 +323,7 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
                                     "run_id": run_id,
                                     "mode": mode,
                                     "model_id": MODEL_IDS[mode],
-                                    "device": manager.selected_device,
+                                    "device": tts.selected_device,
                                     "created_at": created_at.isoformat(),
                                     "clips": [],
                                 },
@@ -156,7 +350,9 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
                             "segment_index": segment_index,
                             "chunk_index": chunk_counts[segment_index] - 1,
                             "sample_rate": sample_rate,
-                            "duration_seconds": round(float(len(wav) / sample_rate), 3) if sample_rate else 0.0,
+                            "duration_seconds": round(float(len(wav) / sample_rate), 3)
+                            if sample_rate
+                            else 0.0,
                             "pcm16_base64": encode_pcm16_base64(wav),
                             "is_final_chunk": is_final_chunk,
                         }
@@ -181,9 +377,9 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
 
                 run = GenerationRunResponse(
                     run_id=run_id,
-                    mode=mode,
+                    mode=mode,  # type: ignore[arg-type]
                     model_id=MODEL_IDS[mode],
-                    device=manager.selected_device,
+                    device=tts.selected_device,
                     created_at=created_at,
                     clips=clips,
                 )
@@ -198,7 +394,7 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
     @app.post("/api/generate/design", response_model=GenerationRunResponse)
     def generate_design(payload: DesignGenerationRequest) -> GenerationRunResponse:
         try:
-            wavs, sample_rate = manager.generate_design(payload)
+            wavs, sample_rate = tts.generate_design(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -219,7 +415,7 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
             run_id=uuid4().hex,
             mode="design",
             model_id=MODEL_IDS["design"],
-            device=manager.selected_device,
+            device=tts.selected_device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
         )
@@ -230,7 +426,7 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
         created_at = datetime.now(timezone.utc)
 
         try:
-            stream_iter = manager.stream_custom(payload)
+            stream_iter = tts.stream_custom(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -258,7 +454,7 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
         created_at = datetime.now(timezone.utc)
 
         try:
-            stream_iter = manager.stream_design(payload)
+            stream_iter = tts.stream_design(payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -302,10 +498,24 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
             temp_path = temp_file.name
 
         try:
-            wavs, sample_rate = manager.generate_clone(
+            resolved_ref_text = resolve_clone_reference_text(
+                asr=asr,
+                ref_audio_path=temp_path,
+                provided_ref_text=ref_text,
+                language=language,
+                x_vector_only_mode=x_vector_only_mode,
+                target_segments=payload.segments,
+            )
+            resolved_language = tts.resolve_clone_language(
+                payload.language,
+                payload.segments,
+                resolved_ref_text,
+            )
+            payload = payload.model_copy(update={"language": resolved_language})
+            wavs, sample_rate = tts.generate_clone(
                 payload=payload,
                 ref_audio_path=temp_path,
-                ref_text=ref_text,
+                ref_text=resolved_ref_text,
                 x_vector_only_mode=x_vector_only_mode,
             )
         except ValueError as exc:
@@ -322,7 +532,7 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
                 segment_index=index,
                 text=segment,
                 language=payload.language,
-                instruct=ref_text,
+                instruct=resolved_ref_text,
                 x_vector_only_mode=x_vector_only_mode,
             )
             for index, (segment, wav) in enumerate(zip(payload.segments, wavs, strict=True))
@@ -331,7 +541,7 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
             run_id=uuid4().hex,
             mode="clone",
             model_id=MODEL_IDS["clone"],
-            device=manager.selected_device,
+            device=tts.selected_device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
         )
@@ -365,10 +575,24 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
         created_at = datetime.now(timezone.utc)
 
         try:
-            stream_iter = manager.stream_clone(
+            resolved_ref_text = resolve_clone_reference_text(
+                asr=asr,
+                ref_audio_path=temp_path,
+                provided_ref_text=ref_text,
+                language=language,
+                x_vector_only_mode=x_vector_only_mode,
+                target_segments=payload.segments,
+            )
+            resolved_language = tts.resolve_clone_language(
+                payload.language,
+                payload.segments,
+                resolved_ref_text,
+            )
+            payload = payload.model_copy(update={"language": resolved_language})
+            stream_iter = tts.stream_clone(
                 payload=payload,
                 ref_audio_path=temp_path,
-                ref_text=ref_text,
+                ref_text=resolved_ref_text,
                 x_vector_only_mode=x_vector_only_mode,
             )
         except ValueError as exc:
@@ -389,7 +613,7 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
                 segment_index=segment_index,
                 text=text,
                 language=payload.language,
-                instruct=ref_text,
+                instruct=resolved_ref_text,
                 x_vector_only_mode=x_vector_only_mode,
             ),
         )
@@ -404,6 +628,49 @@ def create_app(model_manager: ModelManager | None = None, audio_storage: AudioSt
 
         response.body_iterator = wrapped_iter()
         return response
+
+    @app.websocket("/api/conversation/ws")
+    async def conversation_ws(websocket: WebSocket) -> None:
+        await websocket.accept()
+        session = ConversationSession(
+            websocket=websocket,
+            tts_manager=tts,
+            asr_manager=asr,
+            audio_storage=storage,
+            settings_store=settings,
+            provider_service=providers,
+        )
+        await session.on_connect()
+
+        try:
+            while True:
+                payload = await websocket.receive_json()
+                event_type = payload.get("type")
+
+                if event_type == "session.configure":
+                    session.configure(payload)
+                    await session.send(
+                        {
+                            "type": "session.ready",
+                            "settings": settings.redact(session.settings).model_dump(mode="json"),
+                        }
+                    )
+                elif event_type == "audio.append":
+                    await session.append_audio(payload)
+                elif event_type == "turn.commit":
+                    await session.commit_audio_turn()
+                elif event_type == "text.submit":
+                    await session.submit_text(str(payload.get("text", "")))
+                elif event_type == "assistant.stop":
+                    await session.stop_assistant()
+                elif event_type == "session.close":
+                    break
+                else:
+                    await session.send({"type": "error", "detail": f"Unknown event '{event_type}'."})
+        except WebSocketDisconnect:
+            pass
+        finally:
+            await session.close()
 
     @app.get("/api/audio/{audio_id}")
     def get_audio(audio_id: str) -> FileResponse:

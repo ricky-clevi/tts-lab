@@ -3,15 +3,42 @@ from __future__ import annotations
 import gc
 import threading
 from collections.abc import Iterator
+import re
 from typing import Any
 
 import numpy as np
 
-from .constants import GENERATION_KNOBS, LANGUAGES, MODE_DESCRIPTIONS, MODE_LABELS, MODEL_IDS, SPEAKERS
-from .schemas import BaseGenerationRequest, CapabilitiesResponse, CustomGenerationRequest, DesignGenerationRequest, Mode, ModeCapabilityResponse, SpeakerResponse
+from .constants import (
+    ASR_MODEL_IDS,
+    ASR_MODELS,
+    CONVERSATION_SAMPLE_RATE,
+    GENERATION_KNOBS,
+    LANGUAGES,
+    MODE_DESCRIPTIONS,
+    MODE_LABELS,
+    MODEL_IDS,
+    PROVIDER_CAPABILITIES,
+    SPEAKERS,
+)
+from .schemas import (
+    AsrCapabilityResponse,
+    AsrModelCapabilityResponse,
+    AsrSegmentResponse,
+    AsrTranscriptionResponse,
+    BaseGenerationRequest,
+    CapabilitiesResponse,
+    ChatCapabilityResponse,
+    ConversationCapabilityResponse,
+    CustomGenerationRequest,
+    DesignGenerationRequest,
+    Mode,
+    ModeCapabilityResponse,
+    ProviderCapabilityResponse,
+    SpeakerResponse,
+)
 
 
-class ModelManager:
+class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._model: Any | None = None
@@ -83,6 +110,21 @@ class ModelManager:
                 )
                 for mode in ("custom", "design", "clone")
             ],
+            asr=AsrCapabilityResponse(
+                default_model=ASR_MODEL_IDS["default"],
+                models=[AsrModelCapabilityResponse(**item) for item in ASR_MODELS],
+            ),
+            chat=ChatCapabilityResponse(
+                providers=[ProviderCapabilityResponse(**item) for item in PROVIDER_CAPABILITIES],
+                reply_chunking="sentence",
+                voice_modes=["custom", "design", "clone"],
+            ),
+            conversation=ConversationCapabilityResponse(
+                mode="turn_based_hands_free",
+                input_audio_format="pcm16",
+                input_sample_rate=CONVERSATION_SAMPLE_RATE,
+                websocket_path="/api/conversation/ws",
+            ),
         )
 
     def _validate_language(self, language: str) -> None:
@@ -98,6 +140,32 @@ class ModelManager:
         cleaned = language.strip()
         return "auto" if cleaned.lower() == "auto" else cleaned
 
+    def resolve_clone_language(
+        self, requested_language: str, segments: list[str], ref_text: str | None
+    ) -> str:
+        cleaned = requested_language.strip() or "Auto"
+        if cleaned == "Auto":
+            return "Auto"
+
+        combined = "\n".join([*segments, ref_text or ""])
+        if not combined.strip():
+            return cleaned
+
+        has_hangul = bool(re.search(r"[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]", combined))
+        has_kana = bool(re.search(r"[\u3040-\u30ff]", combined))
+        has_cyrillic = bool(re.search(r"[\u0400-\u04ff]", combined))
+
+        if cleaned == "English" and (has_hangul or has_kana or has_cyrillic):
+            return "Auto"
+        if cleaned == "Korean" and has_kana:
+            return "Auto"
+        if cleaned == "Japanese" and has_hangul:
+            return "Auto"
+        if cleaned == "Russian" and (has_hangul or has_kana):
+            return "Auto"
+
+        return cleaned
+
     def _generation_kwargs(self, generation: Any) -> dict[str, float | int]:
         kwargs: dict[str, float | int] = {}
         if generation.temperature is not None:
@@ -108,7 +176,9 @@ class ModelManager:
             kwargs["max_tokens"] = generation.max_new_tokens
         return kwargs
 
-    def _stream_generation_kwargs(self, payload: BaseGenerationRequest | CustomGenerationRequest | DesignGenerationRequest) -> dict[str, float | int | bool]:
+    def _stream_generation_kwargs(
+        self, payload: BaseGenerationRequest | CustomGenerationRequest | DesignGenerationRequest
+    ) -> dict[str, float | int | bool]:
         return {
             **self._generation_kwargs(payload.generation),
             "stream": True,
@@ -127,9 +197,11 @@ class ModelManager:
         collected = list(results)
         if not collected:
             raise RuntimeError("The model returned no audio.")
-
-        result = collected[-1]
-        return np.asarray(result.audio, dtype=np.float32), int(result.sample_rate)
+        sample_rate = int(collected[0].sample_rate)
+        audio_parts = [np.asarray(result.audio, dtype=np.float32).reshape(-1) for result in collected]
+        if not audio_parts:
+            raise RuntimeError("The model returned no audio.")
+        return np.concatenate(audio_parts), sample_rate
 
     def _iter_stream_results(
         self,
@@ -153,6 +225,30 @@ class ModelManager:
 
         if not yielded:
             raise RuntimeError("The model returned no audio.")
+
+    def _iter_chunked_audio(
+        self,
+        wav: np.ndarray,
+        *,
+        sample_rate: int,
+        segment_index: int,
+        text: str,
+        streaming_interval: float,
+    ) -> Iterator[dict[str, Any]]:
+        audio = np.asarray(wav, dtype=np.float32).reshape(-1)
+        if audio.size == 0:
+            raise RuntimeError("The model returned no audio.")
+
+        chunk_size = max(1, int(sample_rate * max(streaming_interval, 0.08)))
+        for start in range(0, audio.size, chunk_size):
+            end = min(audio.size, start + chunk_size)
+            yield {
+                "segment_index": segment_index,
+                "text": text,
+                "audio": audio[start:end],
+                "sample_rate": sample_rate,
+                "is_final_chunk": end >= audio.size,
+            }
 
     def generate_custom(self, request: CustomGenerationRequest) -> tuple[list[Any], int]:
         self._validate_language(request.language)
@@ -208,13 +304,19 @@ class ModelManager:
     ) -> tuple[list[Any], int]:
         self._validate_language(payload.language)
         if x_vector_only_mode:
-            raise ValueError("The local MLX Qwen runtime does not support x-vector only mode yet. Provide a reference transcript and leave that option disabled.")
+            raise ValueError(
+                "The local MLX Qwen runtime does not support x-vector only mode yet. Provide a reference transcript and leave that option disabled."
+            )
         if not (ref_text or "").strip():
-            raise ValueError("Reference transcript is required unless x-vector only mode is enabled.")
+            raise ValueError(
+                "Reference transcript is required unless x-vector only mode is enabled."
+            )
 
         model = self.ensure_mode("clone")
         self._apply_seed(payload.generation.seed)
-        language = self._normalize_language(payload.language)
+        language = self._normalize_language(
+            self.resolve_clone_language(payload.language, payload.segments, ref_text)
+        )
         generation_kwargs = self._generation_kwargs(payload.generation)
 
         wavs: list[np.ndarray] = []
@@ -286,26 +388,196 @@ class ModelManager:
     ) -> Iterator[dict[str, Any]]:
         self._validate_language(payload.language)
         if x_vector_only_mode:
-            raise ValueError("The local MLX Qwen runtime does not support x-vector only mode yet. Provide a reference transcript and leave that option disabled.")
+            raise ValueError(
+                "The local MLX Qwen runtime does not support x-vector only mode yet. Provide a reference transcript and leave that option disabled."
+            )
         if not (ref_text or "").strip():
-            raise ValueError("Reference transcript is required unless x-vector only mode is enabled.")
+            raise ValueError(
+                "Reference transcript is required unless x-vector only mode is enabled."
+            )
 
         model = self.ensure_mode("clone")
         self._apply_seed(payload.generation.seed)
-        language = self._normalize_language(payload.language)
-        generation_kwargs = self._stream_generation_kwargs(payload)
+        language = self._normalize_language(
+            self.resolve_clone_language(payload.language, payload.segments, ref_text)
+        )
+        generation_kwargs = self._generation_kwargs(payload.generation)
         sample_rate = int(model.sample_rate)
 
         for segment_index, segment in enumerate(payload.segments):
-            yield from self._iter_stream_results(
+            wav, sample_rate = self._collect_audio(
                 model.generate(
                     text=segment,
                     lang_code=language,
                     ref_audio=ref_audio_path,
                     ref_text=ref_text,
                     **generation_kwargs,
-                ),
+                )
+            )
+            yield from self._iter_chunked_audio(
+                wav,
+                sample_rate=sample_rate,
                 segment_index=segment_index,
                 text=segment,
-                sample_rate=sample_rate,
+                streaming_interval=payload.streaming_interval,
             )
+
+
+class AsrModelManager:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._inference_lock = threading.Lock()
+        self._model: Any | None = None
+        self.active_model_id: str | None = None
+        self.selected_device = self._detect_preferred_device()
+
+    def _detect_preferred_device(self) -> str:
+        try:
+            import mlx.core as mx
+
+            mx.clear_cache()
+            return "mlx"
+        except Exception:
+            return "cpu"
+
+    def _instantiate_model(self, model_id: str) -> tuple[Any, str]:
+        from mlx_audio.stt import load
+
+        try:
+            model = load(model_id)
+        except Exception as exc:  # pragma: no cover - exercised against real runtime only
+            raise RuntimeError(f"Unable to load {model_id} with the MLX runtime.") from exc
+
+        return model, "mlx"
+
+    def _release_current_model(self) -> None:
+        if self._model is None:
+            return
+
+        self._model = None
+        self.active_model_id = None
+        gc.collect()
+        try:
+            import mlx.core as mx
+
+            mx.clear_cache()
+        except Exception:
+            pass
+
+    def ensure_model(self, model_id: str) -> Any:
+        with self._lock:
+            if self.active_model_id == model_id and self._model is not None:
+                return self._model
+
+            self._release_current_model()
+            model, actual_device = self._instantiate_model(model_id)
+            self._model = model
+            self.active_model_id = model_id
+            self.selected_device = actual_device
+            return model
+
+    def _normalize_language(self, language: str | None) -> str | None:
+        if language is None:
+            return None
+        cleaned = language.strip()
+        if not cleaned or cleaned.lower() == "auto":
+            return None
+        if cleaned not in LANGUAGES:
+            raise ValueError(f"Unsupported language '{cleaned}'.")
+        return cleaned
+
+    def _resample_audio(self, audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
+        if source_rate == target_rate:
+            return np.asarray(audio, dtype=np.float32)
+
+        samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+        if samples.size == 0:
+            return samples
+
+        duration = samples.shape[0] / source_rate
+        target_length = max(1, int(round(duration * target_rate)))
+        source_positions = np.linspace(0.0, duration, num=samples.shape[0], endpoint=False)
+        target_positions = np.linspace(0.0, duration, num=target_length, endpoint=False)
+        return np.interp(target_positions, source_positions, samples).astype(np.float32)
+
+    def transcribe_file(
+        self,
+        *,
+        file_path: str,
+        model_id: str,
+        language: str | None,
+        send_to_chat: bool = False,
+    ) -> AsrTranscriptionResponse:
+        normalized_language = self._normalize_language(language)
+        model = self.ensure_model(model_id)
+        try:
+            with self._inference_lock:
+                result = model.generate(file_path, language=normalized_language)
+        except Exception as exc:  # pragma: no cover - real runtime only
+            raise RuntimeError("The ASR model failed to transcribe the uploaded audio.") from exc
+
+        segments = [
+            AsrSegmentResponse(
+                text=str(segment.get("text", "")).strip(),
+                start=float(segment.get("start", 0.0)),
+                end=float(segment.get("end", 0.0)),
+            )
+            for segment in getattr(result, "segments", [])
+            if str(segment.get("text", "")).strip()
+        ]
+        duration_seconds = round(float(segments[-1].end), 2) if segments else 0.0
+        return AsrTranscriptionResponse(
+            text=str(getattr(result, "text", "")).strip(),
+            language=normalized_language or self._infer_language(result),
+            duration_seconds=duration_seconds,
+            model_id=model_id,
+            segments=segments,
+            send_to_chat=send_to_chat,
+        )
+
+    def transcribe_array(
+        self,
+        *,
+        audio: np.ndarray,
+        source_rate: int,
+        model_id: str,
+        language: str | None,
+    ) -> AsrTranscriptionResponse:
+        normalized_language = self._normalize_language(language)
+        model = self.ensure_model(model_id)
+        resampled = self._resample_audio(audio, source_rate, CONVERSATION_SAMPLE_RATE)
+        try:
+            with self._inference_lock:
+                result = model.generate(resampled, language=normalized_language)
+        except Exception as exc:  # pragma: no cover - real runtime only
+            raise RuntimeError("The ASR model failed to transcribe the buffered audio.") from exc
+
+        segments = [
+            AsrSegmentResponse(
+                text=str(segment.get("text", "")).strip(),
+                start=float(segment.get("start", 0.0)),
+                end=float(segment.get("end", 0.0)),
+            )
+            for segment in getattr(result, "segments", [])
+            if str(segment.get("text", "")).strip()
+        ]
+        duration_seconds = round(float(len(resampled) / CONVERSATION_SAMPLE_RATE), 2)
+        return AsrTranscriptionResponse(
+            text=str(getattr(result, "text", "")).strip(),
+            language=normalized_language or self._infer_language(result),
+            duration_seconds=duration_seconds,
+            model_id=model_id,
+            segments=segments,
+        )
+
+    def _infer_language(self, result: Any) -> str | None:
+        languages = getattr(result, "language", None)
+        if isinstance(languages, str):
+            return languages
+        if isinstance(languages, list) and languages:
+            return str(languages[0])
+        return None
+
+
+class ModelManager(TtsModelManager):
+    """Compatibility alias for older tests and bootstrap code."""
