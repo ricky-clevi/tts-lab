@@ -333,7 +333,9 @@ def create_app(
                 language=language,
                 x_vector_only_mode=False,
             )
-            speaker_embedding = tts.prepare_clone_speaker_embedding(ref_audio_path=prepared_path)
+            speaker_embedding, ref_codes = tts.prepare_clone_conditioning_assets(
+                ref_audio_path=prepared_path
+            )
             return voice_profiles.save_profile(
                 source_path=prepared_path,
                 source_name=f"{Path(audio.filename or 'reference').stem}{Path(prepared_path).suffix}",
@@ -341,6 +343,7 @@ def create_app(
                 reference_text=resolved_reference_text or "",
                 label=label,
                 speaker_embedding=speaker_embedding,
+                ref_codes=ref_codes,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc

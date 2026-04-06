@@ -43,7 +43,7 @@ class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._inference_lock = threading.Lock()
-        self._clone_embedding_cache: dict[str, np.ndarray] = {}
+        self._clone_embedding_cache: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
         self._model: Any | None = None
         self.active_mode: Mode | None = None
         self.active_model_id: str | None = None
@@ -258,6 +258,9 @@ class TtsModelManager:
             model, "speaker_encoder", None
         ) is not None
 
+    def _supports_cached_clone_icl(self, model: Any) -> bool:
+        return getattr(getattr(model, "speech_tokenizer", None), "has_encoder", False)
+
     def _extract_clone_speaker_embedding_unlocked(
         self,
         *,
@@ -286,17 +289,57 @@ class TtsModelManager:
                 ref_audio_path=ref_audio_path,
             )
 
-    def _load_cached_clone_speaker_embedding(self, embedding_path: str) -> np.ndarray:
+    def prepare_clone_conditioning_assets(
+        self, *, ref_audio_path: str
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        with self._inference_lock:
+            model = self.ensure_mode("clone")
+            speaker_embedding = self._extract_clone_speaker_embedding_unlocked(
+                model=model,
+                ref_audio_path=ref_audio_path,
+            )
+            ref_codes: np.ndarray | None = None
+            if self._supports_cached_clone_icl(model):
+                from mlx_audio.utils import load_audio
+
+                import mlx.core as mx
+
+                audio = load_audio(ref_audio_path, sample_rate=int(model.sample_rate))
+                if audio.ndim == 1:
+                    audio = audio[None, None, :]
+                elif audio.ndim == 2:
+                    audio = audio[None, :]
+                codes = model.speech_tokenizer.encode(audio)
+                mx.eval(codes)
+                ref_codes = np.asarray(codes, dtype=np.int32)
+            return speaker_embedding, ref_codes
+
+    def _load_cached_clone_conditioning(
+        self, embedding_path: str
+    ) -> tuple[np.ndarray, np.ndarray | None]:
         cache_key = str(Path(embedding_path).resolve())
         cached = self._clone_embedding_cache.get(cache_key)
         if cached is not None:
             return cached
 
-        embedding = np.asarray(np.load(cache_key), dtype=np.float32)
+        loaded = np.load(cache_key, allow_pickle=False)
+        if isinstance(loaded, np.lib.npyio.NpzFile):
+            if "speaker_embedding" not in loaded.files:
+                raise RuntimeError("Clone cache is missing the speaker embedding.")
+            embedding = np.asarray(loaded["speaker_embedding"], dtype=np.float32)
+            ref_codes = (
+                np.asarray(loaded["ref_codes"], dtype=np.int32)
+                if "ref_codes" in loaded.files
+                else None
+            )
+        else:
+            embedding = np.asarray(loaded, dtype=np.float32)
+            ref_codes = None
+
         if embedding.ndim == 1:
             embedding = embedding.reshape(1, -1)
-        self._clone_embedding_cache[cache_key] = embedding
-        return embedding
+        self._clone_embedding_cache[cache_key] = (embedding, ref_codes)
+        return embedding, ref_codes
 
     def _generate_clone_with_speaker_embedding(
         self,
@@ -304,7 +347,9 @@ class TtsModelManager:
         model: Any,
         text: str,
         language: str,
+        ref_text: str | None,
         speaker_embedding: np.ndarray,
+        ref_codes: np.ndarray | None,
         generation_kwargs: dict[str, float | int | bool],
     ) -> Any:
         if not self._supports_cached_clone_embedding(model):
@@ -316,6 +361,7 @@ class TtsModelManager:
 
         cached_embedding = mx.array(np.asarray(speaker_embedding, dtype=np.float32))
         original_extract = model.extract_speaker_embedding
+        original_encode = getattr(model.speech_tokenizer, "encode", None)
 
         def use_cached_embedding(_audio, sr: int = int(model.sample_rate)):
             del sr
@@ -323,6 +369,22 @@ class TtsModelManager:
 
         model.extract_speaker_embedding = use_cached_embedding
         try:
+            if ref_codes is not None and ref_text:
+                cached_ref_codes = mx.array(np.asarray(ref_codes, dtype=np.int32))
+
+                def use_cached_ref_codes(_audio):
+                    return cached_ref_codes
+
+                if original_encode is not None:
+                    model.speech_tokenizer.encode = use_cached_ref_codes
+                return model.generate(
+                    text=text,
+                    lang_code=language,
+                    ref_audio=mx.zeros((max(400, int(model.sample_rate * 0.1)),), dtype=mx.float32),
+                    ref_text=ref_text,
+                    **generation_kwargs,
+                )
+
             return model.generate(
                 text=text,
                 lang_code=language,
@@ -332,12 +394,15 @@ class TtsModelManager:
             )
         finally:
             model.extract_speaker_embedding = original_extract
+            if original_encode is not None:
+                model.speech_tokenizer.encode = original_encode
 
     def generate_clone_cached(
         self,
         *,
         payload: BaseGenerationRequest,
         speaker_embedding_path: str,
+        ref_text: str | None,
     ) -> tuple[list[Any], int]:
         self._validate_language(payload.language)
 
@@ -345,10 +410,12 @@ class TtsModelManager:
             model = self.ensure_mode("clone")
             self._apply_seed(payload.generation.seed)
             language = self._normalize_language(
-                self.resolve_clone_language(payload.language, payload.segments, None)
+                self.resolve_clone_language(payload.language, payload.segments, ref_text)
             )
             generation_kwargs = self._generation_kwargs(payload.generation)
-            speaker_embedding = self._load_cached_clone_speaker_embedding(speaker_embedding_path)
+            speaker_embedding, ref_codes = self._load_cached_clone_conditioning(
+                speaker_embedding_path
+            )
 
             wavs: list[np.ndarray] = []
             sample_rate = int(model.sample_rate)
@@ -358,7 +425,9 @@ class TtsModelManager:
                         model=model,
                         text=segment,
                         language=language,
+                        ref_text=ref_text,
                         speaker_embedding=speaker_embedding,
+                        ref_codes=ref_codes,
                         generation_kwargs=generation_kwargs,
                     )
                 )
@@ -450,7 +519,9 @@ class TtsModelManager:
                         model=model,
                         text=segment,
                         language=language,
+                        ref_text=None,
                         speaker_embedding=speaker_embedding,
+                        ref_codes=None,
                         generation_kwargs=generation_kwargs,
                     )
                     if speaker_embedding is not None
@@ -595,6 +666,7 @@ class TtsModelManager:
         *,
         payload: BaseGenerationRequest,
         speaker_embedding_path: str,
+        ref_text: str | None,
     ) -> Iterator[dict[str, Any]]:
         self._validate_language(payload.language)
 
@@ -603,11 +675,11 @@ class TtsModelManager:
                 model = self.ensure_mode("clone")
                 self._apply_seed(payload.generation.seed)
                 language = self._normalize_language(
-                    self.resolve_clone_language(payload.language, payload.segments, None)
+                    self.resolve_clone_language(payload.language, payload.segments, ref_text)
                 )
                 generation_kwargs = self._stream_generation_kwargs(payload)
                 sample_rate = int(model.sample_rate)
-                speaker_embedding = self._load_cached_clone_speaker_embedding(
+                speaker_embedding, ref_codes = self._load_cached_clone_conditioning(
                     speaker_embedding_path
                 )
 
@@ -617,7 +689,9 @@ class TtsModelManager:
                             model=model,
                             text=segment,
                             language=language,
+                            ref_text=ref_text,
                             speaker_embedding=speaker_embedding,
+                            ref_codes=ref_codes,
                             generation_kwargs=generation_kwargs,
                         ),
                         segment_index=segment_index,

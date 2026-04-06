@@ -70,6 +70,7 @@ class VoiceProfileStorage:
         reference_text: str,
         label: str | None = None,
         speaker_embedding: np.ndarray | None = None,
+        ref_codes: np.ndarray | None = None,
     ) -> CloneVoiceProfileResponse:
         profile_id = uuid4().hex
         extension = Path(source_name).suffix or ".wav"
@@ -77,9 +78,14 @@ class VoiceProfileStorage:
         destination = self.root / audio_file_name
         shutil.copy2(source_path, destination)
         speaker_embedding_path: str | None = None
-        if speaker_embedding is not None:
-            embedding_path = self.root / f"{profile_id}.speaker.npy"
-            np.save(embedding_path, np.asarray(speaker_embedding, dtype=np.float32))
+        if speaker_embedding is not None or ref_codes is not None:
+            embedding_path = self.root / f"{profile_id}.speaker.npz"
+            payload: dict[str, np.ndarray] = {}
+            if speaker_embedding is not None:
+                payload["speaker_embedding"] = np.asarray(speaker_embedding, dtype=np.float32)
+            if ref_codes is not None:
+                payload["ref_codes"] = np.asarray(ref_codes, dtype=np.int32)
+            np.savez(embedding_path, **payload)
             speaker_embedding_path = str(embedding_path)
         created_at = datetime.now(timezone.utc)
         response = CloneVoiceProfileResponse(

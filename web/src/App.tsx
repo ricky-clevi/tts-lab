@@ -928,8 +928,7 @@ function App() {
 
     if (
       chatSettings.defaults.replyVoice.cloneAudioPath &&
-      chatSettings.defaults.replyVoice.cloneReferenceText &&
-      chatSettings.defaults.replyVoice.cloneEmbeddingPath
+      chatSettings.defaults.replyVoice.cloneReferenceText
     ) {
       return chatSettings
     }
@@ -2063,7 +2062,7 @@ function App() {
                     Ready: {chatSettings.defaults.replyVoice.cloneProfileLabel}
                   </p>
                 ) : (
-                  <p className="hint">Prepare a reference clip once, cache its Qwen speaker embedding, then reuse it for faster streamed assistant replies.</p>
+                  <p className="hint">Prepare a reference clip once, then reuse that stored clip and transcript for streamed assistant replies in the same cloned voice.</p>
                 )}
                 {chatSettings.defaults.replyVoice.cloneReferenceText ? (
                   <p className="style-preview">{chatSettings.defaults.replyVoice.cloneReferenceText}</p>

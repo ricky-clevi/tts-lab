@@ -366,26 +366,30 @@ class ConversationSession:
                     segments=[sentence],
                     language=reply_voice.language,
                 )
-                if reply_voice.clone_embedding_path:
-                    stream_factory = lambda: self.tts_manager.stream_clone_cached(
-                        payload=request,
-                        speaker_embedding_path=reply_voice.clone_embedding_path,
-                    )
-                else:
-                    if not reply_voice.clone_audio_path or not reply_voice.clone_reference_text:
-                        await self.send(
-                            {
-                                "type": "error",
-                                "detail": "Reply voice clone is not prepared yet. Upload and prepare a cloned reply voice first.",
-                            }
-                        )
-                        continue
+                # Realtime chat prioritizes the prepared reference clip + transcript
+                # path because it is more identity-stable across sentence-by-sentence
+                # assistant replies than the cached speaker-embedding shortcut.
+                if reply_voice.clone_audio_path and reply_voice.clone_reference_text:
                     stream_factory = lambda: self.tts_manager.stream_clone(
                         payload=request,
                         ref_audio_path=reply_voice.clone_audio_path,
                         ref_text=reply_voice.clone_reference_text,
                         x_vector_only_mode=False,
                     )
+                elif reply_voice.clone_embedding_path and reply_voice.clone_reference_text:
+                    stream_factory = lambda: self.tts_manager.stream_clone_cached(
+                        payload=request,
+                        speaker_embedding_path=reply_voice.clone_embedding_path,
+                        ref_text=reply_voice.clone_reference_text,
+                    )
+                else:
+                    await self.send(
+                        {
+                            "type": "error",
+                            "detail": "Reply voice clone is not prepared yet. Upload and prepare a cloned reply voice first.",
+                        }
+                    )
+                    continue
 
             await self.send(
                 {

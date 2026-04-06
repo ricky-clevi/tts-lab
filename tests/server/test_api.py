@@ -168,14 +168,18 @@ class FakeTtsManager:
                 "is_final_chunk": True,
             }
 
-    def prepare_clone_speaker_embedding(self, *, ref_audio_path: str):
+    def prepare_clone_conditioning_assets(self, *, ref_audio_path: str):
         assert Path(ref_audio_path).exists()
         self.ensure_mode("clone")
         self.prepare_clone_embedding_calls += 1
-        return np.asarray([[0.25, 0.5, 0.75]], dtype=np.float32)
+        return (
+            np.asarray([[0.25, 0.5, 0.75]], dtype=np.float32),
+            np.asarray([[[1, 2, 3], [4, 5, 6]]], dtype=np.int32),
+        )
 
-    def stream_clone_cached(self, *, payload: BaseGenerationRequest, speaker_embedding_path: str):
+    def stream_clone_cached(self, *, payload: BaseGenerationRequest, speaker_embedding_path: str, ref_text: str | None):
         assert Path(speaker_embedding_path).exists()
+        assert ref_text == "Uploaded sample transcript."
         self.ensure_mode("clone")
         self.clone_cached_calls += 1
         for segment_index, segment in enumerate(payload.segments):
@@ -566,7 +570,7 @@ def test_create_clone_voice_profile_auto_transcribes_reference(client):
     assert body["label"] == "Agent Voice"
     assert body["reference_text"] == "Uploaded sample transcript."
     assert body["audio_path"].endswith(".wav")
-    assert body["speaker_embedding_path"].endswith(".speaker.npy")
+    assert body["speaker_embedding_path"].endswith(".speaker.npz")
     assert asr_manager.transcribe_file_calls == 1
     assert manager.prepare_clone_embedding_calls == 1
 
@@ -734,4 +738,5 @@ def test_conversation_can_speak_with_cloned_reply_voice(client, tmp_path: Path):
     assert "tts.segment_start" in event_types
     assert "tts.audio_chunk" in event_types
     assert manager.ensure_calls[-1] == "clone"
-    assert manager.clone_cached_calls >= 1
+    assert manager.clone_calls >= 1
+    assert manager.clone_cached_calls == 0
