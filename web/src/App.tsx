@@ -675,7 +675,10 @@ function App() {
     }
 
     const minWidth = 360
-    const maxWidth = Math.max(minWidth, Math.min(760, shellBounds.width - 520))
+    const maxWidth = Math.max(
+      minWidth,
+      Math.min(shellBounds.width * 0.72, shellBounds.width - 380),
+    )
 
     const handleMove = (moveEvent: PointerEvent) => {
       const proposedWidth = moveEvent.clientX - shellBounds.left - 4
@@ -1491,10 +1494,11 @@ function App() {
     title: string,
     children: ReactNode,
     copy?: string,
+    className?: string,
   ) {
     const collapsed = collapsedSections[sectionId]
     return (
-      <section className={`settings-section ${collapsed ? 'settings-section-collapsed' : ''}`}>
+      <section className={`settings-section ${collapsed ? 'settings-section-collapsed' : ''} ${className ?? ''}`.trim()}>
         <button
           className="settings-section-toggle"
           type="button"
@@ -1807,106 +1811,110 @@ function App() {
             Voice Chat
           </button>
         </div>
-        {renderSettingsSection(
-          'provider',
-          'Provider',
-          renderProviderPanel(),
-          'Pick the active LLM connection and keep credentials local to this server.',
-        )}
-        {renderSettingsSection(
-          'conversation',
-          'Conversation',
-          <>
-          <div className="field-stack">
-            <label className="field">
-              <span className="field-label">Active provider</span>
-              <select className="text-input" value={chatSettings.defaults.activeProvider} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, activeProvider: event.target.value as ProviderId } }))}>
-                {capabilities?.chat.providers.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span className="field-label">System prompt</span>
-              <textarea className="text-input segment-input" value={chatSettings.defaults.systemPrompt} rows={4} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, systemPrompt: event.target.value } }))} />
-            </label>
-          </div>
-          <div className="advanced-grid">
-            <label className="field">
-              <span className="field-label">Temperature</span>
-              <input className="text-input" inputMode="decimal" value={chatSettings.defaults.temperature} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, temperature: event.target.value } }))} />
-            </label>
-            <label className="field">
-              <span className="field-label">Max output tokens</span>
-              <input className="text-input" inputMode="numeric" value={chatSettings.defaults.maxOutputTokens} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, maxOutputTokens: event.target.value } }))} />
-            </label>
-          </div>
-          <p className="hint">Reply chunking: sentence-sized speech streaming.</p>
-          </>,
-          'Define how the assistant reasons and how long each reply can run.',
-        )}
-        {renderSettingsSection(
-          'asr',
-          'ASR',
-          <>
-          <div className="advanced-grid">
-            <label className="field">
-              <span className="field-label">Model</span>
-              <select className="text-input" value={chatSettings.defaults.asrModel} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, asrModel: event.target.value } }))}>
-                {capabilities?.asr.models.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span className="field-label">Language</span>
-              <select className="text-input" value={chatSettings.defaults.asrLanguage} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, asrLanguage: event.target.value } }))}>
-                {capabilities?.languages.map((language) => (
-                  <option key={language} value={language}>
-                    {language}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span className="field-label">Silence timeout ms</span>
-              <input className="text-input" inputMode="numeric" value={chatSettings.defaults.silenceTimeoutMs} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, silenceTimeoutMs: event.target.value } }))} />
-            </label>
-            <label className="field">
-              <span className="field-label">Max turn seconds</span>
-              <input className="text-input" inputMode="numeric" value={chatSettings.defaults.maxTurnSeconds} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, maxTurnSeconds: event.target.value } }))} />
-            </label>
-          </div>
-          <label className="toggle">
-            <input type="checkbox" checked={chatSettings.defaults.liveCaptions} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, liveCaptions: event.target.checked } }))} />
-            <span>Live captions</span>
-          </label>
-          <div className="upload-card">
-            <label className="field">
-              <span className="field-label">Upload audio for transcription</span>
-              <input className="text-input" type="file" accept="audio/*" onChange={(event) => setFileUpload(event.target.files?.[0] ?? null)} />
-            </label>
-            <label className="toggle">
-              <input type="checkbox" checked={fileSendToChat} onChange={(event) => setFileSendToChat(event.target.checked)} />
-              <span>Send transcript into chat after transcription</span>
-            </label>
-            <button className="ghost-button" type="button" onClick={() => void handleFileTranscription()}>
-              Transcribe file
-            </button>
-            {fileTranscript ? <p className="style-preview">{fileTranscript.text}</p> : null}
-          </div>
-          </>,
-          'Tune transcription behavior, turn timing, and file-based transcript import.',
-        )}
-        {renderSettingsSection(
-          'replyVoice',
-          'Reply voice',
-          <>
-          <div className="advanced-grid">
+        <div className="settings-board">
+          {renderSettingsSection(
+            'provider',
+            'Provider',
+            renderProviderPanel(),
+            'Pick the active LLM connection and keep credentials local to this server.',
+            'settings-section-compact',
+          )}
+          {renderSettingsSection(
+            'conversation',
+            'Conversation',
+            <>
+              <div className="responsive-field-grid">
+                <label className="field">
+                  <span className="field-label">Active provider</span>
+                  <select className="text-input" value={chatSettings.defaults.activeProvider} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, activeProvider: event.target.value as ProviderId } }))}>
+                    {capabilities?.chat.providers.map((provider) => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field field-span-full">
+                  <span className="field-label">System prompt</span>
+                  <textarea className="text-input segment-input" value={chatSettings.defaults.systemPrompt} rows={4} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, systemPrompt: event.target.value } }))} />
+                </label>
+              </div>
+              <div className="responsive-field-grid">
+                <label className="field">
+                  <span className="field-label">Temperature</span>
+                  <input className="text-input" inputMode="decimal" value={chatSettings.defaults.temperature} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, temperature: event.target.value } }))} />
+                </label>
+                <label className="field">
+                  <span className="field-label">Max output tokens</span>
+                  <input className="text-input" inputMode="numeric" value={chatSettings.defaults.maxOutputTokens} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, maxOutputTokens: event.target.value } }))} />
+                </label>
+              </div>
+              <p className="hint">Reply chunking: sentence-sized speech streaming.</p>
+            </>,
+            'Define how the assistant reasons and how long each reply can run.',
+            'settings-section-compact',
+          )}
+          {renderSettingsSection(
+            'asr',
+            'ASR',
+            <>
+              <div className="responsive-field-grid">
+                <label className="field">
+                  <span className="field-label">Model</span>
+                  <select className="text-input" value={chatSettings.defaults.asrModel} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, asrModel: event.target.value } }))}>
+                    {capabilities?.asr.models.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">Language</span>
+                  <select className="text-input" value={chatSettings.defaults.asrLanguage} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, asrLanguage: event.target.value } }))}>
+                    {capabilities?.languages.map((language) => (
+                      <option key={language} value={language}>
+                        {language}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">Silence timeout ms</span>
+                  <input className="text-input" inputMode="numeric" value={chatSettings.defaults.silenceTimeoutMs} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, silenceTimeoutMs: event.target.value } }))} />
+                </label>
+                <label className="field">
+                  <span className="field-label">Max turn seconds</span>
+                  <input className="text-input" inputMode="numeric" value={chatSettings.defaults.maxTurnSeconds} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, maxTurnSeconds: event.target.value } }))} />
+                </label>
+              </div>
+              <label className="toggle">
+                <input type="checkbox" checked={chatSettings.defaults.liveCaptions} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, liveCaptions: event.target.checked } }))} />
+                <span>Live captions</span>
+              </label>
+              <div className="upload-card">
+                <label className="field">
+                  <span className="field-label">Upload audio for transcription</span>
+                  <input className="text-input" type="file" accept="audio/*" onChange={(event) => setFileUpload(event.target.files?.[0] ?? null)} />
+                </label>
+                <label className="toggle">
+                  <input type="checkbox" checked={fileSendToChat} onChange={(event) => setFileSendToChat(event.target.checked)} />
+                  <span>Send transcript into chat after transcription</span>
+                </label>
+                <button className="ghost-button" type="button" onClick={() => void handleFileTranscription()}>
+                  Transcribe file
+                </button>
+                {fileTranscript ? <p className="style-preview">{fileTranscript.text}</p> : null}
+              </div>
+            </>,
+            'Tune transcription behavior, turn timing, and file-based transcript import.',
+            'settings-section-compact',
+          )}
+          {renderSettingsSection(
+            'replyVoice',
+            'Reply voice',
+            <>
+          <div className="responsive-field-grid">
             <label className="field">
               <span className="field-label">Voice mode</span>
               <select
@@ -1961,8 +1969,8 @@ function App() {
             ) : null}
           </div>
           {chatSettings.defaults.replyVoice.mode === 'clone' ? (
-            <div className="upload-card">
-              <label className="field">
+            <div className="upload-card reply-voice-clone-grid">
+              <label className="field field-span-full">
                 <span className="field-label">Reference voice clip</span>
                 <input
                   className="text-input"
@@ -1987,7 +1995,19 @@ function App() {
                   placeholder="Support agent voice"
                 />
               </label>
-              <label className="field">
+              <div className="reply-voice-clone-status">
+                {chatSettings.defaults.replyVoice.cloneProfileLabel ? (
+                  <p className="hint">
+                    Ready: {chatSettings.defaults.replyVoice.cloneProfileLabel}
+                  </p>
+                ) : (
+                  <p className="hint">Prepare a reference clip once, then reuse it for streamed assistant replies.</p>
+                )}
+                {chatSettings.defaults.replyVoice.cloneReferenceText ? (
+                  <p className="style-preview">{chatSettings.defaults.replyVoice.cloneReferenceText}</p>
+                ) : null}
+              </div>
+              <label className="field field-span-full">
                 <span className="field-label">Reference transcript</span>
                 <textarea
                   className="text-input segment-input"
@@ -2012,27 +2032,21 @@ function App() {
                   {replyVoiceCloneDraft.pending ? 'Preparing…' : 'Prepare cloned voice'}
                 </button>
               </div>
-              {chatSettings.defaults.replyVoice.cloneProfileLabel ? (
-                <p className="hint">
-                  Ready: {chatSettings.defaults.replyVoice.cloneProfileLabel}
-                </p>
-              ) : null}
-              {chatSettings.defaults.replyVoice.cloneReferenceText ? (
-                <p className="style-preview">{chatSettings.defaults.replyVoice.cloneReferenceText}</p>
-              ) : null}
             </div>
           ) : (
-            <>
-              <label className="field">
+            <div className="reply-voice-design-layout">
+              <label className="field field-span-full">
                 <span className="field-label">Base guidance</span>
                 <textarea className="text-input segment-input" value={chatSettings.defaults.replyVoice.instruct} rows={3} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, instruct: event.target.value } } }))} />
               </label>
               {renderStyleControls(chatSettings.defaults.replyVoice.style, (key, value) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, style: { ...current.defaults.replyVoice.style, [key]: value } } } })), chatSettings.defaults.replyVoice.mode)}
-            </>
+            </div>
           )}
-          </>,
-          'Choose whether the assistant speaks with a preset, designed, or cloned reply voice.',
-        )}
+            </>,
+            'Choose whether the assistant speaks with a preset, designed, or cloned reply voice.',
+            'settings-section-wide',
+          )}
+        </div>
       </>
     )
   }
@@ -2182,7 +2196,12 @@ function App() {
         {workspace === 'tts' ? renderTtsControls() : renderVoiceChatControls()}
         {error ? <p className="error-banner">{error}</p> : null}
       </section>
-      <button className="shell-resizer" type="button" aria-label="Resize settings sidebar" onPointerDown={startSidebarResize} />
+      <button className="shell-resizer" type="button" aria-label="Resize settings sidebar" onPointerDown={startSidebarResize}>
+        <span className="shell-resizer-track" aria-hidden="true" />
+        <span className="shell-resizer-grip" aria-hidden="true">
+          ||
+        </span>
+      </button>
       <section className="panel panel-results">{workspace === 'tts' ? renderRunResults() : renderChatResults()}</section>
       </main>
       <div className="toast-stack" aria-live="polite" aria-atomic="true">

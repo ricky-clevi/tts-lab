@@ -15,7 +15,7 @@
 .shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(22rem, var(--sidebar-width, 27rem)) 0.4rem minmax(32rem, 1fr);
+  grid-template-columns: minmax(22rem, var(--sidebar-width, 27rem)) 1.15rem minmax(24rem, 1fr);
   gap: 0;
   padding: 1.25rem;
   box-sizing: border-box;
@@ -46,23 +46,52 @@
 .shell-resizer {
   border: 0;
   padding: 0;
-  margin: 0 0.55rem;
+  margin: 0;
+  width: 1.15rem;
+  min-height: calc(100vh - 2.5rem);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: col-resize;
-  background:
-    linear-gradient(180deg, transparent, rgba(107, 122, 84, 0.18), transparent),
-    transparent;
+  background: rgba(107, 122, 84, 0.06);
   border-radius: 999px;
+  touch-action: none;
+  position: relative;
+  overflow: hidden;
 }
 
 .shell-resizer:hover {
-  background:
-    linear-gradient(180deg, transparent, rgba(107, 122, 84, 0.34), transparent),
-    transparent;
+  background: rgba(107, 122, 84, 0.12);
 }
 
 body.is-resizing {
   cursor: col-resize;
   user-select: none;
+}
+
+.shell-resizer-track {
+  position: absolute;
+  inset: 0.55rem 0.48rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(107, 122, 84, 0.08), rgba(107, 122, 84, 0.22), rgba(107, 122, 84, 0.08));
+}
+
+.shell-resizer-grip {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.65rem;
+  height: 2.4rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgba(255, 252, 247, 0.96);
+  color: var(--muted);
+  font-size: 0.88rem;
+  letter-spacing: 0.12em;
+  box-shadow: 0 10px 24px rgba(53, 41, 28, 0.1);
 }
 
 .hero {
@@ -225,7 +254,7 @@ body.is-resizing {
 .style-grid,
 .advanced-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
   gap: 0.85rem;
 }
 
@@ -265,10 +294,52 @@ body.is-resizing {
   gap: 0.95rem;
 }
 
+.field-span-full {
+  grid-column: 1 / -1;
+}
+
+.settings-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
 .settings-section {
   border: 1px solid var(--line);
   background: rgba(255, 253, 249, 0.82);
   border-radius: 1rem;
+}
+
+.settings-section-compact {
+  min-height: 0;
+}
+
+.settings-section-wide {
+  grid-column: 1 / -1;
+}
+
+.reply-voice-design-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+}
+
+.reply-voice-clone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 0.95rem;
+  align-items: start;
+}
+
+.reply-voice-clone-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.95rem;
+  background: rgba(107, 122, 84, 0.06);
+  padding: 0.9rem;
 }
 
 .settings-section-toggle {
@@ -573,6 +644,14 @@ body.is-resizing {
 
   .shell-resizer {
     display: none;
+  }
+
+  .settings-board {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-section-wide {
+    grid-column: auto;
   }
 }
 
