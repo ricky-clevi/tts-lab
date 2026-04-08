@@ -10,6 +10,7 @@ Mode = Literal["custom", "design", "clone"]
 ProviderId = Literal["openai_compatible", "gemini", "anthropic"]
 OpenAICompatMode = Literal["responses", "chat_completions"]
 ReplyVoiceMode = Literal["custom", "design", "clone"]
+ReplyRuntimeMode = Literal["quality", "balanced"]
 
 
 class StyleControls(BaseModel):
@@ -116,10 +117,16 @@ class ProviderSettingsResponse(BaseModel):
 
 class ReplyVoiceSettings(BaseModel):
     mode: ReplyVoiceMode = "custom"
+    runtime_mode: ReplyRuntimeMode = "balanced"
     language: str = "English"
     speaker: str = "Ryan"
     instruct: str = ""
     style: StyleControls = Field(default_factory=StyleControls)
+    block_max_sentences: int = Field(default=2, ge=1, le=3)
+    block_max_chars: int = Field(default=180, ge=80, le=400)
+    block_hold_ms: int = Field(default=220, ge=0, le=1000)
+    warmup_on_connect: bool = True
+    emit_perf_metrics: bool = False
     clone_profile_id: str | None = None
     clone_profile_label: str | None = None
     clone_audio_path: str | None = None

@@ -612,6 +612,26 @@ body.is-resizing {
   background: rgba(107, 122, 84, 0.12);
 }
 
+.perf-card {
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 0.8rem 0.9rem;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.perf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.55rem;
+}
+
+.perf-item {
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  background: rgba(107, 122, 84, 0.06);
+}
+
 .chat-thread {
   min-height: 26rem;
 }

@@ -151,9 +151,15 @@ export type StyleControlsApi = {
 
 export type ReplyVoiceSettingsApi = {
   mode: ReplyVoiceMode
+  runtime_mode?: 'quality' | 'balanced'
   language: string
   speaker: string
   instruct: string
+  block_max_sentences?: number
+  block_max_chars?: number
+  block_hold_ms?: number
+  warmup_on_connect?: boolean
+  emit_perf_metrics?: boolean
   style: StyleControlsApi
   clone_profile_id: string | null
   clone_profile_label: string | null
@@ -289,6 +295,13 @@ export type ConversationServerEvent =
   | {
       type: 'error'
       detail: string
+    }
+  | {
+      type: 'perf.metric'
+      name: string
+      value_ms: number
+      segment_index?: number
+      meta?: Record<string, unknown>
     }
 
 export type ChatMessage = {

@@ -39,6 +39,12 @@ from .storage import AudioStorage, VoiceProfileStorage
 
 logger = logging.getLogger(__name__)
 
+CLONE_PROMPT_TARGET_SECONDS = 6.0
+CLONE_PROMPT_MAX_SECONDS = 8.0
+CLONE_PROMPT_MIN_SECONDS = 3.0
+CLONE_PROMPT_WINDOW_STEP_SECONDS = 0.25
+CLONE_PROMPT_SILENCE_MARGIN_SECONDS = 0.12
+
 
 def parse_json_field(name: str, raw_value: str | None, default: object | None = None) -> object:
     if raw_value is None:
@@ -146,6 +152,85 @@ def estimate_reference_audio_duration(path: str) -> float:
     if not info.samplerate:
         return 0.0
     return float(info.frames) / float(info.samplerate)
+
+
+def load_mono_audio(path: str) -> tuple[np.ndarray, int]:
+    audio, sample_rate = sf.read(path, dtype="float32", always_2d=False)
+    if isinstance(audio, np.ndarray) and audio.ndim == 2:
+        audio = audio.mean(axis=1)
+    return np.asarray(audio, dtype=np.float32).reshape(-1), int(sample_rate)
+
+
+def trim_prompt_silence(audio: np.ndarray, sample_rate: int) -> np.ndarray:
+    samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if samples.size == 0:
+        return samples
+
+    peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+    threshold = max(0.006, peak * 0.08)
+    voiced = np.flatnonzero(np.abs(samples) >= threshold)
+    if voiced.size == 0:
+        return samples
+
+    margin = int(sample_rate * CLONE_PROMPT_SILENCE_MARGIN_SECONDS)
+    start = max(0, int(voiced[0]) - margin)
+    end = min(samples.shape[0], int(voiced[-1]) + margin + 1)
+    return samples[start:end]
+
+
+def select_clone_prompt_excerpt(audio: np.ndarray, sample_rate: int) -> np.ndarray:
+    samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if samples.size == 0 or sample_rate <= 0:
+        return samples
+
+    duration_seconds = float(samples.shape[0]) / float(sample_rate)
+    if duration_seconds <= CLONE_PROMPT_MAX_SECONDS:
+        return trim_prompt_silence(samples, sample_rate)
+
+    window_size = max(
+        int(sample_rate * CLONE_PROMPT_MIN_SECONDS),
+        int(sample_rate * min(CLONE_PROMPT_TARGET_SECONDS, CLONE_PROMPT_MAX_SECONDS)),
+    )
+    window_size = min(window_size, samples.shape[0])
+    step = max(1, int(sample_rate * CLONE_PROMPT_WINDOW_STEP_SECONDS))
+
+    power = np.square(samples.astype(np.float64))
+    prefix = np.concatenate([np.array([0.0], dtype=np.float64), np.cumsum(power)])
+
+    def average_power(start: int) -> float:
+        end = min(samples.shape[0], start + window_size)
+        return float(prefix[end] - prefix[start]) / max(end - start, 1)
+
+    best_start = 0
+    best_score = -1.0
+    last_start = max(0, samples.shape[0] - window_size)
+    starts = list(range(0, last_start + 1, step))
+    if starts[-1] != last_start:
+        starts.append(last_start)
+
+    for start in starts:
+        score = average_power(start)
+        if score > best_score:
+            best_score = score
+            best_start = start
+
+    excerpt = samples[best_start : best_start + window_size]
+    trimmed = trim_prompt_silence(excerpt, sample_rate)
+    minimum_samples = int(sample_rate * CLONE_PROMPT_MIN_SECONDS)
+    return trimmed if trimmed.shape[0] >= minimum_samples else excerpt
+
+
+def prepare_clone_reference_audio(path: str) -> tuple[str, list[Path], bool]:
+    audio, sample_rate = load_mono_audio(path)
+    duration_seconds = float(audio.shape[0]) / float(sample_rate) if sample_rate else 0.0
+    if duration_seconds <= CLONE_PROMPT_MAX_SECONDS:
+        return path, [], False
+
+    excerpt = select_clone_prompt_excerpt(audio, sample_rate)
+    with NamedTemporaryFile(delete=False, suffix=".wav") as clipped_file:
+        excerpt_path = Path(clipped_file.name)
+    sf.write(excerpt_path, excerpt, sample_rate)
+    return str(excerpt_path), [excerpt_path], True
 
 
 def normalize_clone_text(value: str) -> str:
@@ -326,19 +411,23 @@ def create_app(
         cleanup_paths: list[Path] = []
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
+            prompt_path, prompt_cleanup_paths, prompt_excerpted = prepare_clone_reference_audio(
+                prepared_path
+            )
+            cleanup_paths.extend(prompt_cleanup_paths)
             resolved_reference_text = resolve_clone_reference_text(
                 asr=asr,
-                ref_audio_path=prepared_path,
-                provided_ref_text=reference_text,
+                ref_audio_path=prompt_path,
+                provided_ref_text=None if prompt_excerpted else reference_text,
                 language=language,
                 x_vector_only_mode=False,
             )
             speaker_embedding, ref_codes = tts.prepare_clone_conditioning_assets(
-                ref_audio_path=prepared_path
+                ref_audio_path=prompt_path
             )
             return voice_profiles.save_profile(
-                source_path=prepared_path,
-                source_name=f"{Path(audio.filename or 'reference').stem}{Path(prepared_path).suffix}",
+                source_path=prompt_path,
+                source_name=f"{Path(audio.filename or 'reference').stem}{Path(prompt_path).suffix}",
                 language=language,
                 reference_text=resolved_reference_text or "",
                 label=label,
@@ -593,10 +682,14 @@ def create_app(
         cleanup_paths: list[Path] = []
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
+            prompt_path, prompt_cleanup_paths, prompt_excerpted = prepare_clone_reference_audio(
+                prepared_path
+            )
+            cleanup_paths.extend(prompt_cleanup_paths)
             resolved_ref_text = resolve_clone_reference_text(
                 asr=asr,
-                ref_audio_path=prepared_path,
-                provided_ref_text=ref_text,
+                ref_audio_path=prompt_path,
+                provided_ref_text=None if prompt_excerpted else ref_text,
                 language=language,
                 x_vector_only_mode=x_vector_only_mode,
                 target_segments=payload.segments,
@@ -609,7 +702,7 @@ def create_app(
             payload = payload.model_copy(update={"language": resolved_language})
             wavs, sample_rate = tts.generate_clone(
                 payload=payload,
-                ref_audio_path=prepared_path,
+                ref_audio_path=prompt_path,
                 ref_text=resolved_ref_text,
                 x_vector_only_mode=x_vector_only_mode,
             )
@@ -674,10 +767,14 @@ def create_app(
 
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
+            prompt_path, prompt_cleanup_paths, prompt_excerpted = prepare_clone_reference_audio(
+                prepared_path
+            )
+            cleanup_paths.extend(prompt_cleanup_paths)
             resolved_ref_text = resolve_clone_reference_text(
                 asr=asr,
-                ref_audio_path=prepared_path,
-                provided_ref_text=ref_text,
+                ref_audio_path=prompt_path,
+                provided_ref_text=None if prompt_excerpted else ref_text,
                 language=language,
                 x_vector_only_mode=x_vector_only_mode,
                 target_segments=payload.segments,
@@ -690,7 +787,7 @@ def create_app(
             payload = payload.model_copy(update={"language": resolved_language})
             stream_iter = tts.stream_clone(
                 payload=payload,
-                ref_audio_path=prepared_path,
+                ref_audio_path=prompt_path,
                 ref_text=resolved_ref_text,
                 x_vector_only_mode=x_vector_only_mode,
             )

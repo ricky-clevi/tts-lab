@@ -4,6 +4,7 @@ import asyncio
 import base64
 import re
 import threading
+import time
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 from uuid import uuid4
@@ -110,6 +111,7 @@ class ConversationSession:
         self.last_partial_text = ""
         self.last_partial_buffer_seconds = 0.0
         self.tts_segment_index = 0
+        self.clone_warmup_task: asyncio.Task[None] | None = None
 
     async def send(self, payload: dict[str, Any]) -> None:
         async with self.send_lock:
@@ -122,6 +124,7 @@ class ConversationSession:
                 "settings": self.settings_store.redact(self.settings).model_dump(mode="json"),
             }
         )
+        self._schedule_clone_warmup()
 
     def configure(self, payload: dict[str, Any]) -> None:
         settings_payload = payload.get("settings")
@@ -132,6 +135,7 @@ class ConversationSession:
         self.messages = [{"role": "system", "content": self.settings.defaults.system_prompt}] + [
             message for message in self.messages if message["role"] != "system"
         ]
+        self._schedule_clone_warmup()
 
     async def append_audio(self, payload: dict[str, Any]) -> None:
         if self.assistant_task and not self.assistant_task.done():
@@ -241,6 +245,68 @@ class ConversationSession:
                 pass
             except Exception:
                 pass
+        if self.clone_warmup_task and not self.clone_warmup_task.done():
+            self.clone_warmup_task.cancel()
+            try:
+                await self.clone_warmup_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+    async def _send_perf_metric(
+        self,
+        *,
+        name: str,
+        value_ms: float,
+        segment_index: int | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> None:
+        if not self.settings.defaults.reply_voice.emit_perf_metrics:
+            return
+
+        payload: dict[str, Any] = {
+            "type": "perf.metric",
+            "name": name,
+            "value_ms": round(float(value_ms), 2),
+        }
+        if segment_index is not None:
+            payload["segment_index"] = int(segment_index)
+        if meta:
+            payload["meta"] = meta
+        await self.send(payload)
+
+    def _schedule_clone_warmup(self) -> None:
+        reply_voice = self.settings.defaults.reply_voice
+        if (
+            reply_voice.mode != "clone"
+            or not reply_voice.warmup_on_connect
+            or not reply_voice.clone_audio_path
+            or not reply_voice.clone_reference_text
+        ):
+            return
+        if self.clone_warmup_task and not self.clone_warmup_task.done():
+            return
+        self.clone_warmup_task = asyncio.create_task(self._warmup_clone_reply_voice())
+
+    async def _warmup_clone_reply_voice(self) -> None:
+        reply_voice = self.settings.defaults.reply_voice
+        if not reply_voice.clone_audio_path and not reply_voice.clone_embedding_path:
+            return
+        started_at = time.monotonic()
+        try:
+            await asyncio.to_thread(
+                self.tts_manager.warm_clone_runtime,
+                speaker_embedding_path=reply_voice.clone_embedding_path,
+                ref_audio_path=reply_voice.clone_audio_path,
+            )
+            await self._send_perf_metric(
+                name="clone_warmup_ms",
+                value_ms=(time.monotonic() - started_at) * 1000.0,
+            )
+        except Exception:
+            # Warmup is opportunistic; failures should not block chat.
+            return
 
     @property
     def current_buffer_seconds(self) -> float:
@@ -283,8 +349,76 @@ class ConversationSession:
         await self.send({"type": "llm.status", "phase": "thinking"})
         assistant_text = ""
         draft_buffer = ""
-        sentence_queue: asyncio.Queue[str | None] = asyncio.Queue()
-        tts_worker = asyncio.create_task(self._run_tts_queue(sentence_queue, self.cancel_event))
+        block_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        tts_worker = asyncio.create_task(self._run_tts_queue(block_queue, self.cancel_event))
+        run_started_at = time.monotonic()
+        first_delta_sent = False
+        first_block_queued = False
+
+        reply_voice = self.settings.defaults.reply_voice
+        max_sentences = max(1, int(reply_voice.block_max_sentences))
+        max_chars = max(80, int(reply_voice.block_max_chars))
+        hold_seconds = max(0.0, float(reply_voice.block_hold_ms) / 1000.0)
+        if reply_voice.runtime_mode == "quality":
+            max_sentences = 1
+            hold_seconds = 0.0
+        pending_sentences: list[str] = []
+        hold_flush_task: asyncio.Task[None] | None = None
+
+        def pop_block(force: bool) -> str | None:
+            if not pending_sentences:
+                return None
+            if not force:
+                joined = " ".join(pending_sentences[:max_sentences]).strip()
+                if len(pending_sentences) < max_sentences and len(joined) < max_chars:
+                    return None
+
+            chosen: list[str] = []
+            chars = 0
+            while pending_sentences and len(chosen) < max_sentences:
+                candidate = pending_sentences[0].strip()
+                if not candidate:
+                    pending_sentences.pop(0)
+                    continue
+                projected = chars + len(candidate) + (1 if chosen else 0)
+                if chosen and projected > max_chars:
+                    break
+                pending_sentences.pop(0)
+                chosen.append(candidate)
+                chars = projected
+
+            if not chosen and pending_sentences:
+                chosen.append(pending_sentences.pop(0).strip())
+            block = " ".join(part for part in chosen if part).strip()
+            return block or None
+
+        async def push_block(block: str) -> None:
+            nonlocal first_block_queued
+            await block_queue.put(block)
+            if not first_block_queued:
+                first_block_queued = True
+                await self._send_perf_metric(
+                    name="llm_first_block_queued_ms",
+                    value_ms=(time.monotonic() - run_started_at) * 1000.0,
+                )
+
+        async def flush_blocks(force: bool) -> None:
+            while True:
+                block = pop_block(force=force)
+                if not block:
+                    break
+                await push_block(block)
+
+        async def hold_flush() -> None:
+            try:
+                await asyncio.sleep(hold_seconds)
+            except asyncio.CancelledError:
+                return
+            if self.cancel_event.is_set():
+                return
+            block = pop_block(force=True)
+            if block:
+                await push_block(block)
 
         try:
             async for delta in self.provider_service.stream_reply(
@@ -297,21 +431,41 @@ class ConversationSession:
                 assistant_text += delta
                 draft_buffer += delta
                 await self.send({"type": "llm.delta", "delta": delta, "text": assistant_text})
+                if not first_delta_sent:
+                    first_delta_sent = True
+                    await self._send_perf_metric(
+                        name="llm_first_delta_ms",
+                        value_ms=(time.monotonic() - run_started_at) * 1000.0,
+                    )
                 ready_sentences, draft_buffer = split_complete_sentences(draft_buffer)
                 for sentence in ready_sentences:
                     await self.send({"type": "llm.sentence", "text": sentence})
-                    await sentence_queue.put(sentence)
+                    pending_sentences.append(sentence)
+                    await flush_blocks(force=False)
+                    if pending_sentences and hold_seconds > 0:
+                        if hold_flush_task and not hold_flush_task.done():
+                            hold_flush_task.cancel()
+                        hold_flush_task = asyncio.create_task(hold_flush())
+                    elif pending_sentences:
+                        await flush_blocks(force=True)
 
             trailing = draft_buffer.strip()
             if trailing and not self.cancel_event.is_set():
                 await self.send({"type": "llm.sentence", "text": trailing})
-                await sentence_queue.put(trailing)
+                pending_sentences.append(trailing)
         except asyncio.CancelledError:
             self.cancel_event.set()
         except Exception as exc:
             await self.send({"type": "error", "detail": str(exc)})
         finally:
-            await sentence_queue.put(None)
+            if hold_flush_task and not hold_flush_task.done():
+                hold_flush_task.cancel()
+                try:
+                    await hold_flush_task
+                except asyncio.CancelledError:
+                    pass
+            await flush_blocks(force=True)
+            await block_queue.put(None)
             try:
                 await tts_worker
             except asyncio.CancelledError:
@@ -325,21 +479,23 @@ class ConversationSession:
         await self.send({"type": "llm.status", "phase": "listening"})
 
     async def _run_tts_queue(
-        self, sentence_queue: asyncio.Queue[str | None], cancel_event: asyncio.Event
+        self, block_queue: asyncio.Queue[str | None], cancel_event: asyncio.Event
     ) -> None:
+        first_chunk_reported = False
         while True:
-            sentence = await sentence_queue.get()
-            if sentence is None or cancel_event.is_set():
+            block = await block_queue.get()
+            if block is None or cancel_event.is_set():
                 break
 
             await self.send({"type": "llm.status", "phase": "speaking"})
             segment_index = self.tts_segment_index
             self.tts_segment_index += 1
+            segment_started_at = time.monotonic()
 
             reply_voice = self.settings.defaults.reply_voice
             if reply_voice.mode == "custom":
                 request = CustomGenerationRequest(
-                    segments=[sentence],
+                    segments=[block],
                     language=reply_voice.language,
                     speaker=reply_voice.speaker,
                     instruct=compose_instruction(
@@ -352,7 +508,7 @@ class ConversationSession:
                 stream_factory = lambda: self.tts_manager.stream_custom(request)
             elif reply_voice.mode == "design":
                 request = DesignGenerationRequest(
-                    segments=[sentence],
+                    segments=[block],
                     language=reply_voice.language,
                     instruct=compose_instruction(
                         reply_voice.instruct or "Speak clearly and naturally.",
@@ -363,12 +519,13 @@ class ConversationSession:
                 stream_factory = lambda: self.tts_manager.stream_design(request)
             else:
                 request = BaseGenerationRequest(
-                    segments=[sentence],
+                    segments=[block],
                     language=reply_voice.language,
                 )
-                # Realtime chat prioritizes the prepared reference clip + transcript
-                # path because it is more identity-stable across sentence-by-sentence
-                # assistant replies than the cached speaker-embedding shortcut.
+                # Use the prepared reference clip directly for realtime clone
+                # replies so identity/prosody stay closer to the target voice.
+                # The clone profile builder now shortens long uploads into a
+                # compact prompt clip, which keeps this path practical.
                 if reply_voice.clone_audio_path and reply_voice.clone_reference_text:
                     stream_factory = lambda: self.tts_manager.stream_clone(
                         payload=request,
@@ -395,18 +552,27 @@ class ConversationSession:
                 {
                     "type": "tts.segment_start",
                     "segment_index": segment_index,
-                    "text": sentence,
+                    "text": block,
                 }
             )
 
             collected: list[np.ndarray] = []
             sample_rate = 0
+            chunk_count = 0
             async for item in iterate_sync_generator(stream_factory, cancel_event):
                 if cancel_event.is_set():
                     break
                 wav = np.asarray(item["audio"], dtype=np.float32)
                 sample_rate = int(item["sample_rate"])
                 collected.append(wav)
+                chunk_count += 1
+                if not first_chunk_reported:
+                    first_chunk_reported = True
+                    await self._send_perf_metric(
+                        name="tts_first_chunk_ms",
+                        value_ms=(time.monotonic() - segment_started_at) * 1000.0,
+                        segment_index=segment_index,
+                    )
                 await self.send(
                     {
                         "type": "tts.audio_chunk",
@@ -427,7 +593,7 @@ class ConversationSession:
                 wav=np.concatenate(collected),
                 sample_rate=sample_rate,
                 segment_index=segment_index,
-                text=sentence,
+                text=block,
                 language=reply_voice.language,
                 speaker=reply_voice.speaker
                 if reply_voice.mode == "custom"
@@ -440,6 +606,12 @@ class ConversationSession:
                     reply_voice.mode,
                 )
                 or None,
+            )
+            await self._send_perf_metric(
+                name="tts_segment_total_ms",
+                value_ms=(time.monotonic() - segment_started_at) * 1000.0,
+                segment_index=segment_index,
+                meta={"chunk_count": chunk_count},
             )
             await self.send(
                 {

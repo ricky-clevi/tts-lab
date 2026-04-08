@@ -9,6 +9,7 @@ import wave
 
 import numpy as np
 import pytest
+import soundfile as sf
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -24,7 +25,12 @@ from server.app.constants import (
     PROVIDER_CAPABILITIES,
     SPEAKERS,
 )
-from server.app.main import create_app, prepare_audio_upload, should_override_reference_text
+from server.app.main import (
+    create_app,
+    prepare_audio_upload,
+    prepare_clone_reference_audio,
+    should_override_reference_text,
+)
 from server.app.model_manager import TtsModelManager
 from server.app.schemas import (
     AsrCapabilityResponse,
@@ -54,6 +60,7 @@ class FakeTtsManager:
         self.design_calls = 0
         self.clone_calls = 0
         self.clone_cached_calls = 0
+        self.warm_clone_calls = 0
         self.prepare_clone_embedding_calls = 0
         self.ensure_calls: list[str] = []
         self.unload_calls = 0
@@ -176,6 +183,19 @@ class FakeTtsManager:
             np.asarray([[0.25, 0.5, 0.75]], dtype=np.float32),
             np.asarray([[[1, 2, 3], [4, 5, 6]]], dtype=np.int32),
         )
+
+    def warm_clone_runtime(
+        self,
+        *,
+        speaker_embedding_path: str | None = None,
+        ref_audio_path: str | None = None,
+    ):
+        self.ensure_mode("clone")
+        self.warm_clone_calls += 1
+        if speaker_embedding_path is not None:
+            assert Path(speaker_embedding_path).exists()
+        if ref_audio_path is not None:
+            assert Path(ref_audio_path).exists()
 
     def stream_clone_cached(self, *, payload: BaseGenerationRequest, speaker_embedding_path: str, ref_text: str | None):
         assert Path(speaker_embedding_path).exists()
@@ -353,6 +373,31 @@ def test_prepare_audio_upload_transcodes_when_original_format_is_unsupported(tmp
     assert cleanup_paths == [converted]
     assert any(path.endswith(".m4a") for path in calls)
     assert any(path.endswith(".wav") for path in calls)
+
+
+def test_prepare_clone_reference_audio_shortens_long_reference(tmp_path: Path):
+    source = tmp_path / "long-reference.wav"
+    sample_rate = 16000
+    audio = np.zeros(sample_rate * 12, dtype=np.float32)
+    audio[sample_rate * 7 : sample_rate * 11] = 0.4
+    sf.write(source, audio, sample_rate)
+
+    prompt_path, cleanup_paths, excerpted = prepare_clone_reference_audio(str(source))
+
+    assert excerpted is True
+    assert Path(prompt_path).exists()
+    assert cleanup_paths == [Path(prompt_path)]
+    duration_seconds = estimate_wav_duration_seconds(Path(prompt_path))
+    assert duration_seconds <= 8.1
+    assert duration_seconds >= 3.0
+
+    for cleanup_path in cleanup_paths:
+        cleanup_path.unlink(missing_ok=True)
+
+
+def estimate_wav_duration_seconds(path: Path) -> float:
+    with wave.open(str(path), "rb") as wav:
+        return float(wav.getnframes()) / float(wav.getframerate())
 
 
 @pytest.fixture

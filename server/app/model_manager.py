@@ -38,11 +38,16 @@ from .schemas import (
     SpeakerResponse,
 )
 
+# MLX-backed ASR and TTS are not robust when both runtimes execute native
+# inference or model-loading work concurrently on the same local process.
+_MLX_RUNTIME_LOCK = threading.RLock()
+
 
 class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._inference_lock = threading.Lock()
+        self._runtime_lock = _MLX_RUNTIME_LOCK
         self._clone_embedding_cache: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
         self._model: Any | None = None
         self.active_mode: Mode | None = None
@@ -282,7 +287,7 @@ class TtsModelManager:
         return embedding
 
     def prepare_clone_speaker_embedding(self, *, ref_audio_path: str) -> np.ndarray:
-        with self._inference_lock:
+        with self._runtime_lock, self._inference_lock:
             model = self.ensure_mode("clone")
             return self._extract_clone_speaker_embedding_unlocked(
                 model=model,
@@ -292,7 +297,7 @@ class TtsModelManager:
     def prepare_clone_conditioning_assets(
         self, *, ref_audio_path: str
     ) -> tuple[np.ndarray, np.ndarray | None]:
-        with self._inference_lock:
+        with self._runtime_lock, self._inference_lock:
             model = self.ensure_mode("clone")
             speaker_embedding = self._extract_clone_speaker_embedding_unlocked(
                 model=model,
@@ -313,6 +318,23 @@ class TtsModelManager:
                 mx.eval(codes)
                 ref_codes = np.asarray(codes, dtype=np.int32)
             return speaker_embedding, ref_codes
+
+    def warm_clone_runtime(
+        self,
+        *,
+        speaker_embedding_path: str | None = None,
+        ref_audio_path: str | None = None,
+    ) -> None:
+        with self._runtime_lock, self._inference_lock:
+            self.ensure_mode("clone")
+            if speaker_embedding_path:
+                self._load_cached_clone_conditioning(speaker_embedding_path)
+            elif ref_audio_path:
+                # Decoding the saved reference clip once avoids websocket-start
+                # surprises without triggering a fragile full synthesis pass.
+                from mlx_audio.utils import load_audio
+
+                load_audio(ref_audio_path)
 
     def _load_cached_clone_conditioning(
         self, embedding_path: str
@@ -406,7 +428,7 @@ class TtsModelManager:
     ) -> tuple[list[Any], int]:
         self._validate_language(payload.language)
 
-        with self._inference_lock:
+        with self._runtime_lock, self._inference_lock:
             model = self.ensure_mode("clone")
             self._apply_seed(payload.generation.seed)
             language = self._normalize_language(
@@ -437,7 +459,7 @@ class TtsModelManager:
     def generate_custom(self, request: CustomGenerationRequest) -> tuple[list[Any], int]:
         self._validate_language(request.language)
         self._ensure_speaker(request.speaker)
-        with self._inference_lock:
+        with self._runtime_lock, self._inference_lock:
             model = self.ensure_mode("custom")
             self._apply_seed(request.generation.seed)
             language = self._normalize_language(request.language)
@@ -460,7 +482,7 @@ class TtsModelManager:
 
     def generate_design(self, request: DesignGenerationRequest) -> tuple[list[Any], int]:
         self._validate_language(request.language)
-        with self._inference_lock:
+        with self._runtime_lock, self._inference_lock:
             model = self.ensure_mode("design")
             self._apply_seed(request.generation.seed)
             language = self._normalize_language(request.language)
@@ -495,7 +517,7 @@ class TtsModelManager:
                     "Reference transcript is required unless x-vector only mode is enabled."
                 )
 
-        with self._inference_lock:
+        with self._runtime_lock, self._inference_lock:
             model = self.ensure_mode("clone")
             self._apply_seed(payload.generation.seed)
             language = self._normalize_language(
@@ -541,7 +563,7 @@ class TtsModelManager:
         self._validate_language(request.language)
         self._ensure_speaker(request.speaker)
         def iterator() -> Iterator[dict[str, Any]]:
-            with self._inference_lock:
+            with self._runtime_lock, self._inference_lock:
                 model = self.ensure_mode("custom")
                 self._apply_seed(request.generation.seed)
                 language = self._normalize_language(request.language)
@@ -567,7 +589,7 @@ class TtsModelManager:
     def stream_design(self, request: DesignGenerationRequest) -> Iterator[dict[str, Any]]:
         self._validate_language(request.language)
         def iterator() -> Iterator[dict[str, Any]]:
-            with self._inference_lock:
+            with self._runtime_lock, self._inference_lock:
                 model = self.ensure_mode("design")
                 self._apply_seed(request.generation.seed)
                 language = self._normalize_language(request.language)
@@ -605,7 +627,7 @@ class TtsModelManager:
                 )
 
         def iterator() -> Iterator[dict[str, Any]]:
-            with self._inference_lock:
+            with self._runtime_lock, self._inference_lock:
                 model = self.ensure_mode("clone")
                 self._apply_seed(payload.generation.seed)
                 language = self._normalize_language(
@@ -633,7 +655,9 @@ class TtsModelManager:
                                 model=model,
                                 text=segment,
                                 language=language,
+                                ref_text=None,
                                 speaker_embedding=speaker_embedding,
+                                ref_codes=None,
                                 generation_kwargs=generation_kwargs,
                             ),
                             segment_index=segment_index,
@@ -671,7 +695,7 @@ class TtsModelManager:
         self._validate_language(payload.language)
 
         def iterator() -> Iterator[dict[str, Any]]:
-            with self._inference_lock:
+            with self._runtime_lock, self._inference_lock:
                 model = self.ensure_mode("clone")
                 self._apply_seed(payload.generation.seed)
                 language = self._normalize_language(
@@ -706,6 +730,7 @@ class AsrModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._inference_lock = threading.Lock()
+        self._runtime_lock = _MLX_RUNTIME_LOCK
         self._model: Any | None = None
         self.active_model_id: str | None = None
         self.selected_device = self._detect_preferred_device()
@@ -789,7 +814,7 @@ class AsrModelManager:
     ) -> AsrTranscriptionResponse:
         normalized_language = self._normalize_language(language)
         try:
-            with self._inference_lock:
+            with self._runtime_lock, self._inference_lock:
                 model = self.ensure_model(model_id)
                 result = model.generate(file_path, language=normalized_language)
         except Exception as exc:  # pragma: no cover - real runtime only
@@ -825,7 +850,7 @@ class AsrModelManager:
         normalized_language = self._normalize_language(language)
         resampled = self._resample_audio(audio, source_rate, CONVERSATION_SAMPLE_RATE)
         try:
-            with self._inference_lock:
+            with self._runtime_lock, self._inference_lock:
                 model = self.ensure_model(model_id)
                 result = model.generate(resampled, language=normalized_language)
         except Exception as exc:  # pragma: no cover - real runtime only

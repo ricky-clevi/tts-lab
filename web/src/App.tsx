@@ -123,9 +123,15 @@ type ChatSettingsForm = {
     liveCaptions: boolean
     replyVoice: {
       mode: 'custom' | 'design' | 'clone'
+      runtimeMode: 'quality' | 'balanced'
       language: string
       speaker: string
       instruct: string
+      blockMaxSentences: string
+      blockMaxChars: string
+      blockHoldMs: string
+      warmupOnConnect: boolean
+      emitPerfMetrics: boolean
       style: StyleControls
       cloneProfileId: string
       cloneProfileLabel: string
@@ -174,6 +180,13 @@ type Toast = {
   id: string
   tone: ToastTone
   message: string
+}
+
+type PerfMetric = {
+  id: string
+  name: string
+  valueMs: number
+  segmentIndex?: number
 }
 
 type SettingsSectionId = 'provider' | 'conversation' | 'asr' | 'replyVoice'
@@ -320,9 +333,15 @@ function mapSettingsResponseToForm(response: ChatSettingsResponse): ChatSettings
       liveCaptions: response.defaults.live_captions,
       replyVoice: {
         mode: response.defaults.reply_voice.mode,
+        runtimeMode: response.defaults.reply_voice.runtime_mode ?? 'balanced',
         language: response.defaults.reply_voice.language,
         speaker: response.defaults.reply_voice.speaker,
         instruct: response.defaults.reply_voice.instruct,
+        blockMaxSentences: String(response.defaults.reply_voice.block_max_sentences ?? 2),
+        blockMaxChars: String(response.defaults.reply_voice.block_max_chars ?? 180),
+        blockHoldMs: String(response.defaults.reply_voice.block_hold_ms ?? 220),
+        warmupOnConnect: response.defaults.reply_voice.warmup_on_connect ?? true,
+        emitPerfMetrics: response.defaults.reply_voice.emit_perf_metrics ?? false,
         cloneProfileId: response.defaults.reply_voice.clone_profile_id ?? '',
         cloneProfileLabel: response.defaults.reply_voice.clone_profile_label ?? '',
         cloneAudioPath: response.defaults.reply_voice.clone_audio_path ?? '',
@@ -378,9 +397,15 @@ function serializeSettings(form: ChatSettingsForm): ChatSettingsDraft {
       live_captions: form.defaults.liveCaptions,
       reply_voice: {
         mode: form.defaults.replyVoice.mode,
+        runtime_mode: form.defaults.replyVoice.runtimeMode,
         language: form.defaults.replyVoice.language,
         speaker: form.defaults.replyVoice.speaker,
         instruct: form.defaults.replyVoice.instruct,
+        block_max_sentences: Number(form.defaults.replyVoice.blockMaxSentences) || 2,
+        block_max_chars: Number(form.defaults.replyVoice.blockMaxChars) || 180,
+        block_hold_ms: Number(form.defaults.replyVoice.blockHoldMs) || 220,
+        warmup_on_connect: form.defaults.replyVoice.warmupOnConnect,
+        emit_perf_metrics: form.defaults.replyVoice.emitPerfMetrics,
         clone_profile_id: form.defaults.replyVoice.cloneProfileId || null,
         clone_profile_label: form.defaults.replyVoice.cloneProfileLabel || null,
         clone_audio_path: form.defaults.replyVoice.cloneAudioPath || null,
@@ -428,9 +453,15 @@ function emptyChatSettings(defaultAsrModel = ''): ChatSettingsForm {
       liveCaptions: true,
       replyVoice: {
         mode: 'custom',
+        runtimeMode: 'balanced',
         language: 'English',
         speaker: 'Ryan',
         instruct: '',
+        blockMaxSentences: '2',
+        blockMaxChars: '180',
+        blockHoldMs: '220',
+        warmupOnConnect: true,
+        emitPerfMetrics: false,
         cloneProfileId: '',
         cloneProfileLabel: '',
         cloneAudioPath: '',
@@ -500,6 +531,7 @@ function App() {
   const [conversationStatus, setConversationStatus] = useState<ConversationStatus>('idle')
   const [conversationMessages, setConversationMessages] = useState<ChatMessage[]>([])
   const [liveCaption, setLiveCaption] = useState('')
+  const [perfMetrics, setPerfMetrics] = useState<PerfMetric[]>([])
   const [typedMessage, setTypedMessage] = useState('')
   const [fileUpload, setFileUpload] = useState<File | null>(null)
   const [fileTranscript, setFileTranscript] = useState<AsrTranscriptionResponse | null>(null)
@@ -906,6 +938,7 @@ function App() {
         replyVoice: {
           ...chatSettings.defaults.replyVoice,
           mode: 'clone',
+          runtimeMode: 'quality',
           cloneProfileId: profile.id,
           cloneProfileLabel: profile.label,
           cloneAudioPath: profile.audio_path,
@@ -996,6 +1029,19 @@ function App() {
       await chatPlayerRef.current.enqueueBase64Pcm16(event.pcm16_base64, event.sample_rate, {
         autoplay: true,
         forceStart: event.is_final_chunk,
+      })
+      return
+    }
+
+    if (event.type === 'perf.metric') {
+      setPerfMetrics((current) => {
+        const metric: PerfMetric = {
+          id: makeId(),
+          name: event.name,
+          valueMs: event.value_ms,
+          segmentIndex: event.segment_index,
+        }
+        return [metric, ...current].slice(0, 8)
       })
       return
     }
@@ -1258,6 +1304,7 @@ function App() {
         return
       }
 
+      setPerfMetrics([])
       const capture = new AudioCapture()
       captureRef.current = capture
       listeningEnabledRef.current = true
@@ -2005,6 +2052,88 @@ function App() {
                 ))}
               </select>
             </label>
+            <label className="field">
+              <span className="field-label">Runtime mode</span>
+              <select
+                className="text-input"
+                value={chatSettings.defaults.replyVoice.runtimeMode}
+                onChange={(event) =>
+                  setChatSettings((current) => ({
+                    ...current,
+                    defaults: {
+                      ...current.defaults,
+                      replyVoice: {
+                        ...current.defaults.replyVoice,
+                        runtimeMode: event.target.value as 'quality' | 'balanced',
+                      },
+                    },
+                  }))
+                }
+              >
+                <option value="quality">Quality (best prosody)</option>
+                <option value="balanced">Balanced (faster first audio)</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Max sentences per speech block</span>
+              <input
+                className="text-input"
+                inputMode="numeric"
+                value={chatSettings.defaults.replyVoice.blockMaxSentences}
+                onChange={(event) =>
+                  setChatSettings((current) => ({
+                    ...current,
+                    defaults: {
+                      ...current.defaults,
+                      replyVoice: {
+                        ...current.defaults.replyVoice,
+                        blockMaxSentences: event.target.value,
+                      },
+                    },
+                  }))
+                }
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">Max chars per speech block</span>
+              <input
+                className="text-input"
+                inputMode="numeric"
+                value={chatSettings.defaults.replyVoice.blockMaxChars}
+                onChange={(event) =>
+                  setChatSettings((current) => ({
+                    ...current,
+                    defaults: {
+                      ...current.defaults,
+                      replyVoice: {
+                        ...current.defaults.replyVoice,
+                        blockMaxChars: event.target.value,
+                      },
+                    },
+                  }))
+                }
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">Block hold ms</span>
+              <input
+                className="text-input"
+                inputMode="numeric"
+                value={chatSettings.defaults.replyVoice.blockHoldMs}
+                onChange={(event) =>
+                  setChatSettings((current) => ({
+                    ...current,
+                    defaults: {
+                      ...current.defaults,
+                      replyVoice: {
+                        ...current.defaults.replyVoice,
+                        blockHoldMs: event.target.value,
+                      },
+                    },
+                  }))
+                }
+              />
+            </label>
             {chatSettings.defaults.replyVoice.mode === 'custom' ? (
               <label className="field">
                 <span className="field-label">Speaker</span>
@@ -2017,6 +2146,46 @@ function App() {
                 </select>
               </label>
             ) : null}
+          </div>
+          <div className="responsive-field-grid">
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={chatSettings.defaults.replyVoice.warmupOnConnect}
+                onChange={(event) =>
+                  setChatSettings((current) => ({
+                    ...current,
+                    defaults: {
+                      ...current.defaults,
+                      replyVoice: {
+                        ...current.defaults.replyVoice,
+                        warmupOnConnect: event.target.checked,
+                      },
+                    },
+                  }))
+                }
+              />
+              <span>Warm up clone on connect</span>
+            </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={chatSettings.defaults.replyVoice.emitPerfMetrics}
+                onChange={(event) =>
+                  setChatSettings((current) => ({
+                    ...current,
+                    defaults: {
+                      ...current.defaults,
+                      replyVoice: {
+                        ...current.defaults.replyVoice,
+                        emitPerfMetrics: event.target.checked,
+                      },
+                    },
+                  }))
+                }
+              />
+              <span>Show latency metrics</span>
+            </label>
           </div>
           {chatSettings.defaults.replyVoice.mode === 'clone' ? (
             <div className="upload-card reply-voice-clone-grid">
@@ -2230,6 +2399,22 @@ function App() {
           </div>
         </div>
         {liveCaption ? <div className="caption-strip">{liveCaption}</div> : null}
+        {perfMetrics.length ? (
+          <section className="perf-card">
+            <p className="mode-label">Latency metrics</p>
+            <div className="perf-grid">
+              {perfMetrics.map((metric) => (
+                <div className="perf-item" key={metric.id}>
+                  <p className="eyebrow">{metric.name}</p>
+                  <p className="lead">{metric.valueMs.toFixed(1)} ms</p>
+                  {metric.segmentIndex !== undefined ? (
+                    <p className="hint">segment {metric.segmentIndex + 1}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
         <div className="chat-thread">
           {conversationMessages.length ? (
             conversationMessages.map((message) => (
