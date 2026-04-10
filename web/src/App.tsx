@@ -275,6 +275,43 @@ function formatTimestamp(isoTimestamp: string) {
   return new Date(isoTimestamp).toLocaleString()
 }
 
+function renderMarkdown(text: string): string {
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  // code blocks (``` ... ```)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
+
+  // inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+
+  // bold + italic
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+  // bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  // italic
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
+
+  // unordered list items (lines starting with * or -)
+  html = html.replace(/^[\*\-]\s+(.+)$/gm, '<li>$1</li>')
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
+
+  // line breaks (double newline = paragraph break, single = <br>)
+  html = html
+    .split(/\n{2,}/)
+    .map((block) => {
+      const trimmed = block.trim()
+      if (!trimmed || trimmed.startsWith('<pre>') || trimmed.startsWith('<ul>')) return trimmed
+      return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`
+    })
+    .filter(Boolean)
+    .join('')
+
+  return html
+}
+
 function buildWaveformBars(seed: string) {
   const bars: number[] = []
   let value = 0
@@ -2420,7 +2457,7 @@ function App() {
             conversationMessages.map((message) => (
               <article key={message.id} className={`chat-bubble chat-bubble-${message.role}`}>
                 <p className="eyebrow">{message.role === 'user' ? 'You' : 'Assistant'}</p>
-                <p className="chat-text">{message.text}</p>
+                <div className="chat-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.text) }} />
               </article>
             ))
           ) : (

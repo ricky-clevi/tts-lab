@@ -359,6 +359,11 @@ def create_app(
 
     @app.post("/api/settings/chat/test", response_model=ProviderTestResponse)
     async def test_chat_settings(payload: ProviderTestRequest) -> ProviderTestResponse:
+        if not payload.config.api_key:
+            saved = settings.load()
+            saved_provider = getattr(saved, payload.provider, None)
+            if saved_provider and saved_provider.api_key:
+                payload.config.api_key = saved_provider.api_key
         result = await providers.test_provider(payload.provider, payload.config)
         if result.success and payload.provider == "openai_compatible" and result.api_mode:
             current = settings.load()

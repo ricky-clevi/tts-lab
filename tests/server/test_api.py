@@ -279,6 +279,19 @@ class FakeProviderService:
             yield token
 
 
+class FakeMarkdownProviderService(FakeProviderService):
+    async def stream_reply(self, *, settings, messages, cancel_event):
+        del settings, messages
+        for token in (
+            "### [리액트의 탄생] **리액트**는 웹 UI를 다루는 도구입니다.",
+            "\n- `컴포넌트`를 중심으로 생각합니다.",
+            "\n자세한 내용은 [공식 문서](https://example.com)를 보세요.",
+        ):
+            if cancel_event.is_set():
+                break
+            yield token
+
+
 def make_wav_bytes() -> bytes:
     buffer = BytesIO()
     with wave.open(buffer, "wb") as wav:
@@ -785,3 +798,45 @@ def test_conversation_can_speak_with_cloned_reply_voice(client, tmp_path: Path):
     assert manager.ensure_calls[-1] == "clone"
     assert manager.clone_calls >= 1
     assert manager.clone_cached_calls == 0
+
+
+def test_conversation_strips_markdown_before_speaking(tmp_path: Path):
+    settings_store = ChatSettingsStore(tmp_path / "settings" / "chat.json")
+    initial_settings = settings_store.default_settings()
+    initial_settings.openai_compatible.api_key = "sk-saved-provider"
+    initial_settings.openai_compatible.model = "gpt-saved"
+    settings_store.save(initial_settings)
+
+    app = create_app(
+        tts_manager=FakeTtsManager(),
+        asr_manager=FakeAsrManager(),
+        audio_storage=AudioStorage(tmp_path / "audio"),
+        settings_store=settings_store,
+        provider_service=FakeMarkdownProviderService(),
+    )
+
+    with TestClient(app) as test_client:
+        with test_client.websocket_connect("/api/conversation/ws") as websocket:
+            assert websocket.receive_json()["type"] == "session.ready"
+            websocket.send_json({"type": "text.submit", "text": "Explain React."})
+
+            spoken_sentences: list[str] = []
+            spoken_blocks: list[str] = []
+            while True:
+                payload = websocket.receive_json()
+                if payload["type"] == "llm.sentence":
+                    spoken_sentences.append(payload["text"])
+                if payload["type"] == "tts.segment_start":
+                    spoken_blocks.append(payload["text"])
+                if payload["type"] == "assistant.complete":
+                    break
+
+    assert spoken_sentences
+    assert spoken_blocks
+    for text in (*spoken_sentences, *spoken_blocks):
+        assert "#" not in text
+        assert "**" not in text
+        assert "`" not in text
+        assert "https://example.com" not in text
+    assert any("리액트의 탄생" in text for text in spoken_blocks)
+    assert any("공식 문서" in text for text in spoken_blocks)

@@ -27,6 +27,21 @@ from .storage import AudioStorage
 
 SENTINEL = object()
 SENTENCE_PATTERN = re.compile(r"(.+?(?:[.!?](?=\s|$)|\n\n))", re.DOTALL)
+MARKDOWN_FENCE_PATTERN = re.compile(r"```[\s\S]*?```", re.DOTALL)
+MARKDOWN_INLINE_CODE_PATTERN = re.compile(r"`{1,3}([^`]+?)`{1,3}")
+MARKDOWN_LINK_PATTERN = re.compile(r"!\[([^\]]*)\]\(([^)]*)\)|\[([^\]]+)\]\(([^)]*)\)")
+MARKDOWN_EMPHASIS_PATTERNS = (
+    re.compile(r"(?<!\*)\*\*([^*]+?)\*\*(?!\*)"),
+    re.compile(r"(?<!_)__([^_]+?)__(?!_)"),
+    re.compile(r"(?<!\*)\*([^*\n]+?)\*(?!\*)"),
+    re.compile(r"(?<!_)_([^_\n]+?)_(?!_)"),
+)
+MARKDOWN_LIST_PREFIX_PATTERN = re.compile(r"^\s{0,3}(?:[-+*]|\d+[.)])\s+")
+MARKDOWN_HEADING_PREFIX_PATTERN = re.compile(r"^\s{0,3}#{1,6}\s*")
+MARKDOWN_BLOCKQUOTE_PREFIX_PATTERN = re.compile(r"^\s{0,3}>\s?")
+MARKDOWN_HRULE_PATTERN = re.compile(r"(?<!\w)(?:-{3,}|[*_]{3,})(?!\w)")
+MARKDOWN_BRACKET_PATTERN = re.compile(r"\[([^\[\]]+)\]")
+MARKDOWN_ESCAPE_PATTERN = re.compile(r"\\([`*_{}\[\]()#+\-.!])")
 
 
 def decode_pcm16_base64(payload: str) -> np.ndarray:
@@ -79,6 +94,46 @@ def split_complete_sentences(buffer: str) -> tuple[list[str], str]:
         remaining = remaining.lstrip()[match.end() :].lstrip()
 
     return ready, remaining
+
+
+def strip_markdown_for_speech(text: str) -> str:
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not cleaned:
+        return ""
+
+    cleaned = MARKDOWN_FENCE_PATTERN.sub("\n\n", cleaned)
+    cleaned = MARKDOWN_HRULE_PATTERN.sub(". ", cleaned)
+
+    def replace_link(match: re.Match[str]) -> str:
+        image_alt = match.group(1)
+        link_label = match.group(3)
+        return (image_alt or link_label or "").strip()
+
+    cleaned = MARKDOWN_LINK_PATTERN.sub(replace_link, cleaned)
+    cleaned = MARKDOWN_INLINE_CODE_PATTERN.sub(r"\1", cleaned)
+    for pattern in MARKDOWN_EMPHASIS_PATTERNS:
+        cleaned = pattern.sub(r"\1", cleaned)
+    cleaned = MARKDOWN_ESCAPE_PATTERN.sub(r"\1", cleaned)
+    cleaned = MARKDOWN_BRACKET_PATTERN.sub(r"\1", cleaned)
+
+    normalized_lines: list[str] = []
+    for raw_line in cleaned.splitlines():
+        line = raw_line.strip()
+        if not line:
+            normalized_lines.append("")
+            continue
+        line = MARKDOWN_HEADING_PREFIX_PATTERN.sub("", line)
+        line = MARKDOWN_BLOCKQUOTE_PREFIX_PATTERN.sub("", line)
+        line = MARKDOWN_LIST_PREFIX_PATTERN.sub("", line)
+        line = line.strip(" -*#>")
+        if line:
+            normalized_lines.append(line)
+
+    cleaned = "\n".join(normalized_lines)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r"\s+([,.;!?])", r"\1", cleaned)
+    return cleaned.strip()
 
 
 class ConversationSession:
@@ -439,8 +494,11 @@ class ConversationSession:
                     )
                 ready_sentences, draft_buffer = split_complete_sentences(draft_buffer)
                 for sentence in ready_sentences:
-                    await self.send({"type": "llm.sentence", "text": sentence})
-                    pending_sentences.append(sentence)
+                    speech_sentence = strip_markdown_for_speech(sentence)
+                    if not speech_sentence:
+                        continue
+                    await self.send({"type": "llm.sentence", "text": speech_sentence})
+                    pending_sentences.append(speech_sentence)
                     await flush_blocks(force=False)
                     if pending_sentences and hold_seconds > 0:
                         if hold_flush_task and not hold_flush_task.done():
@@ -451,8 +509,10 @@ class ConversationSession:
 
             trailing = draft_buffer.strip()
             if trailing and not self.cancel_event.is_set():
-                await self.send({"type": "llm.sentence", "text": trailing})
-                pending_sentences.append(trailing)
+                speech_trailing = strip_markdown_for_speech(trailing)
+                if speech_trailing:
+                    await self.send({"type": "llm.sentence", "text": speech_trailing})
+                    pending_sentences.append(speech_trailing)
         except asyncio.CancelledError:
             self.cancel_event.set()
         except Exception as exc:
@@ -486,6 +546,9 @@ class ConversationSession:
             block = await block_queue.get()
             if block is None or cancel_event.is_set():
                 break
+            block = strip_markdown_for_speech(block)
+            if not block:
+                continue
 
             await self.send({"type": "llm.status", "phase": "speaking"})
             segment_index = self.tts_segment_index
