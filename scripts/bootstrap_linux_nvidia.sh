@@ -20,14 +20,22 @@ if command -v apt-get >/dev/null 2>&1; then
     ffmpeg \
     git \
     libsndfile1 \
-    nodejs \
-    npm \
     pkg-config \
     python3-venv
+
+  if ! command -v node >/dev/null 2>&1; then
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+  fi
 fi
 
 if ! command -v nvidia-smi >/dev/null 2>&1; then
   echo "nvidia-smi was not found. Install the NVIDIA driver stack before running this bootstrap." >&2
+  exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "node was not found after bootstrap. Install Node.js 22.x before continuing." >&2
   exit 1
 fi
 

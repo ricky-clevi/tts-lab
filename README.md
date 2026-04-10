@@ -55,6 +55,8 @@ python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch t
 python -m pip install -r server/requirements.linux-nvidia.txt
 ```
 
+For the frontend build, use a current Node runtime. On Ubuntu 22.04, prefer Node 22.x rather than the older distro default packages.
+
 ## Runtime Environment Variables
 
 Copy `.env.example` if you want an explicit deployment config.
