@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import ValidationError
 
 from .chat_store import ChatSettingsStore
-from .constants import ASR_MODEL_IDS, MODEL_IDS
+from .constants import ASR_MODEL_IDS
 from .conversation import ConversationSession
 from .llm import ProviderService
 from .model_manager import AsrModelManager, TtsModelManager
@@ -288,7 +288,7 @@ def resolve_clone_reference_text(
 
     transcript = asr.transcribe_file(
         file_path=ref_audio_path,
-        model_id=ASR_MODEL_IDS["default"],
+        model_id=asr.model_ids.get("default", ASR_MODEL_IDS["default"]),
         language=language,
         send_to_chat=False,
     )
@@ -311,6 +311,7 @@ def create_app(
     model_manager: TtsModelManager | None = None,
 ) -> FastAPI:
     root = Path(__file__).resolve().parent.parent
+    frontend_dist = root.parent / "web" / "dist"
     storage = audio_storage or AudioStorage(root / "generated" / "audio")
     voice_profiles = voice_profile_storage or VoiceProfileStorage(root / "generated" / "voice_profiles")
     tts = tts_manager or model_manager or TtsModelManager()
@@ -341,6 +342,10 @@ def create_app(
             active_mode=tts.active_mode,
             active_model=tts.active_model_id,
             selected_device=tts.selected_device,
+            runtime_backend=tts.runtime_backend,
+            runtime_platform=tts.runtime_platform,
+            runtime_dtype=tts.runtime_dtype,
+            runtime_attention=tts.runtime_attention,
             active_asr_model=asr.active_model_id,
             selected_asr_device=asr.selected_device,
         )
@@ -477,7 +482,7 @@ def create_app(
         return GenerationRunResponse(
             run_id=uuid4().hex,
             mode="custom",
-            model_id=MODEL_IDS["custom"],
+            model_id=tts.model_ids["custom"],
             device=tts.selected_device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
@@ -513,7 +518,7 @@ def create_app(
                                 "run": {
                                     "run_id": run_id,
                                     "mode": mode,
-                                    "model_id": MODEL_IDS[mode],
+                                    "model_id": tts.model_ids[mode],
                                     "device": tts.selected_device,
                                     "created_at": created_at.isoformat(),
                                     "clips": [],
@@ -569,7 +574,7 @@ def create_app(
                 run = GenerationRunResponse(
                     run_id=run_id,
                     mode=mode,  # type: ignore[arg-type]
-                    model_id=MODEL_IDS[mode],
+                    model_id=tts.model_ids[mode],
                     device=tts.selected_device,
                     created_at=created_at,
                     clips=clips,
@@ -608,7 +613,7 @@ def create_app(
         return GenerationRunResponse(
             run_id=uuid4().hex,
             mode="design",
-            model_id=MODEL_IDS["design"],
+            model_id=tts.model_ids["design"],
             device=tts.selected_device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
@@ -742,7 +747,7 @@ def create_app(
         return GenerationRunResponse(
             run_id=uuid4().hex,
             mode="clone",
-            model_id=MODEL_IDS["clone"],
+            model_id=tts.model_ids["clone"],
             device=tts.selected_device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
@@ -902,6 +907,23 @@ def create_app(
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Audio clip not found.") from exc
         return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+    if frontend_dist.exists():
+
+        @app.get("/", include_in_schema=False)
+        def serve_frontend_index() -> FileResponse:
+            return FileResponse(frontend_dist / "index.html")
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def serve_frontend_asset(full_path: str) -> FileResponse:
+            if full_path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="Not found.")
+
+            requested = (frontend_dist / full_path).resolve()
+            if requested.is_file() and requested.is_relative_to(frontend_dist.resolve()):
+                return FileResponse(requested)
+
+            return FileResponse(frontend_dist / "index.html")
 
     return app
 

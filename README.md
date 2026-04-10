@@ -1,104 +1,132 @@
 # Qwen3 Voice Lab
 
-Local evaluation app for the official Qwen3 speech models. It runs a FastAPI backend that loads Qwen3-TTS and Qwen3-ASR on demand, plus a Vite + React frontend for text-to-speech testing and local voice-chat loops with configurable LLM providers.
+FastAPI + React application for local Qwen speech workflows:
 
-This project does not use Ollama. As of March 27, 2026, the official Qwen3-TTS local stack is documented through the `qwen-tts` package and Qwen's own demo/runtime, not Ollama.
+- text to speech with preset voices
+- voice design from natural-language prompts
+- voice cloning from a reference clip
+- local ASR transcription
+- realtime voice chat with external LLM providers
+
+The repository now supports two runtime backends behind the same API:
+
+- `mlx` for Apple Silicon development
+- `qwen` for Ubuntu/Linux with NVIDIA CUDA GPUs
+
+Saved chat settings are normalized to the active runtime so an older MLX settings file can be carried onto Linux without leaving stale ASR model IDs behind.
 
 ## Stack
 
-- Backend: FastAPI, Uvicorn, `mlx-audio`, `httpx`, `psutil`
+- Backend: FastAPI, Uvicorn, `httpx`, `psutil`
 - Frontend: React 19, TypeScript, Vite, Vitest
-- Runtime target: local Apple Silicon Mac with MLX preferred, CPU fallback
+- Speech backends:
+  - macOS Apple Silicon: `mlx-audio`
+  - Linux + NVIDIA: `qwen-tts`, `qwen-asr`, PyTorch CUDA
 
-## Features
+## Key Runtime Files
 
-- **TTS Lab** with three voice modes: Custom Voice (preset speakers), Voice Design (natural-language voice description), and Voice Clone (reference audio upload)
-- **Realtime Voice Chat** loop: local Qwen ASR transcription, configurable LLM provider (OpenAI-compatible, Gemini, Anthropic), and streamed TTS reply speech
-- **Markdown rendering** in chat messages with bold, italic, lists, and code blocks
-- **Echo suppression**: microphone input is automatically muted while TTS audio is playing to prevent feedback loops
-- **Real-time system metrics**: live CPU, RAM, and MLX GPU memory usage displayed in the UI
-- **Collapsible latency metrics** panel showing TTS/LLM timing breakdowns per conversation turn
-- **Performance controls** for voice style: mood, emotion intensity, pace, energy, and expressiveness
-- **Streaming TTS** with live audio playback from buffered chunks
-- **Independent panel scrolling**: left controls and right results panels scroll separately
+- [server/app/runtime.py](/c:/Users/ricky/dastur/tts-lab/server/app/runtime.py)
+  Backend selection, device resolution, dtype selection, model ID overrides.
+- [server/app/model_manager.py](/c:/Users/ricky/dastur/tts-lab/server/app/model_manager.py)
+  Unified MLX and Qwen/CUDA TTS + ASR runtime layer.
+- [server/app/metrics.py](/c:/Users/ricky/dastur/tts-lab/server/app/metrics.py)
+  CPU/RAM metrics plus CUDA or MLX GPU metrics.
+- [docs/linux-nvidia-migration-plan.md](/c:/Users/ricky/dastur/tts-lab/docs/linux-nvidia-migration-plan.md)
+  Migration assessment, implementation plan, and Ubuntu validation checklist.
 
-## Setup
+## Python Dependencies
 
-Python 3.11 works in this repo; Qwen recommends an isolated environment.
+Base dependencies:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r server/requirements.txt
+python -m pip install -r server/requirements.txt
 ```
 
-Install the JavaScript dependencies:
+Apple Silicon MLX:
+
+```bash
+python -m pip install -r server/requirements.macos-mlx.txt
+```
+
+Linux + NVIDIA:
+
+```bash
+python -m pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision torchaudio
+python -m pip install -r server/requirements.linux-nvidia.txt
+```
+
+## Runtime Environment Variables
+
+Copy `.env.example` if you want an explicit deployment config.
+
+Important variables:
+
+- `QWEN_AUDIO_BACKEND=auto|mlx|qwen`
+- `QWEN_AUDIO_DEVICE=auto|cpu|cuda|cuda:0`
+- `QWEN_AUDIO_TORCH_DTYPE=auto|bfloat16|float16|float32`
+- `QWEN_AUDIO_ATTN_IMPLEMENTATION=auto|flash_attention_2|sdpa|eager|none`
+- `QWEN_TTS_CUSTOM_MODEL_ID`, `QWEN_TTS_DESIGN_MODEL_ID`, `QWEN_TTS_CLONE_MODEL_ID`
+- `QWEN_ASR_DEFAULT_MODEL_ID`, `QWEN_ASR_COMPACT_MODEL_ID`
+
+## Development
+
+Install JavaScript dependencies:
 
 ```bash
 npm install
 npm --prefix web install
 ```
 
-## Development
-
-Start both services:
+Run the stack:
 
 ```bash
 npm run dev
 ```
 
-For a backend code watcher during development, use:
+Useful commands:
 
 ```bash
 npm run dev:server:watch
-```
-
-That runs:
-
-- FastAPI on `http://127.0.0.1:8001`
-- Vite on `http://127.0.0.1:5173`
-
-The first request for each speech mode lazily downloads and loads the matching checkpoint:
-
-- `custom` -> `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice`
-- `design` -> `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign`
-- `clone` -> `Qwen/Qwen3-TTS-12Hz-1.7B-Base`
-- `asr-default` -> `Qwen/Qwen3-ASR-1.7B`
-- `asr-compact` -> `Qwen/Qwen3-ASR-0.6B`
-
-Generated WAV files are written to `server/generated/audio/`.
-Saved chat/provider settings are written to `server/generated/settings/chat.json`.
-
-## API Endpoints
-
-- `GET /api/health` - Device, active model, and ASR status
-- `GET /api/metrics` - Real-time CPU, RAM, and MLX GPU memory usage
-- `GET /api/capabilities` - Supported languages, preset speakers, and generation knobs
-- `POST /api/generate/{mode}` - Generate TTS audio (custom, design, or clone)
-- `POST /api/stream/{mode}` - Streaming TTS generation (ndjson)
-- `GET /api/settings/chat` - Load voice chat settings
-- `PUT /api/settings/chat` - Save voice chat settings
-- `POST /api/settings/chat/test` - Test LLM provider connection (uses saved API key if field is empty)
-- `POST /api/asr/transcribe` - Transcribe an uploaded audio file
-- `WebSocket /api/conversation/ws` - Real-time voice chat session
-
-## Commands
-
-```bash
-npm run dev
 npm run build
 npm run test
 npm run test:server
 npm run test:web
 ```
 
+The root npm scripts now assume the correct Python interpreter is already on `PATH`, which works for Linux virtualenv activation and avoids hardcoded local paths.
+
+## Ubuntu + NVIDIA Bootstrap
+
+Repository helper scripts:
+
+```bash
+./scripts/bootstrap_linux_nvidia.sh
+./scripts/run_linux_server.sh
+```
+
+When `web/dist` exists, the FastAPI server now serves the built frontend directly. That makes single-service deployment on Ubuntu possible without requiring a separate Vite process in production.
+
+Systemd example:
+
+- [deploy/systemd/qwen3-tts-lab.service](/c:/Users/ricky/dastur/tts-lab/deploy/systemd/qwen3-tts-lab.service)
+
+## API
+
+- `GET /api/health`
+- `GET /api/metrics`
+- `GET /api/capabilities`
+- `POST /api/generate/{mode}`
+- `POST /api/stream/{mode}`
+- `GET /api/settings/chat`
+- `PUT /api/settings/chat`
+- `POST /api/settings/chat/test`
+- `POST /api/asr/transcribe`
+- `WebSocket /api/conversation/ws`
+
 ## Notes
 
-- Voice Chat uses local Qwen ASR for transcription, your configured LLM provider for text generation, and local Qwen TTS for streamed reply speech.
-- Provider settings support OpenAI-compatible base URLs plus native Gemini and Anthropic tabs.
-- Only one heavy TTS checkpoint is kept in memory at a time. ASR is managed independently so transcription and speech playback can coexist in one session.
-- `npm run dev` starts the backend without Uvicorn reload so generated audio/settings files do not restart the Python process during testing.
-- Voice clone accepts a reference clip upload plus transcript, with an `xVectorOnlyMode` shortcut if you want to skip the transcript at lower quality.
-- Markdown in LLM responses is stripped before passing text to TTS to ensure clean speech synthesis.
-- The system metrics bar shows CPU and RAM as percentages, and MLX GPU memory as a percentage of total unified memory (hover for detailed breakdown).
+- Generated WAV files are written to `server/generated/audio/`.
+- Saved chat settings are written to `server/generated/settings/chat.json`.
+- Clone voice profiles are stored under `server/generated/voice_profiles/`.
+- MLX clone embedding caches remain supported on macOS.
+- Linux/NVIDIA clone replay works from the saved reference audio path and transcript, even when no MLX-style embedding cache exists.

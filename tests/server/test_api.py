@@ -31,6 +31,7 @@ from server.app.main import (
     prepare_clone_reference_audio,
     should_override_reference_text,
 )
+from server.app.runtime import RuntimeSelection
 from server.app.model_manager import TtsModelManager
 from server.app.schemas import (
     AsrCapabilityResponse,
@@ -56,6 +57,11 @@ class FakeTtsManager:
         self.active_mode = None
         self.active_model_id = None
         self.selected_device = "cpu"
+        self.runtime_backend = "test"
+        self.runtime_platform = "test"
+        self.runtime_dtype = None
+        self.runtime_attention = None
+        self.model_ids = MODEL_IDS
         self.custom_calls = 0
         self.design_calls = 0
         self.clone_calls = 0
@@ -189,7 +195,9 @@ class FakeTtsManager:
         *,
         speaker_embedding_path: str | None = None,
         ref_audio_path: str | None = None,
+        ref_text: str | None = None,
     ):
+        del ref_text
         self.ensure_mode("clone")
         self.warm_clone_calls += 1
         if speaker_embedding_path is not None:
@@ -216,6 +224,7 @@ class FakeAsrManager:
     def __init__(self) -> None:
         self.active_model_id = None
         self.selected_device = "cpu"
+        self.model_ids = ASR_MODEL_IDS
         self.transcribe_file_calls = 0
 
     def transcribe_file(self, *, file_path: str, model_id: str, language: str | None, send_to_chat: bool = False):
@@ -411,6 +420,53 @@ def test_prepare_clone_reference_audio_shortens_long_reference(tmp_path: Path):
 def estimate_wav_duration_seconds(path: Path) -> float:
     with wave.open(str(path), "rb") as wav:
         return float(wav.getnframes()) / float(wav.getframerate())
+
+
+def test_chat_settings_store_defaults_follow_active_runtime(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        "server.app.chat_store.resolve_runtime_selection",
+        lambda: RuntimeSelection(
+            backend="qwen",
+            device="cuda:0",
+            device_label="cuda:0",
+            torch_dtype_name="bfloat16",
+            attn_implementation="flash_attention_2",
+            tts_model_ids={"custom": "custom", "design": "design", "clone": "clone"},
+            asr_model_ids={"default": "Qwen/Qwen3-ASR-1.7B", "compact": "Qwen/Qwen3-ASR-0.6B"},
+            platform_name="linux-x86_64",
+        ),
+    )
+    store = ChatSettingsStore(tmp_path / "settings" / "chat.json")
+
+    settings = store.default_settings()
+
+    assert settings.defaults.asr_model == "Qwen/Qwen3-ASR-1.7B"
+
+
+def test_chat_settings_store_migrates_old_asr_model_ids_to_active_runtime(
+    tmp_path: Path, monkeypatch
+):
+    monkeypatch.setattr(
+        "server.app.chat_store.resolve_runtime_selection",
+        lambda: RuntimeSelection(
+            backend="qwen",
+            device="cuda:0",
+            device_label="cuda:0",
+            torch_dtype_name="bfloat16",
+            attn_implementation="flash_attention_2",
+            tts_model_ids={"custom": "custom", "design": "design", "clone": "clone"},
+            asr_model_ids={"default": "Qwen/Qwen3-ASR-1.7B", "compact": "Qwen/Qwen3-ASR-0.6B"},
+            platform_name="linux-x86_64",
+        ),
+    )
+    store = ChatSettingsStore(tmp_path / "settings" / "chat.json")
+    legacy_settings = store.default_settings()
+    legacy_settings.defaults.asr_model = ASR_MODEL_IDS["default"]
+    store.save(legacy_settings)
+
+    loaded = store.load()
+
+    assert loaded.defaults.asr_model == "Qwen/Qwen3-ASR-1.7B"
 
 
 @pytest.fixture

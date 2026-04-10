@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 
 from .constants import (
-    ASR_MODEL_IDS,
     DEFAULT_ANTHROPIC_BASE_URL,
     DEFAULT_GEMINI_BASE_URL,
     DEFAULT_OPENAI_BASE_URL,
 )
+from .runtime import DEFAULT_ASR_MODEL_IDS, resolve_runtime_selection
 from .schemas import (
     ChatDefaults,
     ChatSettingsInput,
@@ -31,23 +31,42 @@ class ChatSettingsStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.runtime = resolve_runtime_selection()
 
     def default_settings(self) -> ChatSettingsInput:
         return ChatSettingsInput(
-            defaults=ChatDefaults(asr_model=ASR_MODEL_IDS["default"]),
+            defaults=ChatDefaults(asr_model=self.runtime.asr_model_ids["default"]),
             openai_compatible=ProviderSettingsInput(base_url=DEFAULT_OPENAI_BASE_URL),
             gemini=ProviderSettingsInput(base_url=DEFAULT_GEMINI_BASE_URL),
             anthropic=ProviderSettingsInput(base_url=DEFAULT_ANTHROPIC_BASE_URL),
         )
+
+    def _normalize_runtime_models(self, settings: ChatSettingsInput) -> ChatSettingsInput:
+        alias_to_slot: dict[str, str] = {}
+        for backend_defaults in DEFAULT_ASR_MODEL_IDS.values():
+            for slot, model_id in backend_defaults.items():
+                alias_to_slot[model_id] = slot
+
+        current_model_id = settings.defaults.asr_model
+        slot = alias_to_slot.get(current_model_id)
+        if slot is None:
+            if current_model_id not in self.runtime.asr_model_ids.values():
+                settings.defaults.asr_model = self.runtime.asr_model_ids["default"]
+            return settings
+
+        settings.defaults.asr_model = self.runtime.asr_model_ids.get(slot, self.runtime.asr_model_ids["default"])
+        return settings
 
     def load(self) -> ChatSettingsInput:
         if not self.path.exists():
             return self.default_settings()
 
         payload = json.loads(self.path.read_text(encoding="utf-8"))
-        return ChatSettingsInput.model_validate(payload)
+        settings = ChatSettingsInput.model_validate(payload)
+        return self._normalize_runtime_models(settings)
 
     def save(self, settings: ChatSettingsInput) -> ChatSettingsInput:
+        settings = self._normalize_runtime_models(settings)
         self.path.write_text(
             json.dumps(settings.model_dump(mode="json"), ensure_ascii=False, indent=2),
             encoding="utf-8",

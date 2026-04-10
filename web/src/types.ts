@@ -43,6 +43,10 @@ export type HealthResponse = {
   active_mode: Mode | null
   active_model: string | null
   selected_device: string
+  runtime_backend?: string | null
+  runtime_platform?: string | null
+  runtime_dtype?: string | null
+  runtime_attention?: string | null
   active_asr_model: string | null
   selected_asr_device: string | null
 }
@@ -52,6 +56,15 @@ export type MetricsResponse = {
   ram_used_bytes: number
   ram_total_bytes: number
   ram_percent: number
+  gpu_backend: string
+  gpu_device: string | null
+  gpu_name: string | null
+  gpu_used_bytes: number
+  gpu_total_bytes: number
+  gpu_reserved_bytes: number
+  gpu_peak_bytes: number
+  gpu_utilization_percent: number | null
+  gpu_temperature_c: number | null
   mlx_gpu_active_bytes: number
   mlx_gpu_peak_bytes: number
   mlx_gpu_cache_bytes: number
@@ -60,6 +73,10 @@ export type MetricsResponse = {
 export type CapabilitiesResponse = {
   active_mode: Mode | null
   selected_device: string
+  runtime_backend?: string | null
+  runtime_platform?: string | null
+  runtime_dtype?: string | null
+  runtime_attention?: string | null
   languages: string[]
   speakers: Speaker[]
   generation_knobs: Record<string, Record<string, number | null>>

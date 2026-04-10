@@ -196,6 +196,10 @@ class HealthResponse(BaseModel):
     active_mode: Mode | None = None
     active_model: str | None = None
     selected_device: str
+    runtime_backend: str | None = None
+    runtime_platform: str | None = None
+    runtime_dtype: str | None = None
+    runtime_attention: str | None = None
     active_asr_model: str | None = None
     selected_asr_device: str | None = None
 
@@ -205,6 +209,15 @@ class MetricsResponse(BaseModel):
     ram_used_bytes: int
     ram_total_bytes: int
     ram_percent: float
+    gpu_backend: str = "none"
+    gpu_device: str | None = None
+    gpu_name: str | None = None
+    gpu_used_bytes: int = 0
+    gpu_total_bytes: int = 0
+    gpu_reserved_bytes: int = 0
+    gpu_peak_bytes: int = 0
+    gpu_utilization_percent: float | None = None
+    gpu_temperature_c: float | None = None
     mlx_gpu_active_bytes: int
     mlx_gpu_peak_bytes: int
     mlx_gpu_cache_bytes: int
@@ -260,6 +273,10 @@ class ConversationCapabilityResponse(BaseModel):
 class CapabilitiesResponse(BaseModel):
     active_mode: Mode | None = None
     selected_device: str
+    runtime_backend: str | None = None
+    runtime_platform: str | None = None
+    runtime_dtype: str | None = None
+    runtime_attention: str | None = None
     languages: list[str]
     speakers: list[SpeakerResponse]
     generation_knobs: dict[str, dict[str, float | int | None]]

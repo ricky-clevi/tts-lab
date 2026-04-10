@@ -33,7 +33,7 @@ ASR_MODELS: Final[list[dict[str, str]]] = [
     {
         "id": ASR_MODEL_IDS["default"],
         "label": "Qwen3-ASR 1.7B",
-        "description": "Highest-quality local multilingual Qwen ASR option for Apple Silicon.",
+        "description": "Highest-quality local multilingual Qwen ASR option.",
         "checkpoint": ASR_MODEL_IDS["default"],
     },
     {

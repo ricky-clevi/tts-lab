@@ -561,17 +561,22 @@ function SystemMetrics() {
 
   if (!metrics) return null
 
+  const gpuBytes = metrics.gpu_used_bytes > 0 ? metrics.gpu_used_bytes : metrics.mlx_gpu_active_bytes
+  const gpuTotalBytes =
+    metrics.gpu_total_bytes > 0 ? metrics.gpu_total_bytes : metrics.ram_total_bytes
+  const gpuDetail = metrics.gpu_backend === 'cuda'
+    ? `Device: ${metrics.gpu_name ?? metrics.gpu_device ?? 'CUDA'} | Used: ${formatBytes(metrics.gpu_used_bytes)} / ${formatBytes(metrics.gpu_total_bytes)} | Reserved: ${formatBytes(metrics.gpu_reserved_bytes)} | Peak: ${formatBytes(metrics.gpu_peak_bytes)}${metrics.gpu_utilization_percent !== null ? ` | Util: ${metrics.gpu_utilization_percent.toFixed(0)}%` : ''}${metrics.gpu_temperature_c !== null ? ` | Temp: ${metrics.gpu_temperature_c.toFixed(0)}C` : ''}`
+    : `Active: ${formatBytes(metrics.mlx_gpu_active_bytes)} | Peak: ${formatBytes(metrics.mlx_gpu_peak_bytes)} | Cache: ${formatBytes(metrics.mlx_gpu_cache_bytes)}`
+
   return (
     <div className="system-metrics">
       <span title="CPU usage">CPU {metrics.cpu_percent.toFixed(0)}%</span>
       <span title={`${formatBytes(metrics.ram_used_bytes)} / ${formatBytes(metrics.ram_total_bytes)}`}>
         RAM {metrics.ram_percent.toFixed(0)}%
       </span>
-      {metrics.mlx_gpu_active_bytes > 0 ? (
-        <span
-          title={`Active: ${formatBytes(metrics.mlx_gpu_active_bytes)} | Peak: ${formatBytes(metrics.mlx_gpu_peak_bytes)} | Cache: ${formatBytes(metrics.mlx_gpu_cache_bytes)}`}
-        >
-          GPU {(metrics.mlx_gpu_active_bytes / metrics.ram_total_bytes * 100).toFixed(0)}%
+      {gpuBytes > 0 ? (
+        <span title={gpuDetail}>
+          GPU {(gpuBytes / gpuTotalBytes * 100).toFixed(0)}%
         </span>
       ) : null}
     </div>

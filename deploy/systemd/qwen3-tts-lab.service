@@ -1,0 +1,15 @@
+[Unit]
+Description=Qwen3 TTS Lab
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/qwen3-tts-lab
+EnvironmentFile=/opt/qwen3-tts-lab/.env
+ExecStart=/opt/qwen3-tts-lab/scripts/run_linux_server.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

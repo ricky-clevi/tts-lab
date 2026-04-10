@@ -354,6 +354,7 @@ class ConversationSession:
                 self.tts_manager.warm_clone_runtime,
                 speaker_embedding_path=reply_voice.clone_embedding_path,
                 ref_audio_path=reply_voice.clone_audio_path,
+                ref_text=reply_voice.clone_reference_text,
             )
             await self._send_perf_metric(
                 name="clone_warmup_ms",

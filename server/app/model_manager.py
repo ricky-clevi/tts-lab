@@ -1,26 +1,28 @@
 from __future__ import annotations
 
 import gc
+import os
+import re
 import threading
 from collections.abc import Iterator
-import re
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 import numpy as np
+import soundfile as sf
 
 from .constants import (
-    ASR_MODEL_IDS,
     ASR_MODELS,
     CONVERSATION_SAMPLE_RATE,
     GENERATION_KNOBS,
     LANGUAGES,
     MODE_DESCRIPTIONS,
     MODE_LABELS,
-    MODEL_IDS,
     PROVIDER_CAPABILITIES,
     SPEAKERS,
 )
+from .runtime import RuntimeSelection, resolve_runtime_selection
 from .schemas import (
     AsrCapabilityResponse,
     AsrModelCapabilityResponse,
@@ -38,40 +40,84 @@ from .schemas import (
     SpeakerResponse,
 )
 
-# MLX-backed ASR and TTS are not robust when both runtimes execute native
-# inference or model-loading work concurrently on the same local process.
-_MLX_RUNTIME_LOCK = threading.RLock()
+_RUNTIME_LOCK = threading.RLock()
+
+
+def _estimate_file_duration_seconds(path: str) -> float:
+    try:
+        info = sf.info(path)
+    except Exception:
+        return 0.0
+    if not info.samplerate:
+        return 0.0
+    return round(float(info.frames) / float(info.samplerate), 2)
+
+
+def _coerce_wav_list(wavs: Any) -> list[np.ndarray]:
+    if isinstance(wavs, np.ndarray):
+        if wavs.ndim == 1:
+            return [np.asarray(wavs, dtype=np.float32).reshape(-1)]
+        if wavs.ndim == 2:
+            return [np.asarray(item, dtype=np.float32).reshape(-1) for item in wavs]
+
+    if isinstance(wavs, (list, tuple)):
+        return [np.asarray(item, dtype=np.float32).reshape(-1) for item in wavs]
+
+    return [np.asarray(wavs, dtype=np.float32).reshape(-1)]
 
 
 class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._inference_lock = threading.Lock()
-        self._runtime_lock = _MLX_RUNTIME_LOCK
+        self._runtime_lock = _RUNTIME_LOCK
         self._clone_embedding_cache: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+        self._clone_prompt_cache: dict[str, Any] = {}
         self._model: Any | None = None
         self.active_mode: Mode | None = None
         self.active_model_id: str | None = None
-        self.selected_device = self._detect_preferred_device()
+        self.runtime: RuntimeSelection = resolve_runtime_selection()
+        self.runtime_backend = self.runtime.backend
+        self.runtime_platform = self.runtime.platform_name
+        self.runtime_dtype = self.runtime.torch_dtype_name
+        self.runtime_attention = self.runtime.attn_implementation
+        self.model_ids = self.runtime.tts_model_ids
+        self.selected_device = self.runtime.device_label
 
-    def _detect_preferred_device(self) -> str:
-        try:
-            import mlx.core as mx
+    def _torch_dtype(self):
+        import torch
 
-            mx.clear_cache()
-            return "mlx"
-        except Exception:
-            return "cpu"
+        mapping = {
+            "float16": torch.float16,
+            "bfloat16": torch.bfloat16,
+            "float32": torch.float32,
+        }
+        return mapping.get(self.runtime.torch_dtype_name or "float32", torch.float32)
 
     def _instantiate_model(self, model_id: str) -> tuple[Any, str]:
-        from mlx_audio.tts.utils import load_model
+        if self.runtime_backend == "mlx":
+            from mlx_audio.tts.utils import load_model
+
+            try:
+                model = load_model(model_id)
+            except Exception as exc:  # pragma: no cover - exercised against real runtime only
+                raise RuntimeError(f"Unable to load {model_id} with the MLX runtime.") from exc
+            return model, "mlx"
+
+        from qwen_tts import Qwen3TTSModel
+
+        kwargs: dict[str, Any] = {
+            "device_map": self.runtime.device,
+            "dtype": self._torch_dtype(),
+        }
+        if self.runtime.attn_implementation:
+            kwargs["attn_implementation"] = self.runtime.attn_implementation
 
         try:
-            model = load_model(model_id)
+            model = Qwen3TTSModel.from_pretrained(model_id, **kwargs)
         except Exception as exc:  # pragma: no cover - exercised against real runtime only
-            raise RuntimeError(f"Unable to load {model_id} with the MLX runtime.") from exc
-
-        return model, "mlx"
+            raise RuntimeError(f"Unable to load {model_id} with the Qwen CUDA runtime.") from exc
+        return model, self.runtime.device_label
 
     def _release_current_model(self) -> None:
         if self._model is None:
@@ -81,10 +127,21 @@ class TtsModelManager:
         self.active_mode = None
         self.active_model_id = None
         gc.collect()
-        try:
-            import mlx.core as mx
 
-            mx.clear_cache()
+        if self.runtime_backend == "mlx":
+            try:
+                import mlx.core as mx
+
+                mx.clear_cache()
+            except Exception:
+                pass
+            return
+
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         except Exception:
             pass
 
@@ -94,7 +151,7 @@ class TtsModelManager:
                 return self._model
 
             self._release_current_model()
-            model_id = MODEL_IDS[mode]
+            model_id = self.model_ids[mode]
             model, actual_device = self._instantiate_model(model_id)
             self._model = model
             self.active_mode = mode
@@ -103,9 +160,27 @@ class TtsModelManager:
             return model
 
     def capabilities(self) -> CapabilitiesResponse:
+        runtime_asr_models = [
+            AsrModelCapabilityResponse(
+                id=self.runtime.asr_model_ids["default"]
+                if item["label"] == "Qwen3-ASR 1.7B"
+                else self.runtime.asr_model_ids["compact"],
+                label=item["label"],
+                description=item["description"],
+                checkpoint=self.runtime.asr_model_ids["default"]
+                if item["label"] == "Qwen3-ASR 1.7B"
+                else self.runtime.asr_model_ids["compact"],
+            )
+            for item in ASR_MODELS
+        ]
+
         return CapabilitiesResponse(
             active_mode=self.active_mode,
             selected_device=self.selected_device,
+            runtime_backend=self.runtime_backend,
+            runtime_platform=self.runtime_platform,
+            runtime_dtype=self.runtime_dtype,
+            runtime_attention=self.runtime_attention,
             languages=LANGUAGES,
             speakers=[SpeakerResponse(**speaker) for speaker in SPEAKERS],
             generation_knobs=GENERATION_KNOBS,
@@ -114,13 +189,13 @@ class TtsModelManager:
                     id=mode,
                     label=MODE_LABELS[mode],
                     description=MODE_DESCRIPTIONS[mode],
-                    checkpoint=MODEL_IDS[mode],
+                    checkpoint=self.model_ids[mode],
                 )
                 for mode in ("custom", "design", "clone")
             ],
             asr=AsrCapabilityResponse(
-                default_model=ASR_MODEL_IDS["default"],
-                models=[AsrModelCapabilityResponse(**item) for item in ASR_MODELS],
+                default_model=self.runtime.asr_model_ids["default"],
+                models=runtime_asr_models,
             ),
             chat=ChatCapabilityResponse(
                 providers=[ProviderCapabilityResponse(**item) for item in PROVIDER_CAPABILITIES],
@@ -184,22 +259,24 @@ class TtsModelManager:
             kwargs["max_tokens"] = generation.max_new_tokens
         return kwargs
 
-    def _stream_generation_kwargs(
-        self, payload: BaseGenerationRequest | CustomGenerationRequest | DesignGenerationRequest
-    ) -> dict[str, float | int | bool]:
-        return {
-            **self._generation_kwargs(payload.generation),
-            "stream": True,
-            "streaming_interval": payload.streaming_interval,
-        }
-
     def _apply_seed(self, seed: int | None) -> None:
         if seed is None:
             return
 
-        import mlx.core as mx
+        if self.runtime_backend == "mlx":
+            import mlx.core as mx
 
-        mx.random.seed(seed)
+            mx.random.seed(seed)
+            return
+
+        try:
+            import torch
+
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+        except Exception:
+            pass
 
     def _collect_audio(self, results: Any) -> tuple[np.ndarray, int]:
         collected = list(results)
@@ -210,6 +287,12 @@ class TtsModelManager:
         if not audio_parts:
             raise RuntimeError("The model returned no audio.")
         return np.concatenate(audio_parts), sample_rate
+
+    def _collect_qwen_audio(self, wavs: Any, sample_rate: int) -> tuple[list[np.ndarray], int]:
+        collected = _coerce_wav_list(wavs)
+        if not collected:
+            raise RuntimeError("The model returned no audio.")
+        return collected, int(sample_rate)
 
     def _iter_stream_results(
         self,
@@ -259,12 +342,14 @@ class TtsModelManager:
             }
 
     def _supports_cached_clone_embedding(self, model: Any) -> bool:
-        return callable(getattr(model, "extract_speaker_embedding", None)) and getattr(
-            model, "speaker_encoder", None
-        ) is not None
+        return self.runtime_backend == "mlx" and callable(
+            getattr(model, "extract_speaker_embedding", None)
+        ) and getattr(model, "speaker_encoder", None) is not None
 
     def _supports_cached_clone_icl(self, model: Any) -> bool:
-        return getattr(getattr(model, "speech_tokenizer", None), "has_encoder", False)
+        return self.runtime_backend == "mlx" and getattr(
+            getattr(model, "speech_tokenizer", None), "has_encoder", False
+        )
 
     def _extract_clone_speaker_embedding_unlocked(
         self,
@@ -274,7 +359,7 @@ class TtsModelManager:
     ) -> np.ndarray:
         if not self._supports_cached_clone_embedding(model):
             raise RuntimeError(
-                "The local clone model does not expose a reusable speaker embedding API."
+                "The active clone runtime does not expose a reusable speaker embedding API."
             )
 
         from mlx_audio.utils import load_audio
@@ -294,11 +379,57 @@ class TtsModelManager:
                 ref_audio_path=ref_audio_path,
             )
 
+    def _qwen_clone_prompt_cache_key(
+        self,
+        *,
+        ref_audio_path: str,
+        ref_text: str | None,
+        x_vector_only_mode: bool,
+    ) -> str:
+        resolved_audio = str(Path(ref_audio_path).resolve())
+        normalized_text = (ref_text or "").strip()
+        return "::".join([resolved_audio, normalized_text, "xvector" if x_vector_only_mode else "full"])
+
+    def _build_qwen_clone_prompt(
+        self,
+        *,
+        model: Any,
+        ref_audio_path: str,
+        ref_text: str | None,
+        x_vector_only_mode: bool,
+    ) -> Any:
+        cache_key = self._qwen_clone_prompt_cache_key(
+            ref_audio_path=ref_audio_path,
+            ref_text=ref_text,
+            x_vector_only_mode=x_vector_only_mode,
+        )
+        cached = self._clone_prompt_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        kwargs: dict[str, Any] = {"ref_audio": ref_audio_path}
+        if ref_text:
+            kwargs["ref_text"] = ref_text
+        if x_vector_only_mode:
+            kwargs["x_vector_only_mode"] = True
+        prompt = model.create_voice_clone_prompt(**kwargs)
+        self._clone_prompt_cache[cache_key] = prompt
+        return prompt
+
     def prepare_clone_conditioning_assets(
         self, *, ref_audio_path: str
-    ) -> tuple[np.ndarray, np.ndarray | None]:
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
         with self._runtime_lock, self._inference_lock:
             model = self.ensure_mode("clone")
+            if self.runtime_backend != "mlx":
+                self._build_qwen_clone_prompt(
+                    model=model,
+                    ref_audio_path=ref_audio_path,
+                    ref_text=None,
+                    x_vector_only_mode=True,
+                )
+                return None, None
+
             speaker_embedding = self._extract_clone_speaker_embedding_unlocked(
                 model=model,
                 ref_audio_path=ref_audio_path,
@@ -324,17 +455,23 @@ class TtsModelManager:
         *,
         speaker_embedding_path: str | None = None,
         ref_audio_path: str | None = None,
+        ref_text: str | None = None,
     ) -> None:
         with self._runtime_lock, self._inference_lock:
-            self.ensure_mode("clone")
+            model = self.ensure_mode("clone")
             if speaker_embedding_path:
                 self._load_cached_clone_conditioning(speaker_embedding_path)
-            elif ref_audio_path:
-                # Decoding the saved reference clip once avoids websocket-start
-                # surprises without triggering a fragile full synthesis pass.
+            elif ref_audio_path and self.runtime_backend == "mlx":
                 from mlx_audio.utils import load_audio
 
                 load_audio(ref_audio_path)
+            elif ref_audio_path and self.runtime_backend == "qwen" and ref_text:
+                self._build_qwen_clone_prompt(
+                    model=model,
+                    ref_audio_path=ref_audio_path,
+                    ref_text=ref_text,
+                    x_vector_only_mode=False,
+                )
 
     def _load_cached_clone_conditioning(
         self, embedding_path: str
@@ -426,6 +563,12 @@ class TtsModelManager:
         speaker_embedding_path: str,
         ref_text: str | None,
     ) -> tuple[list[Any], int]:
+        if self.runtime_backend != "mlx":
+            raise RuntimeError(
+                "Cached clone embeddings are only supported by the MLX backend. "
+                "Use the saved reference audio path on Linux/NVIDIA."
+            )
+
         self._validate_language(payload.language)
 
         with self._runtime_lock, self._inference_lock:
@@ -465,19 +608,34 @@ class TtsModelManager:
             language = self._normalize_language(request.language)
             generation_kwargs = self._generation_kwargs(request.generation)
 
-            wavs: list[np.ndarray] = []
-            sample_rate = int(model.sample_rate)
-            for segment in request.segments:
-                wav, sample_rate = self._collect_audio(
-                    model.generate_custom_voice(
-                        text=segment,
-                        speaker=request.speaker,
-                        language=language,
-                        instruct=request.instruct,
-                        **generation_kwargs,
+            if self.runtime_backend == "mlx":
+                wavs: list[np.ndarray] = []
+                sample_rate = int(model.sample_rate)
+                for segment in request.segments:
+                    wav, sample_rate = self._collect_audio(
+                        model.generate_custom_voice(
+                            text=segment,
+                            speaker=request.speaker,
+                            language=language,
+                            instruct=request.instruct,
+                            **generation_kwargs,
+                        )
                     )
+                    wavs.append(wav)
+                return wavs, sample_rate
+
+            wavs: list[np.ndarray] = []
+            sample_rate = 0
+            for segment in request.segments:
+                generated, sample_rate = model.generate_custom_voice(
+                    text=segment,
+                    language=language,
+                    speaker=request.speaker,
+                    instruct=request.instruct or "",
+                    **generation_kwargs,
                 )
-                wavs.append(wav)
+                segment_wavs, sample_rate = self._collect_qwen_audio(generated, sample_rate)
+                wavs.extend(segment_wavs)
             return wavs, sample_rate
 
     def generate_design(self, request: DesignGenerationRequest) -> tuple[list[Any], int]:
@@ -488,18 +646,32 @@ class TtsModelManager:
             language = self._normalize_language(request.language)
             generation_kwargs = self._generation_kwargs(request.generation)
 
-            wavs: list[np.ndarray] = []
-            sample_rate = int(model.sample_rate)
-            for segment in request.segments:
-                wav, sample_rate = self._collect_audio(
-                    model.generate_voice_design(
-                        text=segment,
-                        language=language,
-                        instruct=request.instruct,
-                        **generation_kwargs,
+            if self.runtime_backend == "mlx":
+                wavs: list[np.ndarray] = []
+                sample_rate = int(model.sample_rate)
+                for segment in request.segments:
+                    wav, sample_rate = self._collect_audio(
+                        model.generate_voice_design(
+                            text=segment,
+                            language=language,
+                            instruct=request.instruct,
+                            **generation_kwargs,
+                        )
                     )
+                    wavs.append(wav)
+                return wavs, sample_rate
+
+            wavs: list[np.ndarray] = []
+            sample_rate = 0
+            for segment in request.segments:
+                generated, sample_rate = model.generate_voice_design(
+                    text=segment,
+                    language=language,
+                    instruct=request.instruct,
+                    **generation_kwargs,
                 )
-                wavs.append(wav)
+                segment_wavs, sample_rate = self._collect_qwen_audio(generated, sample_rate)
+                wavs.extend(segment_wavs)
             return wavs, sample_rate
 
     def generate_clone(
@@ -511,11 +683,10 @@ class TtsModelManager:
         x_vector_only_mode: bool,
     ) -> tuple[list[Any], int]:
         self._validate_language(payload.language)
-        if not (ref_text or "").strip():
-            if not x_vector_only_mode:
-                raise ValueError(
-                    "Reference transcript is required unless x-vector only mode is enabled."
-                )
+        if not (ref_text or "").strip() and not x_vector_only_mode:
+            raise ValueError(
+                "Reference transcript is required unless x-vector only mode is enabled."
+            )
 
         with self._runtime_lock, self._inference_lock:
             model = self.ensure_mode("clone")
@@ -525,89 +696,160 @@ class TtsModelManager:
             )
             generation_kwargs = self._generation_kwargs(payload.generation)
 
-            wavs: list[np.ndarray] = []
-            sample_rate = int(model.sample_rate)
-            speaker_embedding = (
-                self._extract_clone_speaker_embedding_unlocked(
-                    model=model,
-                    ref_audio_path=ref_audio_path,
-                )
-                if x_vector_only_mode
-                else None
-            )
-            for segment in payload.segments:
-                result = (
-                    self._generate_clone_with_speaker_embedding(
+            if self.runtime_backend == "mlx":
+                wavs: list[np.ndarray] = []
+                sample_rate = int(model.sample_rate)
+                speaker_embedding = (
+                    self._extract_clone_speaker_embedding_unlocked(
                         model=model,
-                        text=segment,
-                        language=language,
-                        ref_text=None,
-                        speaker_embedding=speaker_embedding,
-                        ref_codes=None,
-                        generation_kwargs=generation_kwargs,
+                        ref_audio_path=ref_audio_path,
                     )
-                    if speaker_embedding is not None
-                    else model.generate(
-                        text=segment,
-                        lang_code=language,
-                        ref_audio=ref_audio_path,
-                        ref_text=ref_text,
-                        **generation_kwargs,
-                    )
+                    if x_vector_only_mode
+                    else None
                 )
-                wav, sample_rate = self._collect_audio(result)
-                wavs.append(wav)
+                for segment in payload.segments:
+                    result = (
+                        self._generate_clone_with_speaker_embedding(
+                            model=model,
+                            text=segment,
+                            language=language,
+                            ref_text=None,
+                            speaker_embedding=speaker_embedding,
+                            ref_codes=None,
+                            generation_kwargs=generation_kwargs,
+                        )
+                        if speaker_embedding is not None
+                        else model.generate(
+                            text=segment,
+                            lang_code=language,
+                            ref_audio=ref_audio_path,
+                            ref_text=ref_text,
+                            **generation_kwargs,
+                        )
+                    )
+                    wav, sample_rate = self._collect_audio(result)
+                    wavs.append(wav)
+                return wavs, sample_rate
+
+            clone_prompt = self._build_qwen_clone_prompt(
+                model=model,
+                ref_audio_path=ref_audio_path,
+                ref_text=ref_text,
+                x_vector_only_mode=x_vector_only_mode,
+            )
+            wavs: list[np.ndarray] = []
+            sample_rate = 0
+            for segment in payload.segments:
+                generated, sample_rate = model.generate_voice_clone(
+                    text=segment,
+                    language=language,
+                    voice_clone_prompt=clone_prompt,
+                    **generation_kwargs,
+                )
+                segment_wavs, sample_rate = self._collect_qwen_audio(generated, sample_rate)
+                wavs.extend(segment_wavs)
             return wavs, sample_rate
 
     def stream_custom(self, request: CustomGenerationRequest) -> Iterator[dict[str, Any]]:
         self._validate_language(request.language)
         self._ensure_speaker(request.speaker)
+
         def iterator() -> Iterator[dict[str, Any]]:
             with self._runtime_lock, self._inference_lock:
                 model = self.ensure_mode("custom")
                 self._apply_seed(request.generation.seed)
                 language = self._normalize_language(request.language)
-                generation_kwargs = self._stream_generation_kwargs(request)
-                sample_rate = int(model.sample_rate)
+                sample_rate = int(getattr(model, "sample_rate", 24000))
 
-                for segment_index, segment in enumerate(request.segments):
-                    yield from self._iter_stream_results(
-                        model.generate_custom_voice(
+                if self.runtime_backend == "mlx":
+                    generation_kwargs = {
+                        **self._generation_kwargs(request.generation),
+                        "stream": True,
+                        "streaming_interval": request.streaming_interval,
+                    }
+                    for segment_index, segment in enumerate(request.segments):
+                        yield from self._iter_stream_results(
+                            model.generate_custom_voice(
+                                text=segment,
+                                speaker=request.speaker,
+                                language=language,
+                                instruct=request.instruct,
+                                **generation_kwargs,
+                            ),
+                            segment_index=segment_index,
                             text=segment,
-                            speaker=request.speaker,
-                            language=language,
-                            instruct=request.instruct,
-                            **generation_kwargs,
-                        ),
-                        segment_index=segment_index,
+                            sample_rate=sample_rate,
+                        )
+                    return
+
+                generation_kwargs = self._generation_kwargs(request.generation)
+                for segment_index, segment in enumerate(request.segments):
+                    wavs, sample_rate = model.generate_custom_voice(
                         text=segment,
-                        sample_rate=sample_rate,
+                        language=language,
+                        speaker=request.speaker,
+                        instruct=request.instruct or "",
+                        **generation_kwargs,
                     )
+                    segment_wavs, sample_rate = self._collect_qwen_audio(wavs, sample_rate)
+                    for wav in segment_wavs:
+                        yield from self._iter_chunked_audio(
+                            wav,
+                            sample_rate=sample_rate,
+                            segment_index=segment_index,
+                            text=segment,
+                            streaming_interval=request.streaming_interval,
+                        )
 
         return iterator()
 
     def stream_design(self, request: DesignGenerationRequest) -> Iterator[dict[str, Any]]:
         self._validate_language(request.language)
+
         def iterator() -> Iterator[dict[str, Any]]:
             with self._runtime_lock, self._inference_lock:
                 model = self.ensure_mode("design")
                 self._apply_seed(request.generation.seed)
                 language = self._normalize_language(request.language)
-                generation_kwargs = self._stream_generation_kwargs(request)
-                sample_rate = int(model.sample_rate)
+                sample_rate = int(getattr(model, "sample_rate", 24000))
 
-                for segment_index, segment in enumerate(request.segments):
-                    yield from self._iter_stream_results(
-                        model.generate_voice_design(
+                if self.runtime_backend == "mlx":
+                    generation_kwargs = {
+                        **self._generation_kwargs(request.generation),
+                        "stream": True,
+                        "streaming_interval": request.streaming_interval,
+                    }
+                    for segment_index, segment in enumerate(request.segments):
+                        yield from self._iter_stream_results(
+                            model.generate_voice_design(
+                                text=segment,
+                                language=language,
+                                instruct=request.instruct,
+                                **generation_kwargs,
+                            ),
+                            segment_index=segment_index,
                             text=segment,
-                            language=language,
-                            instruct=request.instruct,
-                            **generation_kwargs,
-                        ),
-                        segment_index=segment_index,
+                            sample_rate=sample_rate,
+                        )
+                    return
+
+                generation_kwargs = self._generation_kwargs(request.generation)
+                for segment_index, segment in enumerate(request.segments):
+                    wavs, sample_rate = model.generate_voice_design(
                         text=segment,
-                        sample_rate=sample_rate,
+                        language=language,
+                        instruct=request.instruct,
+                        **generation_kwargs,
                     )
+                    segment_wavs, sample_rate = self._collect_qwen_audio(wavs, sample_rate)
+                    for wav in segment_wavs:
+                        yield from self._iter_chunked_audio(
+                            wav,
+                            sample_rate=sample_rate,
+                            segment_index=segment_index,
+                            text=segment,
+                            streaming_interval=request.streaming_interval,
+                        )
 
         return iterator()
 
@@ -620,11 +862,10 @@ class TtsModelManager:
         x_vector_only_mode: bool,
     ) -> Iterator[dict[str, Any]]:
         self._validate_language(payload.language)
-        if not (ref_text or "").strip():
-            if not x_vector_only_mode:
-                raise ValueError(
-                    "Reference transcript is required unless x-vector only mode is enabled."
-                )
+        if not (ref_text or "").strip() and not x_vector_only_mode:
+            raise ValueError(
+                "Reference transcript is required unless x-vector only mode is enabled."
+            )
 
         def iterator() -> Iterator[dict[str, Any]]:
             with self._runtime_lock, self._inference_lock:
@@ -633,55 +874,86 @@ class TtsModelManager:
                 language = self._normalize_language(
                     self.resolve_clone_language(payload.language, payload.segments, ref_text)
                 )
-                generation_kwargs = (
-                    self._stream_generation_kwargs(payload)
-                    if x_vector_only_mode
-                    else self._generation_kwargs(payload.generation)
-                )
-                sample_rate = int(model.sample_rate)
-                speaker_embedding = (
-                    self._extract_clone_speaker_embedding_unlocked(
-                        model=model,
-                        ref_audio_path=ref_audio_path,
-                    )
-                    if x_vector_only_mode
-                    else None
-                )
+                sample_rate = int(getattr(model, "sample_rate", 24000))
 
-                for segment_index, segment in enumerate(payload.segments):
-                    if speaker_embedding is not None:
-                        yield from self._iter_stream_results(
-                            self._generate_clone_with_speaker_embedding(
-                                model=model,
+                if self.runtime_backend == "mlx":
+                    generation_kwargs = (
+                        {
+                            **self._generation_kwargs(payload.generation),
+                            "stream": True,
+                            "streaming_interval": payload.streaming_interval,
+                        }
+                        if x_vector_only_mode
+                        else self._generation_kwargs(payload.generation)
+                    )
+                    speaker_embedding = (
+                        self._extract_clone_speaker_embedding_unlocked(
+                            model=model,
+                            ref_audio_path=ref_audio_path,
+                        )
+                        if x_vector_only_mode
+                        else None
+                    )
+
+                    for segment_index, segment in enumerate(payload.segments):
+                        if speaker_embedding is not None:
+                            yield from self._iter_stream_results(
+                                self._generate_clone_with_speaker_embedding(
+                                    model=model,
+                                    text=segment,
+                                    language=language,
+                                    ref_text=None,
+                                    speaker_embedding=speaker_embedding,
+                                    ref_codes=None,
+                                    generation_kwargs=generation_kwargs,
+                                ),
+                                segment_index=segment_index,
                                 text=segment,
-                                language=language,
-                                ref_text=None,
-                                speaker_embedding=speaker_embedding,
-                                ref_codes=None,
-                                generation_kwargs=generation_kwargs,
-                            ),
+                                sample_rate=sample_rate,
+                            )
+                            continue
+
+                        wav, sample_rate = self._collect_audio(
+                            model.generate(
+                                text=segment,
+                                lang_code=language,
+                                ref_audio=ref_audio_path,
+                                ref_text=ref_text,
+                                **generation_kwargs,
+                            )
+                        )
+                        yield from self._iter_chunked_audio(
+                            wav,
+                            sample_rate=sample_rate,
                             segment_index=segment_index,
                             text=segment,
-                            sample_rate=sample_rate,
+                            streaming_interval=payload.streaming_interval,
                         )
-                        continue
+                    return
 
-                    wav, sample_rate = self._collect_audio(
-                        model.generate(
-                            text=segment,
-                            lang_code=language,
-                            ref_audio=ref_audio_path,
-                            ref_text=ref_text,
-                            **generation_kwargs,
-                        )
-                    )
-                    yield from self._iter_chunked_audio(
-                        wav,
-                        sample_rate=sample_rate,
-                        segment_index=segment_index,
+                generation_kwargs = self._generation_kwargs(payload.generation)
+                clone_prompt = self._build_qwen_clone_prompt(
+                    model=model,
+                    ref_audio_path=ref_audio_path,
+                    ref_text=ref_text,
+                    x_vector_only_mode=x_vector_only_mode,
+                )
+                for segment_index, segment in enumerate(payload.segments):
+                    wavs, sample_rate = model.generate_voice_clone(
                         text=segment,
-                        streaming_interval=payload.streaming_interval,
+                        language=language,
+                        voice_clone_prompt=clone_prompt,
+                        **generation_kwargs,
                     )
+                    segment_wavs, sample_rate = self._collect_qwen_audio(wavs, sample_rate)
+                    for wav in segment_wavs:
+                        yield from self._iter_chunked_audio(
+                            wav,
+                            sample_rate=sample_rate,
+                            segment_index=segment_index,
+                            text=segment,
+                            streaming_interval=payload.streaming_interval,
+                        )
 
         return iterator()
 
@@ -692,6 +964,12 @@ class TtsModelManager:
         speaker_embedding_path: str,
         ref_text: str | None,
     ) -> Iterator[dict[str, Any]]:
+        if self.runtime_backend != "mlx":
+            raise RuntimeError(
+                "Cached clone embeddings are only supported by the MLX backend. "
+                "Use the saved reference audio path on Linux/NVIDIA."
+            )
+
         self._validate_language(payload.language)
 
         def iterator() -> Iterator[dict[str, Any]]:
@@ -701,7 +979,11 @@ class TtsModelManager:
                 language = self._normalize_language(
                     self.resolve_clone_language(payload.language, payload.segments, ref_text)
                 )
-                generation_kwargs = self._stream_generation_kwargs(payload)
+                generation_kwargs = {
+                    **self._generation_kwargs(payload.generation),
+                    "stream": True,
+                    "streaming_interval": payload.streaming_interval,
+                }
                 sample_rate = int(model.sample_rate)
                 speaker_embedding, ref_codes = self._load_cached_clone_conditioning(
                     speaker_embedding_path
@@ -730,29 +1012,53 @@ class AsrModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._inference_lock = threading.Lock()
-        self._runtime_lock = _MLX_RUNTIME_LOCK
+        self._runtime_lock = _RUNTIME_LOCK
         self._model: Any | None = None
         self.active_model_id: str | None = None
-        self.selected_device = self._detect_preferred_device()
+        self.runtime: RuntimeSelection = resolve_runtime_selection()
+        self.runtime_backend = self.runtime.backend
+        self.runtime_platform = self.runtime.platform_name
+        self.runtime_dtype = self.runtime.torch_dtype_name
+        self.runtime_attention = self.runtime.attn_implementation
+        self.model_ids = self.runtime.asr_model_ids
+        self.selected_device = self.runtime.device_label
 
-    def _detect_preferred_device(self) -> str:
-        try:
-            import mlx.core as mx
+    def _torch_dtype(self):
+        import torch
 
-            mx.clear_cache()
-            return "mlx"
-        except Exception:
-            return "cpu"
+        mapping = {
+            "float16": torch.float16,
+            "bfloat16": torch.bfloat16,
+            "float32": torch.float32,
+        }
+        return mapping.get(self.runtime.torch_dtype_name or "float32", torch.float32)
 
     def _instantiate_model(self, model_id: str) -> tuple[Any, str]:
-        from mlx_audio.stt import load
+        if self.runtime_backend == "mlx":
+            from mlx_audio.stt import load
+
+            try:
+                model = load(model_id)
+            except Exception as exc:  # pragma: no cover - exercised against real runtime only
+                raise RuntimeError(f"Unable to load {model_id} with the MLX runtime.") from exc
+            return model, "mlx"
+
+        from qwen_asr import Qwen3ASRModel
+
+        kwargs: dict[str, Any] = {
+            "device_map": self.runtime.device,
+            "dtype": self._torch_dtype(),
+            "max_inference_batch_size": int(os.getenv("QWEN_ASR_MAX_INFERENCE_BATCH_SIZE", "32")),
+            "max_new_tokens": int(os.getenv("QWEN_ASR_MAX_NEW_TOKENS", "256")),
+        }
+        if self.runtime.attn_implementation:
+            kwargs["attn_implementation"] = self.runtime.attn_implementation
 
         try:
-            model = load(model_id)
+            model = Qwen3ASRModel.from_pretrained(model_id, **kwargs)
         except Exception as exc:  # pragma: no cover - exercised against real runtime only
-            raise RuntimeError(f"Unable to load {model_id} with the MLX runtime.") from exc
-
-        return model, "mlx"
+            raise RuntimeError(f"Unable to load {model_id} with the Qwen CUDA runtime.") from exc
+        return model, self.runtime.device_label
 
     def _release_current_model(self) -> None:
         if self._model is None:
@@ -761,10 +1067,20 @@ class AsrModelManager:
         self._model = None
         self.active_model_id = None
         gc.collect()
-        try:
-            import mlx.core as mx
+        if self.runtime_backend == "mlx":
+            try:
+                import mlx.core as mx
 
-            mx.clear_cache()
+                mx.clear_cache()
+            except Exception:
+                pass
+            return
+
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         except Exception:
             pass
 
@@ -804,6 +1120,12 @@ class AsrModelManager:
         target_positions = np.linspace(0.0, duration, num=target_length, endpoint=False)
         return np.interp(target_positions, source_positions, samples).astype(np.float32)
 
+    def _qwen_transcribe(self, *, model: Any, audio: Any, language: str | None) -> Any:
+        result = model.transcribe(audio=audio, language=language)
+        if isinstance(result, list):
+            return result[0] if result else None
+        return result
+
     def transcribe_file(
         self,
         *,
@@ -816,26 +1138,44 @@ class AsrModelManager:
         try:
             with self._runtime_lock, self._inference_lock:
                 model = self.ensure_model(model_id)
-                result = model.generate(file_path, language=normalized_language)
+                if self.runtime_backend == "mlx":
+                    result = model.generate(file_path, language=normalized_language)
+                else:
+                    result = self._qwen_transcribe(
+                        model=model,
+                        audio=file_path,
+                        language=normalized_language,
+                    )
         except Exception as exc:  # pragma: no cover - real runtime only
             raise RuntimeError("The ASR model failed to transcribe the uploaded audio.") from exc
 
-        segments = [
-            AsrSegmentResponse(
-                text=str(segment.get("text", "")).strip(),
-                start=float(segment.get("start", 0.0)),
-                end=float(segment.get("end", 0.0)),
+        if self.runtime_backend == "mlx":
+            segments = [
+                AsrSegmentResponse(
+                    text=str(segment.get("text", "")).strip(),
+                    start=float(segment.get("start", 0.0)),
+                    end=float(segment.get("end", 0.0)),
+                )
+                for segment in getattr(result, "segments", [])
+                if str(segment.get("text", "")).strip()
+            ]
+            duration_seconds = round(float(segments[-1].end), 2) if segments else 0.0
+            return AsrTranscriptionResponse(
+                text=str(getattr(result, "text", "")).strip(),
+                language=normalized_language or self._infer_language(result),
+                duration_seconds=duration_seconds,
+                model_id=model_id,
+                segments=segments,
+                send_to_chat=send_to_chat,
             )
-            for segment in getattr(result, "segments", [])
-            if str(segment.get("text", "")).strip()
-        ]
-        duration_seconds = round(float(segments[-1].end), 2) if segments else 0.0
+
+        text = str(getattr(result, "text", "") if result is not None else "").strip()
         return AsrTranscriptionResponse(
-            text=str(getattr(result, "text", "")).strip(),
+            text=text,
             language=normalized_language or self._infer_language(result),
-            duration_seconds=duration_seconds,
+            duration_seconds=_estimate_file_duration_seconds(file_path),
             model_id=model_id,
-            segments=segments,
+            segments=[],
             send_to_chat=send_to_chat,
         )
 
@@ -849,29 +1189,53 @@ class AsrModelManager:
     ) -> AsrTranscriptionResponse:
         normalized_language = self._normalize_language(language)
         resampled = self._resample_audio(audio, source_rate, CONVERSATION_SAMPLE_RATE)
+        temp_path: str | None = None
         try:
             with self._runtime_lock, self._inference_lock:
                 model = self.ensure_model(model_id)
-                result = model.generate(resampled, language=normalized_language)
+                if self.runtime_backend == "mlx":
+                    result = model.generate(resampled, language=normalized_language)
+                else:
+                    with NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                        temp_path = temp_file.name
+                    sf.write(temp_path, resampled, CONVERSATION_SAMPLE_RATE)
+                    result = self._qwen_transcribe(
+                        model=model,
+                        audio=temp_path,
+                        language=normalized_language,
+                    )
         except Exception as exc:  # pragma: no cover - real runtime only
             raise RuntimeError("The ASR model failed to transcribe the buffered audio.") from exc
+        finally:
+            if temp_path:
+                Path(temp_path).unlink(missing_ok=True)
 
-        segments = [
-            AsrSegmentResponse(
-                text=str(segment.get("text", "")).strip(),
-                start=float(segment.get("start", 0.0)),
-                end=float(segment.get("end", 0.0)),
+        if self.runtime_backend == "mlx":
+            segments = [
+                AsrSegmentResponse(
+                    text=str(segment.get("text", "")).strip(),
+                    start=float(segment.get("start", 0.0)),
+                    end=float(segment.get("end", 0.0)),
+                )
+                for segment in getattr(result, "segments", [])
+                if str(segment.get("text", "")).strip()
+            ]
+            duration_seconds = round(float(len(resampled) / CONVERSATION_SAMPLE_RATE), 2)
+            return AsrTranscriptionResponse(
+                text=str(getattr(result, "text", "")).strip(),
+                language=normalized_language or self._infer_language(result),
+                duration_seconds=duration_seconds,
+                model_id=model_id,
+                segments=segments,
             )
-            for segment in getattr(result, "segments", [])
-            if str(segment.get("text", "")).strip()
-        ]
+
         duration_seconds = round(float(len(resampled) / CONVERSATION_SAMPLE_RATE), 2)
         return AsrTranscriptionResponse(
-            text=str(getattr(result, "text", "")).strip(),
+            text=str(getattr(result, "text", "") if result is not None else "").strip(),
             language=normalized_language or self._infer_language(result),
             duration_seconds=duration_seconds,
             model_id=model_id,
-            segments=segments,
+            segments=[],
         )
 
     def _infer_language(self, result: Any) -> str | None:
