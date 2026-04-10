@@ -6,6 +6,7 @@ import type {
   CloneVoiceProfileResponse,
   GenerationRun,
   HealthResponse,
+  MetricsResponse,
   Mode,
   ProviderId,
   ProviderSettingsDraft,
@@ -32,6 +33,10 @@ async function parseJson<T>(response: Response): Promise<T> {
 
 export async function fetchHealth() {
   return parseJson<HealthResponse>(await fetch(`${API_ROOT}/health`))
+}
+
+export async function fetchMetrics() {
+  return parseJson<MetricsResponse>(await fetch(`${API_ROOT}/metrics`))
 }
 
 export async function fetchCapabilities() {

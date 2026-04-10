@@ -32,6 +32,7 @@ from .schemas import (
     DesignGenerationRequest,
     GenerationRunResponse,
     HealthResponse,
+    MetricsResponse,
     ProviderTestRequest,
     ProviderTestResponse,
 )
@@ -343,6 +344,12 @@ def create_app(
             active_asr_model=asr.active_model_id,
             selected_asr_device=asr.selected_device,
         )
+
+    @app.get("/api/metrics", response_model=MetricsResponse)
+    def metrics() -> MetricsResponse:
+        from .metrics import collect_metrics
+
+        return MetricsResponse(**collect_metrics())
 
     @app.get("/api/capabilities")
     def capabilities():

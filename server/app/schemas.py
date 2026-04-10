@@ -200,6 +200,16 @@ class HealthResponse(BaseModel):
     selected_asr_device: str | None = None
 
 
+class MetricsResponse(BaseModel):
+    cpu_percent: float
+    ram_used_bytes: int
+    ram_total_bytes: int
+    ram_percent: float
+    mlx_gpu_active_bytes: int
+    mlx_gpu_peak_bytes: int
+    mlx_gpu_cache_bytes: int
+
+
 class SpeakerResponse(BaseModel):
     id: str
     name: str

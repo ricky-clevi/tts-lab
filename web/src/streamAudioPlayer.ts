@@ -26,9 +26,19 @@ export class StreamAudioPlayer {
   private bufferedSeconds = 0
   private hasStarted = false
   private readonly minBufferSeconds: number
+  private activeSources = 0
+  private _onPlaybackEnd: (() => void) | null = null
 
   constructor(minBufferSeconds = 0.8) {
     this.minBufferSeconds = minBufferSeconds
+  }
+
+  set onPlaybackEnd(callback: (() => void) | null) {
+    this._onPlaybackEnd = callback
+  }
+
+  get isPlaying(): boolean {
+    return this.activeSources > 0
   }
 
   async enqueueBase64Pcm16(
@@ -91,6 +101,14 @@ export class StreamAudioPlayer {
       source.start(startAt)
       this.nextStartTime = startAt + audioBuffer.duration
       this.bufferedSeconds = Math.max(0, this.bufferedSeconds - audioBuffer.duration)
+
+      this.activeSources += 1
+      source.onended = () => {
+        this.activeSources -= 1
+        if (this.activeSources === 0 && this.pending.length === 0 && this._onPlaybackEnd) {
+          this._onPlaybackEnd()
+        }
+      }
     }
   }
 
@@ -99,6 +117,8 @@ export class StreamAudioPlayer {
     this.bufferedSeconds = 0
     this.hasStarted = false
     this.nextStartTime = 0
+    this.activeSources = 0
+    this._onPlaybackEnd = null
 
     if (this.context) {
       await this.context.close()

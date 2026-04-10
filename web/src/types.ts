@@ -47,6 +47,16 @@ export type HealthResponse = {
   selected_asr_device: string | null
 }
 
+export type MetricsResponse = {
+  cpu_percent: number
+  ram_used_bytes: number
+  ram_total_bytes: number
+  ram_percent: number
+  mlx_gpu_active_bytes: number
+  mlx_gpu_peak_bytes: number
+  mlx_gpu_cache_bytes: number
+}
+
 export type CapabilitiesResponse = {
   active_mode: Mode | null
   selected_device: string

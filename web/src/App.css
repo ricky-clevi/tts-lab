@@ -132,6 +132,22 @@ body.is-resizing {
   border-radius: 6px;
 }
 
+.system-metrics {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-strong);
+}
+
+.system-metrics span {
+  white-space: nowrap;
+}
+
 .status-strip,
 .run-meta,
 .chat-status-card {
@@ -183,11 +199,16 @@ body.is-resizing {
   font-size: 0.94rem;
 }
 
-.tab:hover,
+.tab:hover:not(.tab-active),
 .ghost-button:hover,
 .history-item:hover {
   background: rgba(0, 150, 136, 0.06);
   border-color: rgba(0, 150, 136, 0.3);
+}
+
+.tab-active:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .primary-button:hover {
@@ -739,8 +760,17 @@ input[type="file"]::file-selector-button:hover {
 .perf-card {
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 0.8rem 0.9rem;
   background: var(--panel);
+  flex-shrink: 0;
+}
+
+.perf-card > summary {
+  padding: 0.8rem 0.9rem;
+  cursor: pointer;
+}
+
+.perf-card > .perf-grid {
+  padding: 0 0.9rem 0.8rem;
 }
 
 .perf-grid {
@@ -757,7 +787,13 @@ input[type="file"]::file-selector-button:hover {
 }
 
 .chat-thread {
-  min-height: 26rem;
+  flex: 1 1 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.chat-composer {
+  flex-shrink: 0;
 }
 
 .chat-bubble {

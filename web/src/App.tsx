@@ -4,6 +4,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from
 import { AudioCapture } from './audioCapture'
 import {
   createReplyVoiceCloneProfile,
+  fetchMetrics,
   createConversationSocket,
   fetchCapabilities,
   fetchChatSettings,
@@ -28,6 +29,7 @@ import type {
   ConversationStatus,
   GenerationRun,
   HealthResponse,
+  MetricsResponse,
   Mode,
   ProviderId,
   StreamRunEvent,
@@ -522,6 +524,58 @@ function clearPreparedReplyVoice(replyVoice: ChatSettingsForm['defaults']['reply
     cloneReferenceText: '',
     cloneEmbeddingPath: '',
   }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const gb = bytes / 1024 ** 3
+  if (gb >= 1) return `${gb.toFixed(1)} GB`
+  const mb = bytes / 1024 ** 2
+  return `${mb.toFixed(0)} MB`
+}
+
+function SystemMetrics() {
+  const [metrics, setMetrics] = useState<MetricsResponse | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    let alive = true
+
+    async function poll() {
+      try {
+        const data = await fetchMetrics()
+        if (alive) setMetrics(data)
+      } catch {
+        // swallow transient fetch failures
+      }
+    }
+
+    void poll()
+    intervalRef.current = setInterval(() => void poll(), 2000)
+
+    return () => {
+      alive = false
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [])
+
+  if (!metrics) return null
+
+  return (
+    <div className="system-metrics">
+      <span title="CPU usage">CPU {metrics.cpu_percent.toFixed(0)}%</span>
+      <span title={`${formatBytes(metrics.ram_used_bytes)} / ${formatBytes(metrics.ram_total_bytes)}`}>
+        RAM {metrics.ram_percent.toFixed(0)}%
+      </span>
+      {metrics.mlx_gpu_active_bytes > 0 ? (
+        <span
+          title={`Active: ${formatBytes(metrics.mlx_gpu_active_bytes)} | Peak: ${formatBytes(metrics.mlx_gpu_peak_bytes)} | Cache: ${formatBytes(metrics.mlx_gpu_cache_bytes)}`}
+        >
+          GPU {(metrics.mlx_gpu_active_bytes / metrics.ram_total_bytes * 100).toFixed(0)}%
+        </span>
+      ) : null}
+    </div>
+  )
 }
 
 function App() {
@@ -1040,11 +1094,22 @@ function App() {
 
     if (event.type === 'llm.status') {
       setConversationStatus(event.phase)
-      if (event.phase === 'listening' && micActive) {
-        listeningEnabledRef.current = true
-        speechDetectedRef.current = false
-        silenceStartedAtRef.current = null
-        speechStartedAtRef.current = null
+      if (event.phase === 'listening' && captureRef.current) {
+        const player = chatPlayerRef.current
+        if (player && player.isPlaying) {
+          player.onPlaybackEnd = () => {
+            player.onPlaybackEnd = null
+            listeningEnabledRef.current = true
+            speechDetectedRef.current = false
+            silenceStartedAtRef.current = null
+            speechStartedAtRef.current = null
+          }
+        } else {
+          listeningEnabledRef.current = true
+          speechDetectedRef.current = false
+          silenceStartedAtRef.current = null
+          speechStartedAtRef.current = null
+        }
       }
       return
     }
@@ -1715,6 +1780,7 @@ function App() {
           <span>Device: {health?.selected_device ?? '—'}</span>
           <span>Active mode: {health?.active_mode ?? 'idle'}</span>
         </div>
+        <SystemMetrics />
 
         <div className="workspace-tabs">
           <button className={workspace === 'tts' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('tts')}>
@@ -1937,6 +2003,7 @@ function App() {
           <span>ASR: {(health?.active_asr_model ?? chatSettings.defaults.asrModel) || 'idle'}</span>
           <span>Phase: {conversationStatus}</span>
         </div>
+        <SystemMetrics />
         <div className="workspace-tabs">
           <button className={workspace === 'tts' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('tts')}>
             TTS Lab
@@ -2435,10 +2502,11 @@ function App() {
             </button>
           </div>
         </div>
+        <SystemMetrics />
         {liveCaption ? <div className="caption-strip">{liveCaption}</div> : null}
         {perfMetrics.length ? (
-          <section className="perf-card">
-            <p className="mode-label">Latency metrics</p>
+          <details className="perf-card">
+            <summary className="mode-label">Latency metrics ({perfMetrics.length})</summary>
             <div className="perf-grid">
               {perfMetrics.map((metric) => (
                 <div className="perf-item" key={metric.id}>
@@ -2450,7 +2518,7 @@ function App() {
                 </div>
               ))}
             </div>
-          </section>
+          </details>
         ) : null}
         <div className="chat-thread">
           {conversationMessages.length ? (
