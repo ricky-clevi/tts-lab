@@ -1,3 +1,11 @@
 -r requirements.txt
-qwen-tts
-qwen-asr
+accelerate==1.12.0
+einops>=0.8,<0.9
+gradio
+librosa
+onnxruntime
+qwen-asr==0.0.6
+sox
+
+# Install qwen-tts separately with --no-deps.
+# Current qwen-tts and qwen-asr PyPI releases pin conflicting transformers versions.
