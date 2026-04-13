@@ -212,6 +212,19 @@ function mockFetchSequence() {
 afterEach(() => {
   vi.restoreAllMocks()
   globalThis.WebSocket = OriginalWebSocket
+  window.localStorage.clear()
+})
+
+test('switches the visible chrome to korean', async () => {
+  mockFetchSequence()
+  render(<App />)
+
+  await screen.findByText('Qwen3-TTS Lab')
+  await userEvent.click(screen.getByRole('button', { name: '한국어' }))
+
+  expect(screen.getByRole('button', { name: '보이스 챗' })).toBeInTheDocument()
+  expect(screen.getByText('로컬 음성 평가')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '오디오 생성' })).toBeInTheDocument()
 })
 
 test('switches to voice chat and shows provider controls', async () => {

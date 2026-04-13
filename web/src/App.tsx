@@ -16,6 +16,7 @@ import {
   transcribeAsrFile,
 } from './api'
 import './App.css'
+import { detectLocale, persistLocale, translate, type Locale } from './i18n'
 import { StreamAudioPlayer } from './streamAudioPlayer'
 import type {
   AsrTranscriptionResponse,
@@ -192,6 +193,7 @@ type PerfMetric = {
 }
 
 type SettingsSectionId = 'provider' | 'conversation' | 'asr' | 'replyVoice'
+type TranslationFunction = (key: string, variables?: Record<string, number | string>) => string
 
 const MOOD_OPTIONS = [
   { id: 'neutral', label: 'Neutral', prompt: 'Keep the emotional tone neutral, composed, and matter-of-fact.' },
@@ -273,8 +275,118 @@ function compactGenerationSettings(values: Record<string, string>) {
   }, {})
 }
 
-function formatTimestamp(isoTimestamp: string) {
-  return new Date(isoTimestamp).toLocaleString()
+function formatTimestamp(isoTimestamp: string, locale: Locale) {
+  return new Date(isoTimestamp).toLocaleString(locale === 'ko' ? 'ko-KR' : 'en-US')
+}
+
+const LANGUAGE_KEY_BY_VALUE: Record<string, string> = {
+  Auto: 'language.auto',
+  English: 'language.english',
+  Korean: 'language.korean',
+}
+
+const PROVIDER_KEY_BY_ID: Record<ProviderId, string> = {
+  openai_compatible: 'provider.openai_compatible',
+  gemini: 'provider.gemini',
+  anthropic: 'provider.anthropic',
+}
+
+const MODE_KEY_BY_ID: Record<Mode, string> = {
+  custom: 'mode.custom',
+  design: 'mode.design',
+  clone: 'mode.clone',
+}
+
+const REPLY_VOICE_MODE_KEY_BY_ID: Record<'custom' | 'design' | 'clone', string> = {
+  custom: 'mode.reply.custom',
+  design: 'mode.reply.design',
+  clone: 'mode.reply.clone',
+}
+
+const CONVERSATION_PHASE_KEY_BY_ID: Record<ConversationStatus, string> = {
+  idle: 'conversationPhase.idle',
+  listening: 'conversationPhase.listening',
+  transcribing: 'conversationPhase.transcribing',
+  thinking: 'conversationPhase.thinking',
+  speaking: 'conversationPhase.speaking',
+}
+
+const LIVE_STATUS_KEY_BY_ID: Record<LiveStreamState['status'], string> = {
+  idle: 'live.state.idle',
+  streaming: 'live.state.streaming',
+  complete: 'live.state.complete',
+  error: 'live.state.error',
+}
+
+function translateLanguageName(language: string, t: TranslationFunction) {
+  const key = LANGUAGE_KEY_BY_VALUE[language]
+  return key ? t(key) : language
+}
+
+function translateProviderName(provider: ProviderId, fallback: string, t: TranslationFunction) {
+  const key = PROVIDER_KEY_BY_ID[provider]
+  const translated = t(key)
+  return translated === key ? fallback : translated
+}
+
+function translateModeName(mode: Mode, fallback: string, t: TranslationFunction) {
+  const key = MODE_KEY_BY_ID[mode]
+  const translated = t(key)
+  return translated === key ? fallback : translated
+}
+
+function translateModeDescription(mode: Mode, fallback: string, t: TranslationFunction) {
+  const key = `mode.description.${mode}`
+  const translated = t(key)
+  return translated === key ? fallback : translated
+}
+
+function translateReplyVoiceMode(mode: 'custom' | 'design' | 'clone', t: TranslationFunction) {
+  return t(REPLY_VOICE_MODE_KEY_BY_ID[mode])
+}
+
+function translateConversationStatusText(status: ConversationStatus, t: TranslationFunction) {
+  return t(CONVERSATION_PHASE_KEY_BY_ID[status])
+}
+
+function translateLiveStatusText(status: LiveStreamState['status'], t: TranslationFunction) {
+  return t(LIVE_STATUS_KEY_BY_ID[status])
+}
+
+function translatePerfMetricName(name: string, t: TranslationFunction) {
+  const key = `metric.perf.${name}`
+  const translated = t(key)
+  return translated === key ? name : translated
+}
+
+function composeLocalizedInstruction(
+  t: TranslationFunction,
+  baseInstruction: string,
+  style: StyleControls,
+  mode: 'custom' | 'design',
+) {
+  const guidance = [
+    mode === 'custom' ? t('style.prompt.preservePreset') : '',
+    t(`style.prompt.mood.${style.mood}`),
+    t(`style.prompt.emotionIntensity.${style.emotionIntensity}`),
+    t(`style.prompt.pace.${style.pace}`),
+    t(`style.prompt.energy.${style.energy}`),
+    t(`style.prompt.expressiveness.${style.expressiveness}`),
+  ].filter(Boolean)
+
+  if (
+    style.mood !== 'sad' &&
+    (style.emotionIntensity === 'restrained' || style.expressiveness === 'controlled')
+  ) {
+    guidance.push(t('style.prompt.avoidSadness'))
+  }
+
+  const customGuidance = baseInstruction.trim()
+  if (customGuidance) {
+    guidance.push(t('style.prompt.additionalGuidance', { text: customGuidance }))
+  }
+
+  return guidance.join(' ')
 }
 
 function renderMarkdown(text: string): string {
@@ -482,7 +594,7 @@ function emptyChatSettings(defaultAsrModel = ''): ChatSettingsForm {
   return {
     defaults: {
       activeProvider: 'openai_compatible',
-      systemPrompt: 'You are a concise, helpful voice assistant.',
+      systemPrompt: translate(detectLocale(), 'defaults.systemPrompt'),
       temperature: '0.7',
       maxOutputTokens: '512',
       asrModel: defaultAsrModel,
@@ -534,7 +646,7 @@ function formatBytes(bytes: number): string {
   return `${mb.toFixed(0)} MB`
 }
 
-function SystemMetrics() {
+function SystemMetrics({ t }: { t: TranslationFunction }) {
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -565,18 +677,38 @@ function SystemMetrics() {
   const gpuTotalBytes =
     metrics.gpu_total_bytes > 0 ? metrics.gpu_total_bytes : metrics.ram_total_bytes
   const gpuDetail = metrics.gpu_backend === 'cuda'
-    ? `Device: ${metrics.gpu_name ?? metrics.gpu_device ?? 'CUDA'} | Used: ${formatBytes(metrics.gpu_used_bytes)} / ${formatBytes(metrics.gpu_total_bytes)} | Reserved: ${formatBytes(metrics.gpu_reserved_bytes)} | Peak: ${formatBytes(metrics.gpu_peak_bytes)}${metrics.gpu_utilization_percent !== null ? ` | Util: ${metrics.gpu_utilization_percent.toFixed(0)}%` : ''}${metrics.gpu_temperature_c !== null ? ` | Temp: ${metrics.gpu_temperature_c.toFixed(0)}C` : ''}`
-    : `Active: ${formatBytes(metrics.mlx_gpu_active_bytes)} | Peak: ${formatBytes(metrics.mlx_gpu_peak_bytes)} | Cache: ${formatBytes(metrics.mlx_gpu_cache_bytes)}`
+    ? t('metric.cudaTitle', {
+        device: metrics.gpu_name ?? metrics.gpu_device ?? 'CUDA',
+        used: formatBytes(metrics.gpu_used_bytes),
+        total: formatBytes(metrics.gpu_total_bytes),
+        reserved: formatBytes(metrics.gpu_reserved_bytes),
+        peak: formatBytes(metrics.gpu_peak_bytes),
+        utilPart:
+          metrics.gpu_utilization_percent !== null
+            ? t('metric.cudaUtilPart', { value: metrics.gpu_utilization_percent.toFixed(0) })
+            : '',
+        tempPart:
+          metrics.gpu_temperature_c !== null
+            ? t('metric.cudaTempPart', { value: metrics.gpu_temperature_c.toFixed(0) })
+            : '',
+      })
+    : t('metric.mlxTitle', {
+        active: formatBytes(metrics.mlx_gpu_active_bytes),
+        peak: formatBytes(metrics.mlx_gpu_peak_bytes),
+        cache: formatBytes(metrics.mlx_gpu_cache_bytes),
+      })
 
   return (
     <div className="system-metrics">
-      <span title="CPU usage">CPU {metrics.cpu_percent.toFixed(0)}%</span>
-      <span title={`${formatBytes(metrics.ram_used_bytes)} / ${formatBytes(metrics.ram_total_bytes)}`}>
-        RAM {metrics.ram_percent.toFixed(0)}%
+      <span title={t('metric.cpuTitle')}>
+        {t('metric.cpu')} {metrics.cpu_percent.toFixed(0)}%
+      </span>
+      <span title={t('metric.ramTitle', { used: formatBytes(metrics.ram_used_bytes), total: formatBytes(metrics.ram_total_bytes) })}>
+        {t('metric.ram')} {metrics.ram_percent.toFixed(0)}%
       </span>
       {gpuBytes > 0 ? (
         <span title={gpuDetail}>
-          GPU {(gpuBytes / gpuTotalBytes * 100).toFixed(0)}%
+          {t('metric.gpu')} {(gpuBytes / gpuTotalBytes * 100).toFixed(0)}%
         </span>
       ) : null}
     </div>
@@ -584,6 +716,7 @@ function SystemMetrics() {
 }
 
 function App() {
+  const [locale, setLocale] = useState<Locale>(() => detectLocale())
   const [workspace, setWorkspace] = useState<Workspace>('tts')
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null)
   const [health, setHealth] = useState<HealthResponse | null>(null)
@@ -595,29 +728,29 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [runs, setRuns] = useState<GenerationRun[]>([])
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
-  const [customForm, setCustomForm] = useState<CustomFormState>({
-    language: 'English',
+  const [customForm, setCustomForm] = useState<CustomFormState>(() => ({
+    language: locale === 'ko' ? 'Korean' : 'English',
     speaker: 'Ryan',
     instruct: '',
     style: makeStyleControls(),
     segments: [makeSegment()],
     generation: { temperature: '', top_p: '', max_new_tokens: '', seed: '' },
-  })
-  const [designForm, setDesignForm] = useState<DesignFormState>({
-    language: 'English',
+  }))
+  const [designForm, setDesignForm] = useState<DesignFormState>(() => ({
+    language: locale === 'ko' ? 'Korean' : 'English',
     instruct: '',
     style: makeStyleControls(),
     segments: [makeSegment()],
     generation: { temperature: '', top_p: '', max_new_tokens: '', seed: '' },
-  })
-  const [cloneForm, setCloneForm] = useState<CloneFormState>({
+  }))
+  const [cloneForm, setCloneForm] = useState<CloneFormState>(() => ({
     language: 'Auto',
     refText: '',
     xVectorOnlyMode: false,
     referenceFile: null,
     segments: [makeSegment()],
     generation: { temperature: '', top_p: '', max_new_tokens: '', seed: '' },
-  })
+  }))
   const [streamSettings, setStreamSettings] = useState<StreamSettings>({
     enabled: false,
     autoplay: true,
@@ -648,6 +781,10 @@ function App() {
     replyVoice: false,
   })
   const [toasts, setToasts] = useState<Toast[]>([])
+  const t = useMemo<TranslationFunction>(
+    () => (key, variables) => translate(locale, key, variables),
+    [locale],
+  )
 
   const shellRef = useRef<HTMLElement | null>(null)
   const playerRef = useRef<StreamAudioPlayer | null>(null)
@@ -661,6 +798,10 @@ function App() {
   const speechDetectedRef = useRef(false)
   const silenceStartedAtRef = useRef<number | null>(null)
   const speechStartedAtRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    persistLocale(locale)
+  }, [locale])
 
   useEffect(() => {
     let alive = true
@@ -706,7 +847,7 @@ function App() {
         }))
       } catch (loadError) {
         if (alive) {
-          setError(loadError instanceof Error ? loadError.message : 'Unable to reach the local API.')
+          setError(loadError instanceof Error ? loadError.message : t('error.unreachableApi'))
         }
       } finally {
         if (alive) {
@@ -945,7 +1086,7 @@ function App() {
         socket.close()
         socketRef.current = null
         socketPromiseRef.current = null
-        reject(new Error('Unable to connect to the conversation server. Check that the local API is running and refresh the page.'))
+        reject(new Error(t('error.connectConversation')))
       }, 5000)
 
       const settleFailure = (message: string) => {
@@ -967,15 +1108,15 @@ function App() {
       }
 
       socket.onerror = () => {
-        settleFailure('Unable to open the conversation socket. Check the local frontend proxy or backend websocket path.')
+        settleFailure(t('error.openConversationSocket'))
       }
 
       socket.onclose = (event) => {
         if (!settled) {
           settleFailure(
             event.code === 1006
-              ? 'The conversation socket closed before it connected. Refresh the page and try again.'
-              : `The conversation socket closed before it connected (code ${event.code}).`,
+              ? t('error.socketClosedBeforeConnected')
+              : t('error.socketClosedBeforeConnectedWithCode', { code: event.code }),
           )
           return
         }
@@ -988,8 +1129,8 @@ function App() {
           pushToast(
             'error',
             event.code === 1006
-              ? 'The conversation socket dropped unexpectedly. Refresh the page and try again.'
-              : `The conversation socket closed unexpectedly (code ${event.code}).`,
+              ? t('error.socketDropped')
+              : t('error.socketClosedUnexpectedlyWithCode', { code: event.code }),
           )
           setConversationStatus('idle')
           setMicActive(false)
@@ -1009,7 +1150,7 @@ function App() {
 
   async function prepareReplyVoiceClone(auto = false) {
     if (!replyVoiceCloneDraft.file) {
-      throw new Error('Choose a reference voice clip before preparing the cloned reply voice.')
+      throw new Error(t('error.chooseReferenceVoiceClip'))
     }
 
     const profile = await createReplyVoiceCloneProfile({
@@ -1046,7 +1187,12 @@ function App() {
     }
 
     setChatSettings(nextSettings)
-    pushToast('success', auto ? `Prepared cloned voice automatically: ${profile.label}.` : `Prepared cloned reply voice: ${profile.label}.`)
+    pushToast(
+      'success',
+      auto
+        ? t('toast.clonePreparedAuto', { label: profile.label })
+        : t('toast.clonePrepared', { label: profile.label }),
+    )
     return nextSettings
   }
 
@@ -1078,7 +1224,7 @@ function App() {
       setProviderTab(mappedSettings.defaults.activeProvider)
       if (!sessionReadySeenRef.current) {
         sessionReadySeenRef.current = true
-        pushToast('success', 'Voice chat connected.')
+        pushToast('success', t('toast.voiceChatConnected'))
       }
       return
     }
@@ -1171,7 +1317,7 @@ function App() {
       chunksReceived: 0,
       bufferedSeconds: 0,
       playbackStarted: false,
-      message: 'Waiting for the first audio chunk…',
+      message: t('live.message.waitingFirstChunk'),
     })
 
     const autoplay = streamSettings.autoplay
@@ -1181,13 +1327,13 @@ function App() {
       await startLivePlayback()
       setLiveStream((current) => ({
         ...current,
-        message: 'Opening the audio output and buffering the first live chunks…',
+        message: t('live.message.openingOutput'),
       }))
     }
 
     const applyEvent = async (event: StreamRunEvent) => {
       if (event.type === 'run_start') {
-        setLiveStream((current) => ({ ...current, run: event.run, message: 'Generating live audio…' }))
+        setLiveStream((current) => ({ ...current, run: event.run, message: t('live.message.generating') }))
         return
       }
       if (event.type === 'segment_start') {
@@ -1204,7 +1350,7 @@ function App() {
               status: 'streaming',
             },
           ],
-          message: `Streaming segment ${event.segment_index + 1}…`,
+          message: t('live.message.streamingSegment', { index: event.segment_index + 1 }),
         }))
         return
       }
@@ -1241,7 +1387,7 @@ function App() {
           segments: current.segments.map((segment) =>
             segment.segmentIndex === event.segment_index ? { ...segment, status: 'complete', clip: event.clip } : segment,
           ),
-          message: `Segment ${event.segment_index + 1} ready.`,
+          message: t('live.message.segmentReady', { index: event.segment_index + 1 }),
         }))
         return
       }
@@ -1255,7 +1401,7 @@ function App() {
           ...current,
           status: 'complete',
           run: event.run,
-          message: 'Live stream finished. Full clip saved to run history.',
+          message: t('live.message.finished'),
         }))
         return
       }
@@ -1287,7 +1433,7 @@ function App() {
       }
     } else {
       if (!cloneForm.referenceFile) {
-        throw new Error('Add a reference clip before running voice clone.')
+        throw new Error(t('error.addReferenceClip'))
       }
       const payload = new FormData()
       payload.append('segments', JSON.stringify(cloneForm.segments.map((segment) => segment.text)))
@@ -1336,7 +1482,7 @@ function App() {
         })
       } else {
         if (!cloneForm.referenceFile) {
-          throw new Error('Add a reference clip before running voice clone.')
+          throw new Error(t('error.addReferenceClip'))
         }
         const payload = new FormData()
         payload.append('segments', JSON.stringify(cloneForm.segments.map((segment) => segment.text)))
@@ -1354,7 +1500,7 @@ function App() {
       })
       await refreshHealth()
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : 'Generation failed.')
+      setError(runError instanceof Error ? runError.message : t('error.generationFailed'))
     } finally {
       setPending(false)
     }
@@ -1367,13 +1513,13 @@ function App() {
       const mappedSettings = mapSettingsResponseToForm(saved)
       setChatSettings(mappedSettings)
       setProviderTab(mappedSettings.defaults.activeProvider)
-      pushToast('success', 'Settings saved on the local server.')
+      pushToast('success', t('toast.settingsSaved'))
       const socket = socketRef.current
       if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: 'session.configure', settings: serializeSettings(mappedSettings) }))
       }
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Unable to save settings.')
+      setError(saveError instanceof Error ? saveError.message : t('error.saveSettingsFailed'))
     }
   }
 
@@ -1397,9 +1543,14 @@ function App() {
           openaiCompatible: { ...current.openaiCompatible, apiMode: result.api_mode },
         }))
       }
-      pushToast(result.success ? 'success' : 'error', result.success ? `Connection OK in ${result.latency_ms ?? 0} ms.` : result.error ?? 'Provider test failed.')
+      pushToast(
+        result.success ? 'success' : 'error',
+        result.success
+          ? t('toast.providerConnectionOk', { latency: result.latency_ms ?? 0 })
+          : result.error ?? t('error.providerTestFailed'),
+      )
     } catch (testError) {
-      pushToast('error', testError instanceof Error ? testError.message : 'Provider test failed.')
+      pushToast('error', testError instanceof Error ? testError.message : t('error.providerTestFailed'))
     }
   }
 
@@ -1474,7 +1625,7 @@ function App() {
       setConversationStatus('idle')
       pushToast(
         'error',
-        conversationError instanceof Error ? conversationError.message : 'Unable to start the microphone.',
+        conversationError instanceof Error ? conversationError.message : t('error.startMicrophoneFailed'),
       )
     }
   }
@@ -1518,13 +1669,13 @@ function App() {
       setConversationStatus('thinking')
       socket.send(JSON.stringify({ type: 'text.submit', text: cleaned }))
     } catch (submitError) {
-      pushToast('error', submitError instanceof Error ? submitError.message : 'Unable to send the message.')
+      pushToast('error', submitError instanceof Error ? submitError.message : t('error.sendMessageFailed'))
     }
   }
 
   async function handleFileTranscription() {
     if (!fileUpload) {
-      pushToast('error', 'Choose an audio file before transcribing.')
+      pushToast('error', t('error.chooseAudioFile'))
       return
     }
     try {
@@ -1535,14 +1686,14 @@ function App() {
         sendToChat: fileSendToChat,
       })
       setFileTranscript(transcript)
-      pushToast('success', 'Transcription finished.')
+      pushToast('success', t('toast.transcriptionFinished'))
       if (fileSendToChat && transcript.text) {
         await sendTypedMessage(transcript.text)
       }
     } catch (transcriptionError) {
       pushToast(
         'error',
-        transcriptionError instanceof Error ? transcriptionError.message : 'Unable to transcribe the file.',
+        transcriptionError instanceof Error ? transcriptionError.message : t('error.transcribeFileFailed'),
       )
     }
   }
@@ -1555,7 +1706,7 @@ function App() {
       setReplyVoiceCloneDraft((current) => ({ ...current, pending: false }))
       pushToast(
         'error',
-        cloneError instanceof Error ? cloneError.message : 'Unable to prepare the cloned reply voice.',
+        cloneError instanceof Error ? cloneError.message : t('error.prepareClonedReplyVoiceFailed'),
       )
     }
   }
@@ -1564,18 +1715,18 @@ function App() {
     return segments.map((segment, index) => (
       <div className="segment-row" key={segment.id}>
         <label className="field-label" htmlFor={segment.id}>
-          Text segment {index + 1}
+          {t('field.textSegment', { index: index + 1 })}
         </label>
         <textarea
           id={segment.id}
           className="text-input segment-input"
           value={segment.text}
           onChange={(event) => updateSegment(segment.id, event.target.value)}
-          placeholder="Paste text to synthesize."
+          placeholder={t('placeholder.pasteText')}
           rows={3}
         />
         <button className="ghost-button" type="button" onClick={() => removeSegment(segment.id)} disabled={segments.length === 1}>
-          Remove segment
+          {t('button.removeSegment')}
         </button>
       </div>
     ))
@@ -1584,13 +1735,13 @@ function App() {
   function renderGenerationControls(values: Record<string, string>, onChange: (key: string, value: string) => void) {
     return (
       <details className="advanced-panel">
-        <summary>Advanced generation</summary>
+        <summary>{t('generation.advanced')}</summary>
         <div className="advanced-grid">
           {[
-            ['temperature', 'Temperature', '0.7', 'decimal'],
-            ['top_p', 'Top P', '0.9', 'decimal'],
-            ['max_new_tokens', 'Max new tokens', '2048', 'numeric'],
-            ['seed', 'Seed', 'Optional', 'numeric'],
+            ['temperature', t('field.temperature'), '0.7', 'decimal'],
+            ['top_p', t('generation.topP'), '0.9', 'decimal'],
+            ['max_new_tokens', t('generation.maxNewTokens'), '2048', 'numeric'],
+            ['seed', t('generation.seed'), t('generation.seedPlaceholder'), 'numeric'],
           ].map(([key, label, placeholder, inputMode]) => (
             <label className="field" key={key}>
               <span className="field-label">{label}</span>
@@ -1609,25 +1760,25 @@ function App() {
   }
 
   function renderStyleControls(values: StyleControls, onChange: (key: keyof StyleControls, value: string) => void, styleMode: 'custom' | 'design') {
-    const stylePreview = composeInstruction('', values, styleMode)
+    const stylePreview = composeLocalizedInstruction(t, '', values, styleMode)
 
     return (
       <section className="style-panel">
         <div className="style-panel-head">
           <div>
-            <p className="mode-label">Performance controls</p>
+            <p className="mode-label">{t('style.title')}</p>
             <p className="style-panel-copy">
-              These settings are converted into a natural-language instruction for Qwen.
+              {t('style.copy')}
             </p>
           </div>
         </div>
         <div className="style-grid">
           {[
-            { key: 'mood', label: 'Mood', options: MOOD_OPTIONS },
-            { key: 'emotionIntensity', label: 'Emotion intensity', options: EMOTION_INTENSITY_OPTIONS },
-            { key: 'pace', label: 'Pace', options: PACE_OPTIONS },
-            { key: 'energy', label: 'Energy', options: ENERGY_OPTIONS },
-            { key: 'expressiveness', label: 'Expressiveness', options: EXPRESSIVENESS_OPTIONS },
+            { key: 'mood', label: t('style.category.mood'), options: MOOD_OPTIONS },
+            { key: 'emotionIntensity', label: t('style.category.emotionIntensity'), options: EMOTION_INTENSITY_OPTIONS },
+            { key: 'pace', label: t('style.category.pace'), options: PACE_OPTIONS },
+            { key: 'energy', label: t('style.category.energy'), options: ENERGY_OPTIONS },
+            { key: 'expressiveness', label: t('style.category.expressiveness'), options: EXPRESSIVENESS_OPTIONS },
           ].map(({ key, label, options }) => (
             <label className={`field ${key === 'expressiveness' ? 'style-grid-full' : ''}`} key={key}>
               <span className="field-label">{label}</span>
@@ -1638,7 +1789,7 @@ function App() {
               >
                 {options.map((option) => (
                   <option key={option.id} value={option.id}>
-                    {option.label}
+                    {t(`style.option.${key}.${option.id}`)}
                   </option>
                 ))}
               </select>
@@ -1655,8 +1806,8 @@ function App() {
       <section className="stream-panel">
         <div className="style-panel-head">
           <div>
-            <p className="mode-label">Realtime streaming</p>
-            <p className="style-panel-copy">Start playback from buffered chunks while Qwen is still generating the rest.</p>
+            <p className="mode-label">{t('stream.title')}</p>
+            <p className="style-panel-copy">{t('stream.copy')}</p>
           </div>
         </div>
         <label className="toggle">
@@ -1665,18 +1816,18 @@ function App() {
             checked={streamSettings.enabled}
             onChange={(event) => setStreamSettings((current) => ({ ...current, enabled: event.target.checked }))}
           />
-          <span>Enable live audio streaming</span>
+          <span>{t('stream.enable')}</span>
         </label>
         {streamSettings.enabled ? (
           <div className="style-grid">
             <label className="field">
-              <span className="field-label">Chunk interval (seconds)</span>
+              <span className="field-label">{t('field.chunkIntervalSeconds')}</span>
               <input
                 className="text-input"
                 inputMode="decimal"
                 value={streamSettings.streamingInterval}
                 onChange={(event) => setStreamSettings((current) => ({ ...current, streamingInterval: event.target.value }))}
-                placeholder="0.32"
+                placeholder={t('placeholder.chunkInterval')}
               />
             </label>
             <label className="toggle stream-toggle">
@@ -1685,7 +1836,7 @@ function App() {
                 checked={streamSettings.autoplay}
                 onChange={(event) => setStreamSettings((current) => ({ ...current, autoplay: event.target.checked }))}
               />
-              <span>Autoplay when buffer is ready</span>
+              <span>{t('stream.autoplay')}</span>
             </label>
           </div>
         ) : null}
@@ -1733,39 +1884,43 @@ function App() {
       <section className="live-stream-card">
         <div className="live-stream-head">
           <div>
-            <p className="eyebrow">Live stream</p>
-            <p className="run-title">{liveStream.mode ? `${liveStream.mode} stream` : 'Streaming generation'}</p>
+            <p className="eyebrow">{t('live.eyebrow')}</p>
+            <p className="run-title">
+              {liveStream.mode
+                ? t('live.modeStream', { mode: translateModeName(liveStream.mode, liveStream.mode, t) })
+                : t('live.streamingGeneration')}
+            </p>
             <p className="clip-copy">{liveStream.message}</p>
           </div>
           <div className="live-stream-actions">
             {!streamSettings.autoplay && liveStream.status === 'streaming' ? (
               <button className="ghost-button" type="button" onClick={() => void startLivePlayback()}>
-                {liveStream.playbackStarted ? 'Playback running' : 'Start playback'}
+                {liveStream.playbackStarted ? t('button.playbackRunning') : t('button.startPlayback')}
               </button>
             ) : null}
             {liveStream.playbackStarted ? (
               <button className="ghost-button" type="button" onClick={() => void stopLivePlayback()}>
-                Stop playback
+                {t('button.stopPlayback')}
               </button>
             ) : null}
           </div>
         </div>
         <dl className="clip-meta">
           <div>
-            <dt>Status</dt>
-            <dd>{liveStream.status}</dd>
+            <dt>{t('live.status')}</dt>
+            <dd>{translateLiveStatusText(liveStream.status, t)}</dd>
           </div>
           <div>
-            <dt>Chunks</dt>
+            <dt>{t('live.chunks')}</dt>
             <dd>{liveStream.chunksReceived}</dd>
           </div>
           <div>
-            <dt>Buffered</dt>
-            <dd>{liveStream.bufferedSeconds}s</dd>
+            <dt>{t('live.buffered')}</dt>
+            <dd>{t('unit.secondsShort', { value: liveStream.bufferedSeconds })}</dd>
           </div>
           <div>
-            <dt>Mode</dt>
-            <dd>{liveStream.mode ?? 'N/A'}</dd>
+            <dt>{t('live.mode')}</dt>
+            <dd>{liveStream.mode ? translateModeName(liveStream.mode, liveStream.mode, t) : t('status.na')}</dd>
           </div>
         </dl>
       </section>
@@ -1776,23 +1931,23 @@ function App() {
     return (
       <>
         <div className="hero">
-          <p className="eyebrow">Local speech evaluation</p>
-          <h1>Qwen3-TTS Lab</h1>
-          <p className="lead">Switch between preset voices, natural-language voice design, and voice cloning without leaving the same session.</p>
+          <p className="eyebrow">{t('tts.eyebrow')}</p>
+          <h1>{t('app.title')}</h1>
+          <p className="lead">{t('tts.lead')}</p>
         </div>
 
         <div className="status-strip">
-          <span>Device: {health?.selected_device ?? '—'}</span>
-          <span>Active mode: {health?.active_mode ?? 'idle'}</span>
+          <span>{t('status.device')}: {health?.selected_device ?? t('status.na')}</span>
+          <span>{t('status.activeMode')}: {health?.active_mode ? translateModeName(health.active_mode, health.active_mode, t) : t('status.idle')}</span>
         </div>
-        <SystemMetrics />
+        <SystemMetrics t={t} />
 
         <div className="workspace-tabs">
           <button className={workspace === 'tts' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('tts')}>
-            TTS Lab
+            {t('workspace.tts')}
           </button>
           <button className={workspace === 'chat' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('chat')}>
-            Voice Chat
+            {t('workspace.chat')}
           </button>
         </div>
 
@@ -1812,14 +1967,14 @@ function App() {
                 }
               }}
             >
-              {item.label}
+              {translateModeName(item.id, item.label, t)}
             </button>
           ))}
         </div>
 
         <section className="mode-summary">
-          <p className="mode-label">{modeMeta?.label}</p>
-          <p className="lead">{modeMeta?.description}</p>
+          <p className="mode-label">{modeMeta ? translateModeName(modeMeta.id, modeMeta.label, t) : ''}</p>
+          <p className="lead">{modeMeta ? translateModeDescription(modeMeta.id, modeMeta.description, t) : ''}</p>
           <p className="hint">{modeMeta?.checkpoint}</p>
         </section>
 
@@ -1827,17 +1982,17 @@ function App() {
           {mode === 'custom' ? (
             <>
               <label className="field">
-                <span className="field-label">Language</span>
+                <span className="field-label">{t('field.language')}</span>
                 <select className="text-input" value={customForm.language} onChange={(event) => setCustomForm((current) => ({ ...current, language: event.target.value }))}>
                   {capabilities?.languages.map((language) => (
                     <option key={language} value={language}>
-                      {language}
+                      {translateLanguageName(language, t)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="field">
-                <span className="field-label">Speaker</span>
+                <span className="field-label">{t('field.speaker')}</span>
                 <select className="text-input" value={customForm.speaker} onChange={(event) => setCustomForm((current) => ({ ...current, speaker: event.target.value }))}>
                   {capabilities?.speakers.map((speaker) => (
                     <option key={speaker.id} value={speaker.id}>
@@ -1847,7 +2002,7 @@ function App() {
                 </select>
               </label>
               <label className="field">
-                <span className="field-label">Additional instruction</span>
+                <span className="field-label">{t('field.additionalInstruction')}</span>
                 <textarea className="text-input segment-input" value={customForm.instruct} onChange={(event) => setCustomForm((current) => ({ ...current, instruct: event.target.value }))} rows={3} />
               </label>
               {renderStyleControls(customForm.style, (key, value) => setCustomForm((current) => ({ ...current, style: { ...current.style, [key]: value } })), 'custom')}
@@ -1859,17 +2014,17 @@ function App() {
           {mode === 'design' ? (
             <>
               <label className="field">
-                <span className="field-label">Language</span>
+                <span className="field-label">{t('field.language')}</span>
                 <select className="text-input" value={designForm.language} onChange={(event) => setDesignForm((current) => ({ ...current, language: event.target.value }))}>
                   {capabilities?.languages.map((language) => (
                     <option key={language} value={language}>
-                      {language}
+                      {translateLanguageName(language, t)}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="field">
-                <span className="field-label">Voice persona</span>
+                <span className="field-label">{t('field.voicePersona')}</span>
                 <textarea className="text-input segment-input" value={designForm.instruct} onChange={(event) => setDesignForm((current) => ({ ...current, instruct: event.target.value }))} rows={4} />
               </label>
               {renderStyleControls(designForm.style, (key, value) => setDesignForm((current) => ({ ...current, style: { ...current.style, [key]: value } })), 'design')}
@@ -1881,31 +2036,31 @@ function App() {
           {mode === 'clone' ? (
             <>
               <label className="field">
-                <span className="field-label">Language</span>
+                <span className="field-label">{t('field.language')}</span>
                 <select className="text-input" value={cloneForm.language} onChange={(event) => setCloneForm((current) => ({ ...current, language: event.target.value }))}>
                   {capabilities?.languages.map((language) => (
                     <option key={language} value={language}>
-                      {language}
+                      {translateLanguageName(language, t)}
                     </option>
                   ))}
                 </select>
               </label>
-              <p className="hint">Auto is recommended for cloned voices unless you know the target language should be forced.</p>
+              <p className="hint">{t('hint.cloneLanguageAuto')}</p>
               <label className="field">
-                <span className="field-label">Reference audio</span>
+                <span className="field-label">{t('field.referenceAudio')}</span>
                 <input className="text-input" type="file" accept="audio/*" onChange={(event) => setCloneForm((current) => ({ ...current, referenceFile: event.target.files?.[0] ?? null }))} />
               </label>
               <label className="field">
-                <span className="field-label">Reference transcript</span>
+                <span className="field-label">{t('field.referenceTranscript')}</span>
                 <textarea className="text-input segment-input" value={cloneForm.refText} onChange={(event) => setCloneForm((current) => ({ ...current, refText: event.target.value }))} rows={3} />
               </label>
-              <p className="hint">This field must match the uploaded reference clip only. Do not paste the long target text here.</p>
-              <p className="hint">Leave the transcript blank to let local Qwen ASR transcribe the reference clip automatically before cloning.</p>
+              <p className="hint">{t('hint.cloneTranscriptMatch')}</p>
+              <p className="hint">{t('hint.cloneTranscriptBlank')}</p>
               <label className="toggle">
                 <input type="checkbox" checked={cloneForm.xVectorOnlyMode} onChange={(event) => setCloneForm((current) => ({ ...current, xVectorOnlyMode: event.target.checked }))} />
-                <span>X-vector only mode</span>
+                <span>{t('toggle.xVectorOnly')}</span>
               </label>
-              <p className="hint">Uses a speaker-embedding-only clone path for faster synthesis. Transcript-backed clone usually preserves style and pronunciation better.</p>
+              <p className="hint">{t('hint.cloneXVector')}</p>
               {renderSegments(cloneForm.segments)}
               {renderGenerationControls(cloneForm.generation, (key, value) => setCloneForm((current) => ({ ...current, generation: { ...current.generation, [key]: value } })))}
             </>
@@ -1915,10 +2070,10 @@ function App() {
 
           <div className="controls-footer">
             <button className="ghost-button" type="button" onClick={addSegment}>
-              Add segment
+              {t('button.addSegment')}
             </button>
             <button className="primary-button" type="button" onClick={() => void handleGenerate()} disabled={pending}>
-              {pending ? 'Generating…' : 'Generate audio'}
+              {pending ? t('button.generating') : t('button.generateAudio')}
             </button>
           </div>
         </section>
@@ -1943,13 +2098,13 @@ function App() {
                 }))
               }}
             >
-              {provider === 'openai_compatible' ? 'OpenAI-compatible' : provider === 'gemini' ? 'Gemini' : 'Anthropic'}
+              {translateProviderName(provider, provider, t)}
             </button>
           ))}
         </div>
         <div className="responsive-field-grid">
           <label className="field">
-            <span className="field-label">Base URL</span>
+            <span className="field-label">{t('field.baseUrl')}</span>
             <input
               className="text-input"
               value={currentProviderConfig.baseUrl}
@@ -1959,7 +2114,7 @@ function App() {
             />
           </label>
           <label className="field">
-            <span className="field-label">API key</span>
+            <span className="field-label">{t('field.apiKey')}</span>
             <input
               className="text-input"
               type="password"
@@ -1967,11 +2122,11 @@ function App() {
               onChange={(event) =>
                 setProviderConfig(providerTab, (current) => ({ ...current, apiKey: event.target.value }))
               }
-              placeholder={currentProviderConfig.hasApiKey ? currentProviderConfig.maskedApiKey ?? 'Saved locally' : 'Enter API key'}
+              placeholder={currentProviderConfig.hasApiKey ? currentProviderConfig.maskedApiKey ?? t('placeholder.apiKeySaved') : t('placeholder.apiKeyEnter')}
             />
           </label>
           <label className="field">
-            <span className="field-label">Model</span>
+            <span className="field-label">{t('field.model')}</span>
             <input
               className="text-input"
               value={currentProviderConfig.model}
@@ -1982,14 +2137,14 @@ function App() {
           </label>
         </div>
         {providerTab === 'openai_compatible' && currentProviderConfig.apiMode ? (
-          <p className="hint">Detected API mode: {currentProviderConfig.apiMode}</p>
+          <p className="hint">{t('hint.detectedApiMode', { mode: currentProviderConfig.apiMode })}</p>
         ) : null}
         <div className="controls-footer">
           <button className="ghost-button" type="button" onClick={() => void handleProviderTest()}>
-            Test connection
+            {t('button.testConnection')}
           </button>
           <button className="primary-button" type="button" onClick={() => void handleSaveSettings()}>
-            Save settings
+            {t('button.saveSettings')}
           </button>
         </div>
       </>
@@ -2000,73 +2155,73 @@ function App() {
     return (
       <>
         <div className="hero">
-          <p className="eyebrow">Realtime speech loop</p>
-          <h1>Voice Chat</h1>
-          <p className="lead">Talk into local Qwen ASR, route the transcript through your chosen LLM, then hear the reply through local Qwen TTS.</p>
+          <p className="eyebrow">{t('voiceChat.eyebrow')}</p>
+          <h1>{t('voiceChat.title')}</h1>
+          <p className="lead">{t('voiceChat.lead')}</p>
         </div>
         <div className="status-strip">
-          <span>ASR: {(health?.active_asr_model ?? chatSettings.defaults.asrModel) || 'idle'}</span>
-          <span>Phase: {conversationStatus}</span>
+          <span>{t('status.asr')}: {(health?.active_asr_model ?? chatSettings.defaults.asrModel) || t('status.idle')}</span>
+          <span>{t('status.phase')}: {translateConversationStatusText(conversationStatus, t)}</span>
         </div>
-        <SystemMetrics />
+        <SystemMetrics t={t} />
         <div className="workspace-tabs">
           <button className={workspace === 'tts' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('tts')}>
-            TTS Lab
+            {t('workspace.tts')}
           </button>
           <button className={workspace === 'chat' ? 'tab tab-active' : 'tab'} type="button" onClick={() => setWorkspace('chat')}>
-            Voice Chat
+            {t('workspace.chat')}
           </button>
         </div>
         <div className="settings-board">
           {renderSettingsSection(
             'provider',
-            'Provider',
+            t('section.provider'),
             renderProviderPanel(),
-            'Pick the active LLM connection and keep credentials local to this server.',
+            t('section.provider.copy'),
             'settings-section-compact',
           )}
           {renderSettingsSection(
             'conversation',
-            'Conversation',
+            t('section.conversation'),
             <>
               <div className="responsive-field-grid">
                 <label className="field">
-                  <span className="field-label">Active provider</span>
+                  <span className="field-label">{t('field.activeProvider')}</span>
                   <select className="text-input" value={chatSettings.defaults.activeProvider} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, activeProvider: event.target.value as ProviderId } }))}>
                     {capabilities?.chat.providers.map((provider) => (
                       <option key={provider.id} value={provider.id}>
-                        {provider.label}
+                        {translateProviderName(provider.id, provider.label, t)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="field field-span-full">
-                  <span className="field-label">System prompt</span>
+                  <span className="field-label">{t('field.systemPrompt')}</span>
                   <textarea className="text-input segment-input" value={chatSettings.defaults.systemPrompt} rows={4} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, systemPrompt: event.target.value } }))} />
                 </label>
               </div>
               <div className="responsive-field-grid">
                 <label className="field">
-                  <span className="field-label">Temperature</span>
+                  <span className="field-label">{t('field.temperature')}</span>
                   <input className="text-input" inputMode="decimal" value={chatSettings.defaults.temperature} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, temperature: event.target.value } }))} />
                 </label>
                 <label className="field">
-                  <span className="field-label">Max output tokens</span>
+                  <span className="field-label">{t('field.maxOutputTokens')}</span>
                   <input className="text-input" inputMode="numeric" value={chatSettings.defaults.maxOutputTokens} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, maxOutputTokens: event.target.value } }))} />
                 </label>
               </div>
-              <p className="hint">Reply chunking: sentence-sized speech streaming.</p>
+              <p className="hint">{t('hint.replyChunking')}</p>
             </>,
-            'Define how the assistant reasons and how long each reply can run.',
+            t('section.conversation.copy'),
             'settings-section-compact',
           )}
           {renderSettingsSection(
             'asr',
-            'ASR',
+            t('section.asr'),
             <>
               <div className="responsive-field-grid">
                 <label className="field">
-                  <span className="field-label">Model</span>
+                  <span className="field-label">{t('field.model')}</span>
                   <select className="text-input" value={chatSettings.defaults.asrModel} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, asrModel: event.target.value } }))}>
                     {capabilities?.asr.models.map((model) => (
                       <option key={model.id} value={model.id}>
@@ -2076,324 +2231,235 @@ function App() {
                   </select>
                 </label>
                 <label className="field">
-                  <span className="field-label">Language</span>
+                  <span className="field-label">{t('field.language')}</span>
                   <select className="text-input" value={chatSettings.defaults.asrLanguage} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, asrLanguage: event.target.value } }))}>
                     {capabilities?.languages.map((language) => (
                       <option key={language} value={language}>
-                        {language}
+                        {translateLanguageName(language, t)}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="field">
-                  <span className="field-label">Silence timeout ms</span>
+                  <span className="field-label">{t('field.silenceTimeoutMs')}</span>
                   <input className="text-input" inputMode="numeric" value={chatSettings.defaults.silenceTimeoutMs} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, silenceTimeoutMs: event.target.value } }))} />
                 </label>
                 <label className="field">
-                  <span className="field-label">Max turn seconds</span>
+                  <span className="field-label">{t('field.maxTurnSeconds')}</span>
                   <input className="text-input" inputMode="numeric" value={chatSettings.defaults.maxTurnSeconds} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, maxTurnSeconds: event.target.value } }))} />
                 </label>
               </div>
               <label className="toggle">
                 <input type="checkbox" checked={chatSettings.defaults.liveCaptions} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, liveCaptions: event.target.checked } }))} />
-                <span>Live captions</span>
+                <span>{t('toggle.liveCaptions')}</span>
               </label>
               <div className="upload-card">
                 <label className="field">
-                  <span className="field-label">Upload audio for transcription</span>
+                  <span className="field-label">{t('field.uploadAudio')}</span>
                   <input className="text-input" type="file" accept="audio/*" onChange={(event) => setFileUpload(event.target.files?.[0] ?? null)} />
                 </label>
                 <label className="toggle">
                   <input type="checkbox" checked={fileSendToChat} onChange={(event) => setFileSendToChat(event.target.checked)} />
-                  <span>Send transcript into chat after transcription</span>
+                  <span>{t('toggle.sendTranscript')}</span>
                 </label>
                 <button className="ghost-button" type="button" onClick={() => void handleFileTranscription()}>
-                  Transcribe file
+                  {t('button.transcribeFile')}
                 </button>
                 {fileTranscript ? <p className="style-preview">{fileTranscript.text}</p> : null}
               </div>
             </>,
-            'Tune transcription behavior, turn timing, and file-based transcript import.',
+            t('section.asr.copy'),
             'settings-section-compact',
           )}
           {renderSettingsSection(
             'replyVoice',
-            'Reply voice',
+            t('section.replyVoice'),
             <>
-          <div className="responsive-field-grid">
-            <label className="field">
-              <span className="field-label">Voice mode</span>
-              <select
-                className="text-input"
-                value={chatSettings.defaults.replyVoice.mode}
-                onChange={(event) =>
-                  setChatSettings((current) => {
-                    const nextMode = event.target.value as 'custom' | 'design' | 'clone'
-                    return {
-                      ...current,
-                      defaults: {
-                        ...current.defaults,
-                        replyVoice: {
-                          ...current.defaults.replyVoice,
-                          mode: nextMode,
-                          language:
-                            nextMode === 'clone' && current.defaults.replyVoice.language === 'English'
-                              ? 'Auto'
-                              : current.defaults.replyVoice.language,
-                        },
-                      },
+              <div className="responsive-field-grid">
+                <label className="field">
+                  <span className="field-label">{t('field.voiceMode')}</span>
+                  <select
+                    className="text-input"
+                    value={chatSettings.defaults.replyVoice.mode}
+                    onChange={(event) =>
+                      setChatSettings((current) => {
+                        const nextMode = event.target.value as 'custom' | 'design' | 'clone'
+                        return {
+                          ...current,
+                          defaults: {
+                            ...current.defaults,
+                            replyVoice: {
+                              ...current.defaults.replyVoice,
+                              mode: nextMode,
+                              language:
+                                nextMode === 'clone' && current.defaults.replyVoice.language === 'English'
+                                  ? 'Auto'
+                                  : current.defaults.replyVoice.language,
+                            },
+                          },
+                        }
+                      })
                     }
-                  })
-                }
-              >
-                <option value="custom">Custom Voice</option>
-                <option value="design">Voice Design</option>
-                <option value="clone">Cloned Voice</option>
-              </select>
-            </label>
-            <label className="field">
-              <span className="field-label">Language</span>
-              <select className="text-input" value={chatSettings.defaults.replyVoice.language} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, language: event.target.value } } }))}>
-                {capabilities?.languages.map((language) => (
-                  <option key={language} value={language}>
-                    {language}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span className="field-label">Runtime mode</span>
-              <select
-                className="text-input"
-                value={chatSettings.defaults.replyVoice.runtimeMode}
-                onChange={(event) =>
-                  setChatSettings((current) => ({
-                    ...current,
-                    defaults: {
-                      ...current.defaults,
-                      replyVoice: {
-                        ...current.defaults.replyVoice,
-                        runtimeMode: event.target.value as 'quality' | 'balanced',
-                      },
-                    },
-                  }))
-                }
-              >
-                <option value="quality">Quality (best prosody)</option>
-                <option value="balanced">Balanced (faster first audio)</option>
-              </select>
-            </label>
-            <label className="field">
-              <span className="field-label">Max sentences per speech block</span>
-              <input
-                className="text-input"
-                inputMode="numeric"
-                value={chatSettings.defaults.replyVoice.blockMaxSentences}
-                onChange={(event) =>
-                  setChatSettings((current) => ({
-                    ...current,
-                    defaults: {
-                      ...current.defaults,
-                      replyVoice: {
-                        ...current.defaults.replyVoice,
-                        blockMaxSentences: event.target.value,
-                      },
-                    },
-                  }))
-                }
-              />
-            </label>
-            <label className="field">
-              <span className="field-label">Max chars per speech block</span>
-              <input
-                className="text-input"
-                inputMode="numeric"
-                value={chatSettings.defaults.replyVoice.blockMaxChars}
-                onChange={(event) =>
-                  setChatSettings((current) => ({
-                    ...current,
-                    defaults: {
-                      ...current.defaults,
-                      replyVoice: {
-                        ...current.defaults.replyVoice,
-                        blockMaxChars: event.target.value,
-                      },
-                    },
-                  }))
-                }
-              />
-            </label>
-            <label className="field">
-              <span className="field-label">Block hold ms</span>
-              <input
-                className="text-input"
-                inputMode="numeric"
-                value={chatSettings.defaults.replyVoice.blockHoldMs}
-                onChange={(event) =>
-                  setChatSettings((current) => ({
-                    ...current,
-                    defaults: {
-                      ...current.defaults,
-                      replyVoice: {
-                        ...current.defaults.replyVoice,
-                        blockHoldMs: event.target.value,
-                      },
-                    },
-                  }))
-                }
-              />
-            </label>
-            {chatSettings.defaults.replyVoice.mode === 'custom' ? (
-              <label className="field">
-                <span className="field-label">Speaker</span>
-                <select className="text-input" value={chatSettings.defaults.replyVoice.speaker} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, speaker: event.target.value } } }))}>
-                  {capabilities?.speakers.map((speaker) => (
-                    <option key={speaker.id} value={speaker.id}>
-                      {speaker.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-          </div>
-          <div className="responsive-field-grid">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={chatSettings.defaults.replyVoice.warmupOnConnect}
-                onChange={(event) =>
-                  setChatSettings((current) => ({
-                    ...current,
-                    defaults: {
-                      ...current.defaults,
-                      replyVoice: {
-                        ...current.defaults.replyVoice,
-                        warmupOnConnect: event.target.checked,
-                      },
-                    },
-                  }))
-                }
-              />
-              <span>Warm up clone on connect</span>
-            </label>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={chatSettings.defaults.replyVoice.emitPerfMetrics}
-                onChange={(event) =>
-                  setChatSettings((current) => ({
-                    ...current,
-                    defaults: {
-                      ...current.defaults,
-                      replyVoice: {
-                        ...current.defaults.replyVoice,
-                        emitPerfMetrics: event.target.checked,
-                      },
-                    },
-                  }))
-                }
-              />
-              <span>Show latency metrics</span>
-            </label>
-          </div>
-          {chatSettings.defaults.replyVoice.mode === 'clone' ? (
-            <div className="upload-card reply-voice-clone-grid">
-              <label className="field field-span-full">
-                <span className="field-label">Reference voice clip</span>
-                <input
-                  className="text-input"
-                  type="file"
-                  accept="audio/*"
-                  onChange={(event) =>
-                    {
-                      const nextFile = event.target.files?.[0] ?? null
-                      setReplyVoiceCloneDraft((current) => ({
-                        ...current,
-                        file: nextFile,
-                        preparedProfile: null,
-                      }))
+                  >
+                    <option value="custom">{translateReplyVoiceMode('custom', t)}</option>
+                    <option value="design">{translateReplyVoiceMode('design', t)}</option>
+                    <option value="clone">{translateReplyVoiceMode('clone', t)}</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">{t('field.language')}</span>
+                  <select className="text-input" value={chatSettings.defaults.replyVoice.language} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, language: event.target.value } } }))}>
+                    {capabilities?.languages.map((language) => (
+                      <option key={language} value={language}>
+                        {translateLanguageName(language, t)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">{t('field.runtimeMode')}</span>
+                  <select
+                    className="text-input"
+                    value={chatSettings.defaults.replyVoice.runtimeMode}
+                    onChange={(event) =>
                       setChatSettings((current) => ({
                         ...current,
                         defaults: {
                           ...current.defaults,
-                          replyVoice: clearPreparedReplyVoice(current.defaults.replyVoice),
+                          replyVoice: {
+                            ...current.defaults.replyVoice,
+                            runtimeMode: event.target.value as 'quality' | 'balanced',
+                          },
                         },
                       }))
                     }
-                  }
-                />
-              </label>
-              <label className="field">
-                <span className="field-label">Voice label</span>
-                <input
-                  className="text-input"
-                  value={replyVoiceCloneDraft.label}
-                  onChange={(event) =>
-                    setReplyVoiceCloneDraft((current) => ({ ...current, label: event.target.value }))
-                  }
-                  placeholder="Support agent voice"
-                />
-              </label>
-              <div className="reply-voice-clone-status">
-                {chatSettings.defaults.replyVoice.cloneProfileLabel ? (
-                  <p className="hint">
-                    Ready: {chatSettings.defaults.replyVoice.cloneProfileLabel}
-                  </p>
-                ) : (
-                  <p className="hint">Prepare a reference clip once, then reuse that stored clip and transcript for streamed assistant replies in the same cloned voice.</p>
-                )}
-                {chatSettings.defaults.replyVoice.cloneReferenceText ? (
-                  <p className="style-preview">{chatSettings.defaults.replyVoice.cloneReferenceText}</p>
+                  >
+                    <option value="quality">{t('runtimeMode.quality')}</option>
+                    <option value="balanced">{t('runtimeMode.balanced')}</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="field-label">{t('field.maxSentencesPerBlock')}</span>
+                  <input className="text-input" inputMode="numeric" value={chatSettings.defaults.replyVoice.blockMaxSentences} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, blockMaxSentences: event.target.value } } }))} />
+                </label>
+                <label className="field">
+                  <span className="field-label">{t('field.maxCharsPerBlock')}</span>
+                  <input className="text-input" inputMode="numeric" value={chatSettings.defaults.replyVoice.blockMaxChars} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, blockMaxChars: event.target.value } } }))} />
+                </label>
+                <label className="field">
+                  <span className="field-label">{t('field.blockHoldMs')}</span>
+                  <input className="text-input" inputMode="numeric" value={chatSettings.defaults.replyVoice.blockHoldMs} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, blockHoldMs: event.target.value } } }))} />
+                </label>
+                {chatSettings.defaults.replyVoice.mode === 'custom' ? (
+                  <label className="field">
+                    <span className="field-label">{t('field.speaker')}</span>
+                    <select className="text-input" value={chatSettings.defaults.replyVoice.speaker} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, speaker: event.target.value } } }))}>
+                      {capabilities?.speakers.map((speaker) => (
+                        <option key={speaker.id} value={speaker.id}>
+                          {speaker.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 ) : null}
               </div>
-              <label className="field field-span-full">
-                <span className="field-label">Reference transcript</span>
-                <textarea
-                  className="text-input segment-input"
-                  value={replyVoiceCloneDraft.referenceText}
-                  rows={3}
-                  onChange={(event) =>
-                    {
-                      const nextReferenceText = event.target.value
-                      setReplyVoiceCloneDraft((current) => ({
-                        ...current,
-                        referenceText: nextReferenceText,
-                        preparedProfile: null,
-                      }))
-                      setChatSettings((current) => ({
-                        ...current,
-                        defaults: {
-                          ...current.defaults,
-                          replyVoice: clearPreparedReplyVoice(current.defaults.replyVoice),
-                        },
-                      }))
-                    }
-                  }
-                  placeholder="Leave blank to let local Qwen ASR transcribe the reference clip."
-                />
-              </label>
-              <div className="controls-footer">
-                <button
-                  className="primary-button"
-                  type="button"
-                  onClick={() => void handlePrepareReplyVoiceClone()}
-                  disabled={replyVoiceCloneDraft.pending}
-                >
-                  {replyVoiceCloneDraft.pending ? 'Preparing…' : 'Prepare cloned voice'}
-                </button>
+              <div className="responsive-field-grid">
+                <label className="toggle">
+                  <input type="checkbox" checked={chatSettings.defaults.replyVoice.warmupOnConnect} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, warmupOnConnect: event.target.checked } } }))} />
+                  <span>{t('toggle.warmupOnConnect')}</span>
+                </label>
+                <label className="toggle">
+                  <input type="checkbox" checked={chatSettings.defaults.replyVoice.emitPerfMetrics} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, emitPerfMetrics: event.target.checked } } }))} />
+                  <span>{t('toggle.showLatencyMetrics')}</span>
+                </label>
               </div>
-            </div>
-          ) : (
-            <div className="reply-voice-design-layout">
-              <label className="field field-span-full">
-                <span className="field-label">Base guidance</span>
-                <textarea className="text-input segment-input" value={chatSettings.defaults.replyVoice.instruct} rows={3} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, instruct: event.target.value } } }))} />
-              </label>
-              {renderStyleControls(chatSettings.defaults.replyVoice.style, (key, value) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, style: { ...current.defaults.replyVoice.style, [key]: value } } } })), chatSettings.defaults.replyVoice.mode)}
-            </div>
-          )}
+              {chatSettings.defaults.replyVoice.mode === 'clone' ? (
+                <div className="upload-card reply-voice-clone-grid">
+                  <label className="field field-span-full">
+                    <span className="field-label">{t('field.referenceVoiceClip')}</span>
+                    <input
+                      className="text-input"
+                      type="file"
+                      accept="audio/*"
+                      onChange={(event) => {
+                        const nextFile = event.target.files?.[0] ?? null
+                        setReplyVoiceCloneDraft((current) => ({
+                          ...current,
+                          file: nextFile,
+                          preparedProfile: null,
+                        }))
+                        setChatSettings((current) => ({
+                          ...current,
+                          defaults: {
+                            ...current.defaults,
+                            replyVoice: clearPreparedReplyVoice(current.defaults.replyVoice),
+                          },
+                        }))
+                      }}
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field-label">{t('field.voiceLabel')}</span>
+                    <input
+                      className="text-input"
+                      value={replyVoiceCloneDraft.label}
+                      onChange={(event) =>
+                        setReplyVoiceCloneDraft((current) => ({ ...current, label: event.target.value }))
+                      }
+                      placeholder={t('placeholder.voiceLabel')}
+                    />
+                  </label>
+                  <div className="reply-voice-clone-status">
+                    {chatSettings.defaults.replyVoice.cloneProfileLabel ? (
+                      <p className="hint">{t('hint.replyCloneReady', { label: chatSettings.defaults.replyVoice.cloneProfileLabel })}</p>
+                    ) : (
+                      <p className="hint">{t('hint.replyClonePrepare')}</p>
+                    )}
+                    {chatSettings.defaults.replyVoice.cloneReferenceText ? (
+                      <p className="style-preview">{chatSettings.defaults.replyVoice.cloneReferenceText}</p>
+                    ) : null}
+                  </div>
+                  <label className="field field-span-full">
+                    <span className="field-label">{t('field.referenceTranscript')}</span>
+                    <textarea
+                      className="text-input segment-input"
+                      value={replyVoiceCloneDraft.referenceText}
+                      rows={3}
+                      onChange={(event) => {
+                        const nextReferenceText = event.target.value
+                        setReplyVoiceCloneDraft((current) => ({
+                          ...current,
+                          referenceText: nextReferenceText,
+                          preparedProfile: null,
+                        }))
+                        setChatSettings((current) => ({
+                          ...current,
+                          defaults: {
+                            ...current.defaults,
+                            replyVoice: clearPreparedReplyVoice(current.defaults.replyVoice),
+                          },
+                        }))
+                      }}
+                      placeholder={t('placeholder.referenceTranscript')}
+                    />
+                  </label>
+                  <div className="controls-footer">
+                    <button className="primary-button" type="button" onClick={() => void handlePrepareReplyVoiceClone()} disabled={replyVoiceCloneDraft.pending}>
+                      {replyVoiceCloneDraft.pending ? t('button.preparing') : t('button.prepareClonedVoice')}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="reply-voice-design-layout">
+                  <label className="field field-span-full">
+                    <span className="field-label">{t('field.baseGuidance')}</span>
+                    <textarea className="text-input segment-input" value={chatSettings.defaults.replyVoice.instruct} rows={3} onChange={(event) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, instruct: event.target.value } } }))} />
+                  </label>
+                  {renderStyleControls(chatSettings.defaults.replyVoice.style, (key, value) => setChatSettings((current) => ({ ...current, defaults: { ...current.defaults, replyVoice: { ...current.defaults.replyVoice, style: { ...current.defaults.replyVoice.style, [key]: value } } } })), chatSettings.defaults.replyVoice.mode)}
+                </div>
+              )}
             </>,
-            'Choose whether the assistant speaks with a preset, designed, or cloned reply voice.',
+            t('section.replyVoice.copy'),
             'settings-section-wide',
           )}
         </div>
@@ -2406,10 +2472,10 @@ function App() {
       <>
         <div className="results-header">
           <div>
-            <p className="eyebrow">Session output</p>
-            <h2>Run history</h2>
+            <p className="eyebrow">{t('results.sessionOutput')}</p>
+            <h2>{t('results.runHistory')}</h2>
           </div>
-          <p className="results-count">{runs.length} runs in memory</p>
+          <p className="results-count">{t('results.runCount', { count: runs.length })}</p>
         </div>
         {renderLiveStream()}
         {runs.length ? (
@@ -2417,8 +2483,8 @@ function App() {
             <div className="history-list">
               {runs.map((run) => (
                 <button key={run.run_id} className={run.run_id === activeRun?.run_id ? 'history-item history-item-active' : 'history-item'} type="button" onClick={() => setActiveRunId(run.run_id)}>
-                  <span>{run.mode}</span>
-                  <span>{formatTimestamp(run.created_at)}</span>
+                  <span>{translateModeName(run.mode, run.mode, t)}</span>
+                  <span>{formatTimestamp(run.created_at, locale)}</span>
                 </button>
               ))}
             </div>
@@ -2437,7 +2503,7 @@ function App() {
                           <p className="clip-copy">{clip.text}</p>
                         </div>
                         <a className="ghost-button" href={clip.audio_url} download={clip.file_name}>
-                          Download
+                          {t('button.download')}
                         </a>
                       </div>
                       <div className="waveform" aria-hidden="true">
@@ -2448,20 +2514,20 @@ function App() {
                       <audio className="audio-player" controls src={clip.audio_url} />
                       <dl className="clip-meta">
                         <div>
-                          <dt>Language</dt>
-                          <dd>{clip.language}</dd>
+                          <dt>{t('field.language')}</dt>
+                          <dd>{translateLanguageName(clip.language, t)}</dd>
                         </div>
                         <div>
-                          <dt>Sample rate</dt>
-                          <dd>{clip.sample_rate} Hz</dd>
+                          <dt>{t('field.sampleRate')}</dt>
+                          <dd>{t('unit.hertz', { value: clip.sample_rate })}</dd>
                         </div>
                         <div>
-                          <dt>Duration</dt>
-                          <dd>{clip.duration_seconds}s</dd>
+                          <dt>{t('field.duration')}</dt>
+                          <dd>{t('unit.secondsShort', { value: clip.duration_seconds })}</dd>
                         </div>
                         <div>
-                          <dt>Speaker</dt>
-                          <dd>{clip.speaker ?? 'Designed'}</dd>
+                          <dt>{t('field.speaker')}</dt>
+                          <dd>{clip.speaker ?? t('speaker.designed')}</dd>
                         </div>
                       </dl>
                     </article>
@@ -2471,7 +2537,7 @@ function App() {
             ) : null}
           </>
         ) : (
-          <div className="empty-state">No generations yet. Use the controls on the left to create your first clip.</div>
+          <div className="empty-state">{t('results.noRuns')}</div>
         )}
       </>
     )
@@ -2482,43 +2548,43 @@ function App() {
       <>
         <div className="results-header">
           <div>
-            <p className="eyebrow">Conversation</p>
-            <h2>Realtime voice loop</h2>
+            <p className="eyebrow">{t('results.conversation')}</p>
+            <h2>{t('results.realtimeVoiceLoop')}</h2>
           </div>
-          <p className="results-count">{conversationMessages.length} messages</p>
+          <p className="results-count">{t('results.messageCount', { count: conversationMessages.length })}</p>
         </div>
         <div className="chat-status-card">
           <div>
-            <p className="mode-label">State</p>
-            <p className="lead">{conversationStatus}</p>
+            <p className="mode-label">{t('status.state')}</p>
+            <p className="lead">{translateConversationStatusText(conversationStatus, t)}</p>
           </div>
           <div className="chat-actions">
             {!micActive ? (
               <button className="primary-button" type="button" onClick={() => void startConversation()}>
-                Start conversation
+                {t('button.startConversation')}
               </button>
             ) : (
               <button className="ghost-button" type="button" onClick={() => void stopConversationListening()}>
-                Stop listening
+                {t('button.stopListening')}
               </button>
             )}
             <button className="ghost-button" type="button" onClick={() => void interruptAssistant()}>
-              Interrupt assistant
+              {t('button.interruptAssistant')}
             </button>
           </div>
         </div>
-        <SystemMetrics />
+        <SystemMetrics t={t} />
         {liveCaption ? <div className="caption-strip">{liveCaption}</div> : null}
         {perfMetrics.length ? (
           <details className="perf-card">
-            <summary className="mode-label">Latency metrics ({perfMetrics.length})</summary>
+            <summary className="mode-label">{t('results.latencyMetrics', { count: perfMetrics.length })}</summary>
             <div className="perf-grid">
               {perfMetrics.map((metric) => (
                 <div className="perf-item" key={metric.id}>
-                  <p className="eyebrow">{metric.name}</p>
+                  <p className="eyebrow">{translatePerfMetricName(metric.name, t)}</p>
                   <p className="lead">{metric.valueMs.toFixed(1)} ms</p>
                   {metric.segmentIndex !== undefined ? (
-                    <p className="hint">segment {metric.segmentIndex + 1}</p>
+                    <p className="hint">{t('results.segment', { index: metric.segmentIndex + 1 })}</p>
                   ) : null}
                 </div>
               ))}
@@ -2529,22 +2595,22 @@ function App() {
           {conversationMessages.length ? (
             conversationMessages.map((message) => (
               <article key={message.id} className={`chat-bubble chat-bubble-${message.role}`}>
-                <p className="eyebrow">{message.role === 'user' ? 'You' : 'Assistant'}</p>
+                <p className="eyebrow">{message.role === 'user' ? t('chatRole.user') : t('chatRole.assistant')}</p>
                 <div className="chat-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.text) }} />
               </article>
             ))
           ) : (
-            <div className="empty-state">No conversation yet. Start the microphone or send a typed prompt to begin.</div>
+            <div className="empty-state">{t('results.noConversation')}</div>
           )}
         </div>
         <div className="chat-composer">
-          <textarea className="text-input segment-input" value={typedMessage} rows={4} placeholder="Type a message for the connected LLM." onChange={(event) => setTypedMessage(event.target.value)} />
+          <textarea className="text-input segment-input" value={typedMessage} rows={4} placeholder={t('placeholder.typedMessage')} onChange={(event) => setTypedMessage(event.target.value)} />
           <div className="controls-footer">
             <button className="ghost-button" type="button" onClick={() => setConversationMessages([])}>
-              Clear transcript
+              {t('button.clearTranscript')}
             </button>
             <button className="primary-button" type="button" onClick={() => void sendTypedMessage(typedMessage)}>
-              Send message
+              {t('button.sendMessage')}
             </button>
           </div>
         </div>
@@ -2553,29 +2619,39 @@ function App() {
   }
 
   if (loading) {
-    return <div className="loading-state">Loading the local Qwen lab…</div>
+    return <div className="loading-state">{t('app.loading')}</div>
   }
 
   return (
     <>
       <main className="shell" ref={shellRef} style={shellStyle}>
-      <section className="panel panel-controls">
-        {workspace === 'tts' ? renderTtsControls() : renderVoiceChatControls()}
-        {error ? <p className="error-banner">{error}</p> : null}
-      </section>
-      <button className="shell-resizer" type="button" aria-label="Resize settings sidebar" onPointerDown={startSidebarResize}>
-        <span className="shell-resizer-track" aria-hidden="true" />
-        <span className="shell-resizer-grip" aria-hidden="true">
-          ||
-        </span>
-      </button>
-      <section className="panel panel-results">{workspace === 'tts' ? renderRunResults() : renderChatResults()}</section>
+        <section className="panel panel-controls">
+          <div className="panel-topbar">
+            <div className="locale-switcher" role="group" aria-label={t('languageSwitcher.label')}>
+              <button className={locale === 'en' ? 'locale-button locale-button-active' : 'locale-button'} type="button" onClick={() => setLocale('en')}>
+                {t('languageSwitcher.en')}
+              </button>
+              <button className={locale === 'ko' ? 'locale-button locale-button-active' : 'locale-button'} type="button" onClick={() => setLocale('ko')}>
+                {t('languageSwitcher.ko')}
+              </button>
+            </div>
+          </div>
+          {workspace === 'tts' ? renderTtsControls() : renderVoiceChatControls()}
+          {error ? <p className="error-banner">{error}</p> : null}
+        </section>
+        <button className="shell-resizer" type="button" aria-label={t('button.resizeSidebar')} onPointerDown={startSidebarResize}>
+          <span className="shell-resizer-track" aria-hidden="true" />
+          <span className="shell-resizer-grip" aria-hidden="true">
+            ||
+          </span>
+        </button>
+        <section className="panel panel-results">{workspace === 'tts' ? renderRunResults() : renderChatResults()}</section>
       </main>
       <div className="toast-stack" aria-live="polite" aria-atomic="true">
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast toast-${toast.tone}`} role="status">
             <p className="toast-message">{toast.message}</p>
-            <button className="toast-dismiss" type="button" aria-label="Dismiss message" onClick={() => dismissToast(toast.id)}>
+            <button className="toast-dismiss" type="button" aria-label={t('button.dismissMessage')} onClick={() => dismissToast(toast.id)}>
               ×
             </button>
           </div>
