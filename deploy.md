@@ -428,3 +428,139 @@ npm --prefix web install --no-save @rolldown/binding-linux-x64-gnu
 npm run build
 sudo systemctl restart qwen3-tts-lab
 ```
+
+## Qwen3-Embedding-8B Deployment (4x RTX 6000 Ada)
+
+This section documents the exact runbook that worked on `10.163.41.43` on April 13, 2026 for serving embeddings with vLLM.
+
+### Goal
+
+Serve `Qwen/Qwen3-Embedding-8B` as an OpenAI-compatible embeddings API on:
+
+```text
+http://<vm-ip>:8000/v1/embeddings
+```
+
+### Host Validation
+
+On the VM:
+
+```bash
+nvidia-smi
+docker version
+```
+
+Expected:
+
+- 4x NVIDIA RTX 6000 Ada visible
+- Docker daemon running
+
+### Docker + NVIDIA Runtime Setup
+
+If not already configured:
+
+```bash
+sudo apt update
+sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+### Start The Embedding Server (Working Command)
+
+```bash
+docker rm -f qwen3-embed 2>/dev/null || true
+mkdir -p /home/ricky/hf-cache
+
+docker run -d --name qwen3-embed \
+  --restart unless-stopped \
+  --gpus all \
+  --ipc=host \
+  -p 8000:8000 \
+  -v /home/ricky/hf-cache:/root/.cache/huggingface \
+  vllm/vllm-openai:latest \
+  Qwen/Qwen3-Embedding-8B \
+  --runner pooling \
+  --convert embed \
+  --tensor-parallel-size 4 \
+  --dtype bfloat16 \
+  --max-model-len 8192 \
+  --served-model-name qwen3-embed-8b
+```
+
+### Verify
+
+```bash
+docker ps --filter name=qwen3-embed
+docker logs --tail 200 qwen3-embed
+curl http://localhost:8000/v1/models
+```
+
+Functional embedding test:
+
+```bash
+curl http://localhost:8000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3-embed-8b","input":["Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: What is the capital of China?"]}'
+```
+
+### Remote Use From Another Server
+
+From a remote machine:
+
+```bash
+curl http://10.163.41.43:8000/v1/models
+curl http://10.163.41.43:8000/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3-embed-8b","input":["hello from remote server"]}'
+```
+
+If UFW is enabled, allow only trusted source IPs:
+
+```bash
+sudo ufw allow from <REMOTE_SERVER_IP> to any port 8000 proto tcp
+sudo ufw status
+```
+
+### Important Fixes Learned During Bring-Up
+
+1. `--task embed` is invalid on current `vllm serve` CLI.
+Use:
+
+```bash
+--runner pooling --convert embed
+```
+
+2. `VLLM_ENABLE_CUDA_COMPATIBILITY=1` caused:
+
+```text
+Error 803: system has unsupported display driver / cuda driver combination
+```
+
+Fix: remove that environment variable on this host/driver.
+
+3. `curl: (56) Recv failure: Connection reset by peer` during startup usually means the container is crash-looping.
+Check:
+
+```bash
+docker ps -a --filter name=qwen3-embed
+docker inspect qwen3-embed --format 'status={{.State.Status}} exit={{.State.ExitCode}} restarts={{.RestartCount}} error={{.State.Error}}'
+docker logs --tail 200 qwen3-embed
+```
+
+4. `docker logs -f qwen3-embed` attaches to log stream only.
+Press `Ctrl+C` to stop following logs. The container continues running in detached mode.
+
+### Operations
+
+```bash
+docker restart qwen3-embed
+docker logs --tail 200 qwen3-embed
+docker rm -f qwen3-embed
+```
+
+### Security Notes
+
+- Restrict TCP/8000 to trusted internal callers.
+- Add TLS/authentication (Nginx or Caddy) before broader exposure.
+- Rotate any credentials that were shared in chat/session history.
