@@ -279,6 +279,14 @@ function formatTimestamp(isoTimestamp: string, locale: Locale) {
   return new Date(isoTimestamp).toLocaleString(locale === 'ko' ? 'ko-KR' : 'en-US')
 }
 
+function brandQwenText(value: string | null | undefined) {
+  return (value ?? '').replace(/qwen/gi, (match) => {
+    if (match === match.toUpperCase()) return 'IVY'
+    if (match === match.toLowerCase()) return 'ivy'
+    return 'Ivy'
+  })
+}
+
 const LANGUAGE_KEY_BY_VALUE: Record<string, string> = {
   Auto: 'language.auto',
   English: 'language.english',
@@ -1975,7 +1983,7 @@ function App() {
         <section className="mode-summary">
           <p className="mode-label">{modeMeta ? translateModeName(modeMeta.id, modeMeta.label, t) : ''}</p>
           <p className="lead">{modeMeta ? translateModeDescription(modeMeta.id, modeMeta.description, t) : ''}</p>
-          <p className="hint">{modeMeta?.checkpoint}</p>
+          <p className="hint">{brandQwenText(modeMeta?.checkpoint)}</p>
         </section>
 
         <section className="editor">
@@ -2160,7 +2168,7 @@ function App() {
           <p className="lead">{t('voiceChat.lead')}</p>
         </div>
         <div className="status-strip">
-          <span>{t('status.asr')}: {(health?.active_asr_model ?? chatSettings.defaults.asrModel) || t('status.idle')}</span>
+          <span>{t('status.asr')}: {brandQwenText((health?.active_asr_model ?? chatSettings.defaults.asrModel) || t('status.idle'))}</span>
           <span>{t('status.phase')}: {translateConversationStatusText(conversationStatus, t)}</span>
         </div>
         <SystemMetrics t={t} />
@@ -2491,7 +2499,7 @@ function App() {
             {activeRun ? (
               <div className="run-detail">
                 <div className="run-meta">
-                  <span>{activeRun.model_id}</span>
+                  <span>{brandQwenText(activeRun.model_id)}</span>
                   <span>{activeRun.device}</span>
                 </div>
                 <div className="clips">

@@ -498,7 +498,7 @@ def test_health_and_capabilities(client):
     assert health.status_code == 200
     assert capabilities.status_code == 200
     assert capabilities.json()["selected_device"] == "cpu"
-    assert capabilities.json()["asr"]["default_model"] == ASR_MODEL_IDS["default"]
+    assert capabilities.json()["asr"]["default_model"] == "mlx-community/Ivy3-ASR-1.7B-8bit"
     assert capabilities.json()["chat"]["providers"][0]["id"] == "openai_compatible"
 
 

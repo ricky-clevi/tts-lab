@@ -32,14 +32,14 @@ ASR_MODEL_IDS: Final[dict[str, str]] = {
 ASR_MODELS: Final[list[dict[str, str]]] = [
     {
         "id": ASR_MODEL_IDS["default"],
-        "label": "Qwen3-ASR 1.7B",
-        "description": "Highest-quality local multilingual Qwen ASR option.",
+        "label": "Ivy3-ASR 1.7B",
+        "description": "Highest-quality local multilingual Ivy ASR option.",
         "checkpoint": ASR_MODEL_IDS["default"],
     },
     {
         "id": ASR_MODEL_IDS["compact"],
-        "label": "Qwen3-ASR 0.6B",
-        "description": "Smaller local Qwen ASR model with lower memory and faster startup.",
+        "label": "Ivy3-ASR 0.6B",
+        "description": "Smaller local Ivy ASR model with lower memory and faster startup.",
         "checkpoint": ASR_MODEL_IDS["compact"],
     },
 ]
@@ -51,7 +51,7 @@ MODE_LABELS: Final[dict[str, str]] = {
 }
 
 MODE_DESCRIPTIONS: Final[dict[str, str]] = {
-    "custom": "Pick one of the official Qwen premium timbres and optionally add style instructions.",
+    "custom": "Pick one of the official Ivy premium timbres and optionally add style instructions.",
     "design": "Describe the voice you want in natural language and synthesize directly from the prompt.",
     "clone": "Upload a short reference clip to clone a voice for new text.",
 }
@@ -74,14 +74,14 @@ PROVIDER_CAPABILITIES: Final[list[dict[str, str | bool | ProviderId]]] = [
     {
         "id": "gemini",
         "label": "Gemini",
-        "description": "Use Gemini's native API with streamed text responses and local Qwen speech.",
+        "description": "Use Gemini's native API with streamed text responses and local Ivy speech.",
         "base_url_configurable": True,
         "native": True,
     },
     {
         "id": "anthropic",
         "label": "Anthropic",
-        "description": "Use Claude's native Messages API with streamed text responses and local Qwen speech.",
+        "description": "Use Claude's native Messages API with streamed text responses and local Ivy speech.",
         "base_url_configurable": True,
         "native": True,
     },

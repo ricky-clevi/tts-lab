@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from .branding import brand_chat_settings_response, brand_qwen_text, unbrand_ivy_text
 from .constants import (
     DEFAULT_ANTHROPIC_BASE_URL,
     DEFAULT_GEMINI_BASE_URL,
@@ -46,12 +47,17 @@ class ChatSettingsStore:
         for backend_defaults in DEFAULT_ASR_MODEL_IDS.values():
             for slot, model_id in backend_defaults.items():
                 alias_to_slot[model_id] = slot
+                branded_model_id = brand_qwen_text(model_id)
+                if branded_model_id:
+                    alias_to_slot[branded_model_id] = slot
 
-        current_model_id = settings.defaults.asr_model
+        current_model_id = unbrand_ivy_text(settings.defaults.asr_model) or settings.defaults.asr_model
         slot = alias_to_slot.get(current_model_id)
         if slot is None:
             if current_model_id not in self.runtime.asr_model_ids.values():
                 settings.defaults.asr_model = self.runtime.asr_model_ids["default"]
+            else:
+                settings.defaults.asr_model = current_model_id
             return settings
 
         settings.defaults.asr_model = self.runtime.asr_model_ids.get(slot, self.runtime.asr_model_ids["default"])
@@ -89,12 +95,13 @@ class ChatSettingsStore:
         return incoming
 
     def redact(self, settings: ChatSettingsInput) -> ChatSettingsResponse:
-        return ChatSettingsResponse(
+        response = ChatSettingsResponse(
             defaults=settings.defaults,
             openai_compatible=self._redact_provider(settings.openai_compatible),
             gemini=self._redact_provider(settings.gemini),
             anthropic=self._redact_provider(settings.anthropic),
         )
+        return brand_chat_settings_response(response)
 
     def _redact_provider(self, settings: ProviderSettingsInput) -> ProviderSettingsResponse:
         return ProviderSettingsResponse(

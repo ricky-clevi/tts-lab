@@ -12,6 +12,7 @@ from uuid import uuid4
 import numpy as np
 from fastapi import WebSocket
 
+from .branding import brand_chat_settings_response, unbrand_chat_settings_input
 from .chat_store import ChatSettingsStore
 from .constants import CONVERSATION_SAMPLE_RATE, PARTIAL_TRANSCRIPTION_MIN_SECONDS
 from .llm import ProviderService
@@ -176,7 +177,9 @@ class ConversationSession:
         await self.send(
             {
                 "type": "session.ready",
-                "settings": self.settings_store.redact(self.settings).model_dump(mode="json"),
+                "settings": brand_chat_settings_response(
+                    self.settings_store.redact(self.settings)
+                ).model_dump(mode="json"),
             }
         )
         self._schedule_clone_warmup()
@@ -185,7 +188,7 @@ class ConversationSession:
         settings_payload = payload.get("settings")
         if settings_payload is None:
             return
-        incoming = ChatSettingsInput.model_validate(settings_payload)
+        incoming = unbrand_chat_settings_input(ChatSettingsInput.model_validate(settings_payload))
         self.settings = self.settings_store.merge_preserving_secrets(incoming)
         self.messages = [{"role": "system", "content": self.settings.defaults.system_prompt}] + [
             message for message in self.messages if message["role"] != "system"

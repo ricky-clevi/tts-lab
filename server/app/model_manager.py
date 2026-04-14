@@ -116,7 +116,7 @@ class TtsModelManager:
         try:
             model = Qwen3TTSModel.from_pretrained(model_id, **kwargs)
         except Exception as exc:  # pragma: no cover - exercised against real runtime only
-            raise RuntimeError(f"Unable to load {model_id} with the Qwen CUDA runtime.") from exc
+            raise RuntimeError(f"Unable to load {model_id} with the Ivy CUDA runtime.") from exc
         return model, self.runtime.device_label
 
     def _release_current_model(self) -> None:
@@ -162,16 +162,12 @@ class TtsModelManager:
     def capabilities(self) -> CapabilitiesResponse:
         runtime_asr_models = [
             AsrModelCapabilityResponse(
-                id=self.runtime.asr_model_ids["default"]
-                if item["label"] == "Qwen3-ASR 1.7B"
-                else self.runtime.asr_model_ids["compact"],
+                id=self.runtime.asr_model_ids[slot],
                 label=item["label"],
                 description=item["description"],
-                checkpoint=self.runtime.asr_model_ids["default"]
-                if item["label"] == "Qwen3-ASR 1.7B"
-                else self.runtime.asr_model_ids["compact"],
+                checkpoint=self.runtime.asr_model_ids[slot],
             )
-            for item in ASR_MODELS
+            for slot, item in zip(("default", "compact"), ASR_MODELS, strict=True)
         ]
 
         return CapabilitiesResponse(
@@ -1057,7 +1053,7 @@ class AsrModelManager:
         try:
             model = Qwen3ASRModel.from_pretrained(model_id, **kwargs)
         except Exception as exc:  # pragma: no cover - exercised against real runtime only
-            raise RuntimeError(f"Unable to load {model_id} with the Qwen CUDA runtime.") from exc
+            raise RuntimeError(f"Unable to load {model_id} with the Ivy CUDA runtime.") from exc
         return model, self.runtime.device_label
 
     def _release_current_model(self) -> None:

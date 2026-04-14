@@ -219,7 +219,7 @@ test('switches the visible chrome to korean', async () => {
   mockFetchSequence()
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: '한국어' }))
 
   expect(screen.getByRole('button', { name: '보이스 챗' })).toBeInTheDocument()
@@ -231,7 +231,7 @@ test('switches to voice chat and shows provider controls', async () => {
   mockFetchSequence()
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
 
   expect(screen.getByRole('heading', { name: 'Voice Chat' })).toBeInTheDocument()
@@ -243,7 +243,7 @@ test('adds and removes segments in the tts lab', async () => {
   mockFetchSequence()
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /add segment/i }))
   expect(screen.getAllByLabelText(/text segment/i)).toHaveLength(2)
 
@@ -255,7 +255,7 @@ test('renders generated clips and history after a successful run', async () => {
   mockFetchSequence()
   const { container } = render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.clear(screen.getByLabelText(/text segment 1/i))
   await userEvent.type(screen.getByLabelText(/text segment 1/i), 'Hello world')
   await userEvent.click(screen.getByRole('button', { name: /generate audio/i }))
@@ -299,7 +299,7 @@ test('sends structured style controls as part of the tts instruction prompt', as
 
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.selectOptions(screen.getByLabelText(/mood/i), 'calm')
   await userEvent.type(screen.getByLabelText(/additional instruction/i), 'Keep the delivery broadcast-clean.')
   await userEvent.type(screen.getByLabelText(/text segment 1/i), 'Style control payload test.')
@@ -316,7 +316,7 @@ test('tests the selected provider from the voice chat workspace', async () => {
   mockFetchSequence()
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
   await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
 
@@ -327,7 +327,7 @@ test('syncs the conversation provider when a provider tab is selected', async ()
   mockFetchSequence()
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
   await userEvent.click(screen.getByRole('button', { name: 'Gemini' }))
 
@@ -338,13 +338,13 @@ test('shows clone reply voice controls in voice chat', async () => {
   mockFetchSequence()
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
   await userEvent.selectOptions(screen.getByLabelText(/voice mode/i), 'clone')
 
   expect(screen.getByRole('button', { name: /prepare cloned voice/i })).toBeInTheDocument()
   expect(
-    screen.getByPlaceholderText(/leave blank to let local qwen asr transcribe the reference clip/i),
+    screen.getByPlaceholderText(/leave blank to let local ivy asr transcribe the reference clip/i),
   ).toBeInTheDocument()
 })
 
@@ -370,7 +370,7 @@ test('saves raw reply voice guidance without reserializing composed style text',
 
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
   await userEvent.clear(screen.getByLabelText(/base guidance/i))
   await userEvent.type(screen.getByLabelText(/base guidance/i), 'Keep the reply grounded and unhurried.')
@@ -416,7 +416,7 @@ test('shows provider test failures without clearing the form', async () => {
 
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
   const providerModelInput = screen.getAllByLabelText(/model/i)[0]
   await userEvent.clear(providerModelInput)
@@ -501,7 +501,7 @@ test('auto-prepares a cloned reply voice before sending a typed chat message', a
 
   render(<App />)
 
-  await screen.findByText('Qwen3-TTS Lab')
+  await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
   await userEvent.selectOptions(screen.getByLabelText(/voice mode/i), 'clone')
   await userEvent.upload(

@@ -18,6 +18,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import ValidationError
 
+from .branding import (
+    brand_asr_transcription_response,
+    brand_capabilities_response,
+    brand_chat_settings_response,
+    brand_generation_run_response,
+    brand_health_response,
+    brand_qwen_text,
+    unbrand_chat_settings_input,
+    unbrand_ivy_text,
+)
 from .chat_store import ChatSettingsStore
 from .constants import ASR_MODEL_IDS
 from .conversation import ConversationSession
@@ -319,7 +329,7 @@ def create_app(
     settings = settings_store or ChatSettingsStore(root / "generated" / "settings" / "chat.json")
     providers = provider_service or ProviderService()
 
-    app = FastAPI(title="Qwen3 Local Voice Lab", version="0.2.0")
+    app = FastAPI(title="Ivy3 Local Voice Lab", version="0.2.0")
     app.state.tts_manager = tts
     app.state.asr_manager = asr
     app.state.audio_storage = storage
@@ -337,7 +347,7 @@ def create_app(
 
     @app.get("/api/health", response_model=HealthResponse)
     def health() -> HealthResponse:
-        return HealthResponse(
+        response = HealthResponse(
             status="ok",
             active_mode=tts.active_mode,
             active_model=tts.active_model_id,
@@ -349,6 +359,7 @@ def create_app(
             active_asr_model=asr.active_model_id,
             selected_asr_device=asr.selected_device,
         )
+        return brand_health_response(response)
 
     @app.get("/api/metrics", response_model=MetricsResponse)
     def metrics() -> MetricsResponse:
@@ -358,16 +369,17 @@ def create_app(
 
     @app.get("/api/capabilities")
     def capabilities():
-        return tts.capabilities()
+        return brand_capabilities_response(tts.capabilities())
 
     @app.get("/api/settings/chat", response_model=ChatSettingsResponse)
     def get_chat_settings() -> ChatSettingsResponse:
-        return settings.redact(settings.load())
+        return brand_chat_settings_response(settings.redact(settings.load()))
 
     @app.put("/api/settings/chat", response_model=ChatSettingsResponse)
     def put_chat_settings(payload: ChatSettingsInput) -> ChatSettingsResponse:
-        saved = settings.save(settings.merge_preserving_secrets(payload))
-        return settings.redact(saved)
+        normalized_payload = unbrand_chat_settings_input(payload)
+        saved = settings.save(settings.merge_preserving_secrets(normalized_payload))
+        return brand_chat_settings_response(settings.redact(saved))
 
     @app.post("/api/settings/chat/test", response_model=ProviderTestResponse)
     async def test_chat_settings(payload: ProviderTestRequest) -> ProviderTestResponse:
@@ -398,12 +410,13 @@ def create_app(
         cleanup_paths: list[Path] = []
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
-            return asr.transcribe_file(
+            response = asr.transcribe_file(
                 file_path=prepared_path,
-                model_id=model_id,
+                model_id=unbrand_ivy_text(model_id) or model_id,
                 language=language,
                 send_to_chat=send_to_chat,
             )
+            return brand_asr_transcription_response(response)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
@@ -479,13 +492,15 @@ def create_app(
             )
             for index, (segment, wav) in enumerate(zip(payload.segments, wavs, strict=True))
         ]
-        return GenerationRunResponse(
+        return brand_generation_run_response(
+            GenerationRunResponse(
             run_id=uuid4().hex,
             mode="custom",
             model_id=tts.model_ids["custom"],
             device=tts.selected_device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
+            )
         )
 
     def build_streaming_response(
@@ -518,7 +533,7 @@ def create_app(
                                 "run": {
                                     "run_id": run_id,
                                     "mode": mode,
-                                    "model_id": tts.model_ids[mode],
+                                    "model_id": brand_qwen_text(tts.model_ids[mode]),
                                     "device": tts.selected_device,
                                     "created_at": created_at.isoformat(),
                                     "clips": [],
@@ -571,13 +586,15 @@ def create_app(
                             }
                         )
 
-                run = GenerationRunResponse(
+                run = brand_generation_run_response(
+                    GenerationRunResponse(
                     run_id=run_id,
                     mode=mode,  # type: ignore[arg-type]
                     model_id=tts.model_ids[mode],
                     device=tts.selected_device,
                     created_at=created_at,
                     clips=clips,
+                    )
                 )
                 yield stream_line({"type": "run_complete", "run": run.model_dump(mode="json")})
             except ValueError as exc:
@@ -610,13 +627,15 @@ def create_app(
             )
             for index, (segment, wav) in enumerate(zip(payload.segments, wavs, strict=True))
         ]
-        return GenerationRunResponse(
+        return brand_generation_run_response(
+            GenerationRunResponse(
             run_id=uuid4().hex,
             mode="design",
             model_id=tts.model_ids["design"],
             device=tts.selected_device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
+            )
         )
 
     @app.post("/api/stream/custom")
@@ -744,13 +763,15 @@ def create_app(
             )
             for index, (segment, wav) in enumerate(zip(payload.segments, wavs, strict=True))
         ]
-        return GenerationRunResponse(
+        return brand_generation_run_response(
+            GenerationRunResponse(
             run_id=uuid4().hex,
             mode="clone",
             model_id=tts.model_ids["clone"],
             device=tts.selected_device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
+            )
         )
 
     @app.post("/api/stream/clone")
@@ -871,7 +892,9 @@ def create_app(
                     await session.send(
                         {
                             "type": "session.ready",
-                            "settings": settings.redact(session.settings).model_dump(mode="json"),
+                            "settings": brand_chat_settings_response(
+                                settings.redact(session.settings)
+                            ).model_dump(mode="json"),
                         }
                     )
                 elif event_type == "audio.append":
