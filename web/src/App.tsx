@@ -194,6 +194,13 @@ type PerfMetric = {
 
 type SettingsSectionId = 'provider' | 'conversation' | 'asr' | 'replyVoice'
 type TranslationFunction = (key: string, variables?: Record<string, number | string>) => string
+type ReferenceAudioPickerProps = {
+  t: TranslationFunction
+  file: File | null
+  onFileChange: (file: File | null) => void
+  onError: (message: string) => void
+  fileInputLabel: string
+}
 
 const MOOD_OPTIONS = [
   { id: 'neutral', label: 'Neutral', prompt: 'Keep the emotional tone neutral, composed, and matter-of-fact.' },
@@ -285,6 +292,211 @@ function brandQwenText(value: string | null | undefined) {
     if (match === match.toLowerCase()) return 'ivy'
     return 'Ivy'
   })
+}
+
+function stripFileExtension(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, '')
+}
+
+function recordingExtensionForMimeType(mimeType: string) {
+  if (mimeType.includes('ogg')) return 'ogg'
+  if (mimeType.includes('mp4')) return 'm4a'
+  if (mimeType.includes('mpeg')) return 'mp3'
+  return 'webm'
+}
+
+function pickRecordingMimeType() {
+  if (typeof MediaRecorder === 'undefined') {
+    return null
+  }
+
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+    'audio/mp4',
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof MediaRecorder.isTypeSupported !== 'function' || MediaRecorder.isTypeSupported(candidate)) {
+      return candidate
+    }
+  }
+
+  return ''
+}
+
+function ReferenceAudioPicker({
+  t,
+  file,
+  onFileChange,
+  onError,
+  fileInputLabel,
+}: ReferenceAudioPickerProps) {
+  const [isRecording, setIsRecording] = useState(false)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const startedAtRef = useRef<number | null>(null)
+  const timerRef = useRef<number | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null)
+      return
+    }
+
+    const objectUrl = URL.createObjectURL(file)
+    setPreviewUrl(objectUrl)
+    return () => {
+      URL.revokeObjectURL(objectUrl)
+    }
+  }, [file])
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current)
+      }
+      recorderRef.current?.stop()
+      streamRef.current?.getTracks().forEach((track) => track.stop())
+    }
+  }, [])
+
+  async function startRecording() {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      onError(t('error.recordReferenceUnavailable'))
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+      streamRef.current = stream
+      chunksRef.current = []
+      const mimeType = pickRecordingMimeType()
+      recorderRef.current =
+        mimeType === null
+          ? null
+          : mimeType
+            ? new MediaRecorder(stream, { mimeType })
+            : new MediaRecorder(stream)
+
+      if (!recorderRef.current) {
+        throw new Error(t('error.recordReferenceUnavailable'))
+      }
+
+      recorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunksRef.current.push(event.data)
+        }
+      }
+
+      recorderRef.current.onstop = () => {
+        if (timerRef.current) {
+          window.clearInterval(timerRef.current)
+          timerRef.current = null
+        }
+        setIsRecording(false)
+        setElapsedSeconds(0)
+
+        const blob = new Blob(chunksRef.current, {
+          type: recorderRef.current?.mimeType || 'audio/webm',
+        })
+        chunksRef.current = []
+        streamRef.current?.getTracks().forEach((track) => track.stop())
+        streamRef.current = null
+
+        if (blob.size === 0) {
+          return
+        }
+
+        const mime = blob.type || recorderRef.current?.mimeType || 'audio/webm'
+        const extension = recordingExtensionForMimeType(mime)
+        const recordedFile = new File([blob], `ivy-reference-${Date.now()}.${extension}`, {
+          type: mime,
+          lastModified: Date.now(),
+        })
+        onFileChange(recordedFile)
+      }
+
+      recorderRef.current.start()
+      setIsRecording(true)
+      startedAtRef.current = Date.now()
+      setElapsedSeconds(0)
+      timerRef.current = window.setInterval(() => {
+        const startedAt = startedAtRef.current ?? Date.now()
+        setElapsedSeconds(Math.max(1, Math.round((Date.now() - startedAt) / 1000)))
+      }, 250)
+    } catch (recordingError) {
+      streamRef.current?.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+      setIsRecording(false)
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+      onError(
+        recordingError instanceof Error ? recordingError.message : t('error.recordReferenceFailed'),
+      )
+    }
+  }
+
+  function stopRecording() {
+    recorderRef.current?.requestData()
+    recorderRef.current?.stop()
+  }
+
+  return (
+    <div className="reference-audio-picker">
+      <label className="field">
+        <span className="field-label">{fileInputLabel}</span>
+        <input
+          className="text-input"
+          type="file"
+          accept="audio/*"
+          onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
+        />
+      </label>
+      <div className="reference-recorder">
+        <div className="controls-footer">
+          <button
+            className={isRecording ? 'primary-button' : 'ghost-button'}
+            type="button"
+            onClick={() => {
+              if (isRecording) {
+                stopRecording()
+                return
+              }
+              void startRecording()
+            }}
+          >
+            {isRecording ? t('button.stopRecording') : t('button.recordReference')}
+          </button>
+          {file ? (
+            <button className="ghost-button" type="button" onClick={() => onFileChange(null)}>
+              {t('button.clearReferenceClip')}
+            </button>
+          ) : null}
+        </div>
+        <p className="hint">
+          {isRecording
+            ? t('hint.recordingReferenceClip', { seconds: elapsedSeconds })
+            : t('hint.recordReferenceClip')}
+        </p>
+        {file ? <p className="hint">{t('hint.referenceClipReady', { name: file.name })}</p> : null}
+        {previewUrl ? <audio className="audio-player" controls src={previewUrl} /> : null}
+      </div>
+    </div>
+  )
 }
 
 const LANGUAGE_KEY_BY_VALUE: Record<string, string> = {
@@ -1015,6 +1227,26 @@ function App() {
     updateSegments(mode, (segments) =>
       segments.map((segment) => (segment.id === segmentId ? { ...segment, text: value } : segment)),
     )
+  }
+
+  function setCloneReferenceFile(file: File | null) {
+    setCloneForm((current) => ({ ...current, referenceFile: file }))
+  }
+
+  function setReplyVoiceCloneReferenceFile(file: File | null) {
+    setReplyVoiceCloneDraft((current) => ({
+      ...current,
+      file,
+      preparedProfile: null,
+      label: current.label || (file ? stripFileExtension(file.name) : ''),
+    }))
+    setChatSettings((current) => ({
+      ...current,
+      defaults: {
+        ...current.defaults,
+        replyVoice: clearPreparedReplyVoice(current.defaults.replyVoice),
+      },
+    }))
   }
 
   function getStreamingInterval() {
@@ -2054,10 +2286,13 @@ function App() {
                 </select>
               </label>
               <p className="hint">{t('hint.cloneLanguageAuto')}</p>
-              <label className="field">
-                <span className="field-label">{t('field.referenceAudio')}</span>
-                <input className="text-input" type="file" accept="audio/*" onChange={(event) => setCloneForm((current) => ({ ...current, referenceFile: event.target.files?.[0] ?? null }))} />
-              </label>
+              <ReferenceAudioPicker
+                t={t}
+                file={cloneForm.referenceFile}
+                onFileChange={setCloneReferenceFile}
+                onError={(message) => setError(message)}
+                fileInputLabel={t('field.referenceAudio')}
+              />
               <label className="field">
                 <span className="field-label">{t('field.referenceTranscript')}</span>
                 <textarea className="text-input segment-input" value={cloneForm.refText} onChange={(event) => setCloneForm((current) => ({ ...current, refText: event.target.value }))} rows={3} />
@@ -2383,29 +2618,15 @@ function App() {
               </div>
               {chatSettings.defaults.replyVoice.mode === 'clone' ? (
                 <div className="upload-card reply-voice-clone-grid">
-                  <label className="field field-span-full">
-                    <span className="field-label">{t('field.referenceVoiceClip')}</span>
-                    <input
-                      className="text-input"
-                      type="file"
-                      accept="audio/*"
-                      onChange={(event) => {
-                        const nextFile = event.target.files?.[0] ?? null
-                        setReplyVoiceCloneDraft((current) => ({
-                          ...current,
-                          file: nextFile,
-                          preparedProfile: null,
-                        }))
-                        setChatSettings((current) => ({
-                          ...current,
-                          defaults: {
-                            ...current.defaults,
-                            replyVoice: clearPreparedReplyVoice(current.defaults.replyVoice),
-                          },
-                        }))
-                      }}
+                  <div className="field-span-full">
+                    <ReferenceAudioPicker
+                      t={t}
+                      file={replyVoiceCloneDraft.file}
+                      onFileChange={setReplyVoiceCloneReferenceFile}
+                      onError={(message) => pushToast('error', message)}
+                      fileInputLabel={t('field.referenceVoiceClip')}
                     />
-                  </label>
+                  </div>
                   <label className="field">
                     <span className="field-label">{t('field.voiceLabel')}</span>
                     <input

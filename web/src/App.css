@@ -405,6 +405,22 @@ body.is-resizing {
   padding: 0.9rem;
 }
 
+.reference-audio-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.reference-recorder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: rgba(0, 150, 136, 0.03);
+}
+
 .settings-section-toggle {
   width: 100%;
   display: flex;
