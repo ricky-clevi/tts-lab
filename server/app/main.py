@@ -1268,9 +1268,15 @@ def create_app(
 
     if frontend_dist.exists():
 
+        def spa_index_response() -> FileResponse:
+            return FileResponse(
+                frontend_dist / "index.html",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+            )
+
         @app.get("/", include_in_schema=False)
         def serve_frontend_index() -> FileResponse:
-            return FileResponse(frontend_dist / "index.html")
+            return spa_index_response()
 
         @app.get("/{full_path:path}", include_in_schema=False)
         def serve_frontend_asset(full_path: str) -> FileResponse:
@@ -1281,7 +1287,12 @@ def create_app(
             if requested.is_file() and requested.is_relative_to(frontend_dist.resolve()):
                 return FileResponse(requested)
 
-            return FileResponse(frontend_dist / "index.html")
+            # Missing file-like paths should 404 instead of falling back to index.html.
+            # This prevents browsers from treating HTML as fonts, scripts, or styles.
+            if "." in Path(full_path).name:
+                raise HTTPException(status_code=404, detail="Asset not found.")
+
+            return spa_index_response()
 
     return app
 
