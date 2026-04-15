@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 import re
@@ -15,7 +16,7 @@ import numpy as np
 import soundfile as sf
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import ValidationError
 
 from .branding import (
@@ -55,6 +56,8 @@ CLONE_PROMPT_MAX_SECONDS = 8.0
 CLONE_PROMPT_MIN_SECONDS = 3.0
 CLONE_PROMPT_WINDOW_STEP_SECONDS = 0.25
 CLONE_PROMPT_SILENCE_MARGIN_SECONDS = 0.12
+OPENAI_TTS_MODEL_ID = "qwen3-tts"
+OPENAI_ASR_MODEL_ID = "qwen3-asr"
 
 
 def parse_json_field(name: str, raw_value: str | None, default: object | None = None) -> object:
@@ -74,6 +77,17 @@ def encode_pcm16_base64(wav: np.ndarray) -> str:
 
 def stream_line(payload: dict[str, object]) -> bytes:
     return (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def encode_wav_bytes(wav: np.ndarray, sample_rate: int) -> bytes:
+    buffer = io.BytesIO()
+    sf.write(buffer, np.asarray(wav, dtype=np.float32), sample_rate, format="WAV")
+    return buffer.getvalue()
+
+
+def encode_pcm16_bytes(wav: np.ndarray) -> bytes:
+    normalized = np.clip(np.asarray(wav, dtype=np.float32), -1.0, 1.0)
+    return (normalized * 32767.0).astype(np.int16).tobytes()
 
 
 def validate_audio_upload(path: str) -> None:
@@ -360,6 +374,102 @@ def create_app(
             selected_asr_device=asr.selected_device,
         )
         return brand_health_response(response)
+
+    @app.get("/v1/models")
+    def openai_models() -> dict[str, object]:
+        now = int(datetime.now(timezone.utc).timestamp())
+        return {
+            "object": "list",
+            "data": [
+                {
+                    "id": OPENAI_TTS_MODEL_ID,
+                    "object": "model",
+                    "created": now,
+                    "owned_by": "ivy",
+                },
+                {
+                    "id": OPENAI_ASR_MODEL_ID,
+                    "object": "model",
+                    "created": now,
+                    "owned_by": "ivy",
+                },
+            ],
+        }
+
+    @app.post("/v1/audio/speech")
+    def openai_audio_speech(payload: dict[str, object]) -> Response:
+        model = str(payload.get("model", "")).strip()
+        text = str(payload.get("input", "")).strip()
+        voice = str(payload.get("voice", "Ryan")).strip() or "Ryan"
+        response_format = str(payload.get("response_format", "wav")).strip().lower() or "wav"
+        instructions = str(payload.get("instructions", "")).strip() or None
+
+        if model != OPENAI_TTS_MODEL_ID:
+            raise HTTPException(status_code=400, detail=f"Unsupported model '{model}'.")
+        if not text:
+            raise HTTPException(status_code=400, detail="Input text is required.")
+        if response_format not in {"wav", "pcm"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported response_format. Use 'wav' or 'pcm'.",
+            )
+
+        try:
+            wavs, sample_rate = tts.generate_custom(
+                CustomGenerationRequest(
+                    segments=[text],
+                    language="Auto",
+                    speaker=voice,
+                    instruct=instructions,
+                )
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        wav = wavs[0]
+        if response_format == "pcm":
+            return Response(content=encode_pcm16_bytes(wav), media_type="audio/pcm")
+        return Response(content=encode_wav_bytes(wav, sample_rate), media_type="audio/wav")
+
+    @app.post("/v1/audio/transcriptions")
+    async def openai_audio_transcriptions(
+        file: UploadFile = File(...),
+        model: str = Form(...),
+        language: str = Form("Auto"),
+    ) -> dict[str, object]:
+        if model.strip() != OPENAI_ASR_MODEL_ID:
+            raise HTTPException(status_code=400, detail=f"Unsupported model '{model}'.")
+
+        suffix = Path(file.filename or "audio.wav").suffix or ".wav"
+        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(await file.read())
+            temp_path = temp_file.name
+
+        cleanup_paths: list[Path] = []
+        try:
+            prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
+            transcription = asr.transcribe_file(
+                file_path=prepared_path,
+                model_id=asr.model_ids.get("default", ASR_MODEL_IDS["default"]),
+                language=language,
+                send_to_chat=False,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+            for cleanup_path in cleanup_paths:
+                cleanup_path.unlink(missing_ok=True)
+
+        return {
+            "text": transcription.text,
+            "language": transcription.language,
+            "model": OPENAI_ASR_MODEL_ID,
+        }
 
     @app.get("/api/metrics", response_model=MetricsResponse)
     def metrics() -> MetricsResponse:

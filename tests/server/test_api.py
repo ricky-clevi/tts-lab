@@ -608,6 +608,71 @@ def test_asr_invalid_media_returns_400(client):
     assert response.json()["detail"] == "Invalid or unsupported audio file."
 
 
+def test_openai_models_lists_qwen_audio_models(client):
+    test_client, _tts, _asr, _settings = client
+    response = test_client.get("/v1/models")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["object"] == "list"
+    assert [item["id"] for item in body["data"]] == ["qwen3-tts", "qwen3-asr"]
+
+
+def test_openai_audio_speech_returns_wav(client):
+    test_client, manager, _asr, _settings = client
+    response = test_client.post(
+        "/v1/audio/speech",
+        json={
+            "model": "qwen3-tts",
+            "input": "Hello from the OpenAI style TTS endpoint.",
+            "voice": "Ryan",
+            "response_format": "wav",
+            "instructions": "Speak steadily.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.content[:4] == b"RIFF"
+    assert manager.custom_calls == 1
+
+
+def test_openai_audio_speech_returns_pcm(client):
+    test_client, manager, _asr, _settings = client
+    response = test_client.post(
+        "/v1/audio/speech",
+        json={
+            "model": "qwen3-tts",
+            "input": "Return raw PCM audio please.",
+            "voice": "Ryan",
+            "response_format": "pcm",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/pcm"
+    assert len(response.content) == 32000
+    assert response.content == b"\x00\x00" * 16000
+    assert manager.custom_calls == 1
+
+
+def test_openai_audio_transcriptions_returns_openai_shape(client):
+    test_client, _tts, asr_manager, _settings = client
+    response = test_client.post(
+        "/v1/audio/transcriptions",
+        data={"model": "qwen3-asr", "language": "English"},
+        files={"file": ("sample.wav", make_wav_bytes(), "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": "Uploaded sample transcript.",
+        "language": "English",
+        "model": "qwen3-asr",
+    }
+    assert asr_manager.active_model_id == ASR_MODEL_IDS["default"]
+
+
 def test_custom_generation_persists_audio(client):
     test_client, manager, _asr, _settings = client
     response = test_client.post(
