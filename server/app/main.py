@@ -88,6 +88,13 @@ def parse_json_field(name: str, raw_value: str | None, default: object | None = 
         raise HTTPException(status_code=400, detail=f"Invalid JSON payload for '{name}'.") from exc
 
 
+def parse_stored_datetime(raw_value: str) -> datetime:
+    normalized = raw_value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    return datetime.fromisoformat(normalized)
+
+
 def encode_pcm16_base64(wav: np.ndarray) -> str:
     normalized = np.clip(np.asarray(wav, dtype=np.float32), -1.0, 1.0)
     pcm16 = (normalized * 32767.0).astype(np.int16)
@@ -554,7 +561,7 @@ def create_app(
                 audio_file_name=p["audio_file_name"],
                 audio_path=p["audio_path"],
                 speaker_embedding_path=p["speaker_embedding_path"],
-                created_at=datetime.fromisoformat(p["created_at"]),
+                created_at=parse_stored_datetime(p["created_at"]),
                 user_id=p["user_id"],
             )
             for p in profiles

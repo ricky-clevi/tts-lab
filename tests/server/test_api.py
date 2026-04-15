@@ -13,6 +13,7 @@ import soundfile as sf
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from server.app.auth import create_access_token
 from server.app.chat_store import ChatSettingsStore
 from server.app.constants import (
     ASR_MODEL_IDS,
@@ -752,6 +753,38 @@ def test_create_clone_voice_profile_auto_transcribes_reference(client):
     assert body["speaker_embedding_path"].endswith(".speaker.npz")
     assert asr_manager.transcribe_file_calls == 1
     assert manager.prepare_clone_embedding_calls == 1
+
+
+def test_list_user_voices_accepts_utc_z_timestamps(client, monkeypatch):
+    test_client, _manager, _asr_manager, _settings = client
+    token = create_access_token(user_id="user-123", username="admin", role="admin")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    monkeypatch.setattr(
+        test_client.app.state.db,
+        "list_profiles_for_user",
+        lambda user_id: [
+            {
+                "id": "voice-1",
+                "user_id": user_id,
+                "label": "Support Agent",
+                "language": "Korean",
+                "reference_text": "안녕하세요.",
+                "audio_file_name": "voice-1.wav",
+                "audio_path": "/tmp/voice-1.wav",
+                "speaker_embedding_path": "/tmp/voice-1.speaker.npz",
+                "created_at": "2026-04-10T07:56:20.268575Z",
+            }
+        ],
+    )
+
+    response = test_client.get("/api/voices", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["id"] == "voice-1"
+    assert body[0]["user_id"] == "user-123"
+    assert body[0]["created_at"].startswith("2026-04-10T07:56:20.268575")
 
 
 def test_stream_custom_generation_emits_chunks_and_final_run(client):
