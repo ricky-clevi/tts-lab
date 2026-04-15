@@ -9,10 +9,10 @@
 .not-found-container {
   position: relative;
   isolation: isolate;
-  width: min(40rem, 100%);
+  width: min(42rem, 100%);
   display: grid;
-  gap: var(--space-6);
-  padding: clamp(2rem, 5vw, 3.25rem);
+  gap: var(--space-5);
+  padding: clamp(2.25rem, 5vw, 3.5rem);
   border-radius: var(--radius-2xl);
   border: 1px solid color-mix(in oklab, var(--color-primary-400) 18%, var(--color-command-900) 82%);
   background:
@@ -42,7 +42,7 @@
 .not-found-mark {
   display: inline-flex;
   width: fit-content;
-  padding: 0.55rem 0.9rem;
+  padding: 0.55rem 0.95rem;
   border-radius: var(--radius-full);
   background: linear-gradient(135deg, color-mix(in oklab, var(--color-secondary-300) 88%, white 12%), color-mix(in oklab, var(--color-secondary-500) 76%, var(--color-primary-700) 24%));
   color: var(--color-command-900);
@@ -56,6 +56,7 @@
 .not-found-copy {
   display: grid;
   gap: var(--space-3);
+  max-width: 34rem;
 }
 
 .not-found-kicker {
@@ -68,8 +69,8 @@
 
 .not-found-title {
   font-family: var(--font-family-display);
-  font-size: clamp(3rem, 8vw, 5rem);
-  letter-spacing: 0.03em;
+  font-size: clamp(3.25rem, 8vw, 5.2rem);
+  letter-spacing: 0.04em;
   line-height: 0.92;
   color: var(--color-white);
 }
@@ -84,6 +85,10 @@
   display: flex;
   gap: var(--space-3);
   flex-wrap: wrap;
+}
+
+.not-found-actions .btn {
+  min-width: 10rem;
 }
 
 .not-found-actions .btn-primary {

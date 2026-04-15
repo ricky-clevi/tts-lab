@@ -55,12 +55,6 @@ export function Modal({
 
   if (!isOpen) return null
 
-  const sizeStyles = {
-    sm: { maxWidth: '400px' },
-    md: { maxWidth: '500px' },
-    lg: { maxWidth: '700px' },
-  }
-
   const modalContent = (
     <div
       className="modal-backdrop"
@@ -69,7 +63,7 @@ export function Modal({
       aria-modal="true"
       aria-labelledby={title ? 'modal-title' : undefined}
     >
-      <div className="modal" style={sizeStyles[size]}>
+      <div className={`modal modal-size-${size}`}>
         {title && (
           <div className="modal-header">
             <h2 id="modal-title" className="modal-title">
@@ -142,7 +136,7 @@ export function ConfirmModal({
         </>
       }
     >
-      <p style={{ margin: 0 }}>{message}</p>
+      <p className="confirm-modal-message">{message}</p>
     </Modal>
   )
 }

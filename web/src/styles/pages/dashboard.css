@@ -42,6 +42,41 @@
   line-height: var(--leading-relaxed);
 }
 
+.hero-signals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.hero-signal {
+  display: grid;
+  gap: 0.35rem;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-command-900) 22%, white 78%);
+  border: 1px solid color-mix(in oklab, var(--color-secondary-300) 16%, white 84%);
+}
+
+.hero-signal-label {
+  color: var(--color-command-700);
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hero-signal-value {
+  color: var(--color-command-900);
+  font-family: var(--font-family-display);
+  font-size: 1.2rem;
+  letter-spacing: 0.03em;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hero-pills {
   display: flex;
   gap: var(--space-3);
@@ -273,6 +308,14 @@
   letter-spacing: -0.04em;
 }
 
+.section-description {
+  max-width: 52ch;
+  margin-top: var(--space-2);
+  color: var(--color-gray-600);
+  font-size: var(--text-base);
+  line-height: var(--leading-relaxed);
+}
+
 .section-link,
 .stat-link {
   display: inline-flex;
@@ -332,6 +375,8 @@
 .quick-action-card .card-body {
   display: grid;
   gap: var(--space-4);
+  align-content: start;
+  min-height: 100%;
 }
 
 .action-header {
@@ -784,6 +829,10 @@
 }
 
 @media (max-width: 640px) {
+  .hero-signals {
+    grid-template-columns: 1fr;
+  }
+
   .voices-preview-grid {
     grid-template-columns: 1fr;
   }

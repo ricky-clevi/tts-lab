@@ -35,14 +35,18 @@ export default function App() {
   }
 
   return (
-    <>
+    <div className={`app-shell ${user ? 'app-shell-authenticated' : 'app-shell-public'}`}>
       <a href="#main-content" className="skip-link">
         {t('app.skipToMain')}
       </a>
 
-      {user && <NavBar />}
+      {user && (
+        <div className="app-shell-header">
+          <NavBar />
+        </div>
+      )}
 
-      <main id="main-content">
+      <main id="main-content" className="app-main">
         <Routes>
           <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
           <Route
@@ -88,6 +92,6 @@ export default function App() {
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
-    </>
+    </div>
   )
 }

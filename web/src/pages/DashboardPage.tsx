@@ -101,6 +101,20 @@ export default function DashboardPage() {
   const activeModel = health?.active_model?.split('/').pop() ?? t('dashboard.runtime.notLoaded')
   const backend = health?.runtime_backend ?? t('dashboard.runtime.unknown')
   const healthStatus = health ? 'online' : loading ? 'checking' : 'offline'
+  const heroSignals = [
+    {
+      label: t('dashboard.stats.voiceProfiles.label'),
+      value: loading ? '--' : String(voices.length),
+    },
+    {
+      label: t('dashboard.stats.runtime.label'),
+      value: loading ? t('dashboard.runtime.checking') : health ? t('dashboard.runtime.online') : t('dashboard.runtime.unavailable'),
+    },
+    {
+      label: t('dashboard.stats.runtime.model'),
+      value: activeModel,
+    },
+  ]
 
   return (
     <div className="page dashboard-page">
@@ -114,6 +128,14 @@ export default function DashboardPage() {
             <p className="hero-description">
               {t('dashboard.hero.description')}
             </p>
+            <div className="hero-signals" aria-label={t('dashboard.hero.kicker')}>
+              {heroSignals.map((signal) => (
+                <div className="hero-signal" key={signal.label}>
+                  <span className="hero-signal-label">{signal.label}</span>
+                  <strong className="hero-signal-value">{signal.value}</strong>
+                </div>
+              ))}
+            </div>
             <div className="hero-pills">
               <span>{t('dashboard.hero.pill.trustworthy')}</span>
               <span>{t('dashboard.hero.pill.operational')}</span>
@@ -168,6 +190,7 @@ export default function DashboardPage() {
             <div>
               <p className="section-kicker">{t('dashboard.section.primary.kicker')}</p>
               <h2>{t('dashboard.section.primary.title')}</h2>
+              <p className="section-description">{t('dashboard.gettingStarted.description')}</p>
             </div>
           </div>
           <div className="quick-actions-grid">
@@ -289,6 +312,7 @@ export default function DashboardPage() {
               <div>
                 <p className="section-kicker">{t('dashboard.section.recent.kicker')}</p>
                 <h2>{t('dashboard.section.recent.title')}</h2>
+                <p className="section-description">{t('dashboard.stats.voiceProfiles.note')}</p>
               </div>
               <Link to="/voices" className="section-link">
                 {t('dashboard.section.recent.link')}

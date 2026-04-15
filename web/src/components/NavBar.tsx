@@ -43,7 +43,7 @@ export default function NavBar() {
 
   return (
     <nav className="navbar" role="navigation" aria-label={t('nav.mainNavigation')}>
-      <div className="navbar-container">
+      <div className={`navbar-container ${showMobileMenu ? 'navbar-container-open' : ''}`}>
         <Link to="/" className="brand-lockup">
           <span className="brand-mark">VL</span>
           <span className="brand-copy">

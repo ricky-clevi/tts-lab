@@ -72,33 +72,9 @@ const TOAST_ICONS: Record<ToastType, string> = {
 }
 
 function ToastItem({ toast, onDismiss }: ToastItemProps) {
-  const toneColor =
-    toast.type === 'success'
-      ? 'var(--color-success-500)'
-      : toast.type === 'error'
-        ? 'var(--color-error-500)'
-        : toast.type === 'warning'
-          ? 'var(--color-warning-500)'
-          : 'var(--color-info-500)'
-
   return (
     <div className={`toast toast-${toast.type}`} role="alert">
-      <span
-        className="toast-icon"
-        style={{
-          minWidth: '1.5rem',
-          height: '1.5rem',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRadius: '9999px',
-          fontSize: '0.75rem',
-          fontWeight: '700',
-          background: `color-mix(in oklab, ${toneColor} 18%, transparent)`,
-          color: toneColor,
-        }}
-        aria-hidden="true"
-      >
+      <span className={`toast-icon toast-icon-${toast.type}`} aria-hidden="true">
         {TOAST_ICONS[toast.type]}
       </span>
       <p className="toast-message">{toast.message}</p>

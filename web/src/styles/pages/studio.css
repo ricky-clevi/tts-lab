@@ -12,9 +12,15 @@
   max-width: 1200px;
 }
 
+.studio-page .page-header {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 60ch;
+}
+
 .studio-layout {
   display: grid;
-  grid-template-columns: 350px 1fr;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.05fr);
   gap: var(--space-6);
   align-items: start;
 }
@@ -22,7 +28,7 @@
 .create-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
 }
 
 .password-field {
@@ -43,17 +49,25 @@
 .users-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
+  gap: var(--space-4);
   width: 100%;
 }
 
 .user-stats {
   display: flex;
   gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .users-toolbar {
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 92%, white 8%), color-mix(in oklab, var(--color-surface) 84%, var(--color-primary-50) 16%));
+  border: 1px solid color-mix(in oklab, var(--color-line) 68%, var(--color-primary-100) 32%);
+  box-shadow: var(--shadow-sm);
 }
 
 .users-table-container {
@@ -65,7 +79,8 @@
 }
 
 .user-name {
-  font-weight: var(--font-medium);
+  font-weight: var(--font-bold);
+  color: var(--color-gray-900);
 }
 
 .date-cell {
@@ -77,6 +92,9 @@
   text-align: center;
   padding: var(--space-8);
   color: var(--color-gray-500);
+  background: color-mix(in oklab, var(--color-surface-elevated) 90%, white 10%);
+  border: 1px dashed color-mix(in oklab, var(--color-line) 72%, var(--color-primary-100) 28%);
+  border-radius: var(--radius-lg);
 }
 
 .credentials-box {
@@ -111,7 +129,8 @@
 .credential-row {
   display: flex;
   gap: var(--space-4);
-  padding: var(--space-2) 0;
+  padding: var(--space-3) 0;
+  align-items: center;
 }
 
 .credential-row:first-child {
@@ -154,6 +173,10 @@
   .password-field {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .users-toolbar {
+    padding: var(--space-3);
   }
 
   .generate-btn {
