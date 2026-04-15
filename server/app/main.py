@@ -8,9 +8,11 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import TypeVar
 from uuid import uuid4
 
 import numpy as np
@@ -77,6 +79,7 @@ CLONE_PROMPT_WINDOW_STEP_SECONDS = 0.25
 CLONE_PROMPT_SILENCE_MARGIN_SECONDS = 0.12
 OPENAI_TTS_MODEL_ID = "qwen3-tts"
 OPENAI_ASR_MODEL_ID = "qwen3-asr"
+T = TypeVar("T")
 
 
 def parse_json_field(name: str, raw_value: str | None, default: object | None = None) -> object:
@@ -347,8 +350,50 @@ def resolve_clone_reference_text(
         raise HTTPException(
             status_code=400,
             detail="Reference transcript is required. Auto-transcription of the reference clip returned no text.",
-        )
+    )
     return resolved
+
+
+async def persist_upload_to_tempfile(upload: UploadFile, fallback_name: str) -> str:
+    suffix = Path(upload.filename or fallback_name).suffix or Path(fallback_name).suffix or ".wav"
+    with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+        temp_file.write(await upload.read())
+        return temp_file.name
+
+
+def cleanup_temp_paths(*paths: str | Path | None) -> None:
+    for path in paths:
+        if path is None:
+            continue
+        Path(path).unlink(missing_ok=True)
+
+
+def run_or_http_error(operation: Callable[[], T]) -> T:
+    try:
+        return operation()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def build_generation_run_response(
+    *,
+    mode: str,
+    model_id: str,
+    device: str,
+    clips: list,
+) -> GenerationRunResponse:
+    return brand_generation_run_response(
+        GenerationRunResponse(
+            run_id=uuid4().hex,
+            mode=mode,  # type: ignore[arg-type]
+            model_id=model_id,
+            device=device,
+            created_at=datetime.now(timezone.utc),
+            clips=clips,
+        )
+    )
 
 
 def create_app(
@@ -683,28 +728,20 @@ def create_app(
         if model.strip() != OPENAI_ASR_MODEL_ID:
             raise HTTPException(status_code=400, detail=f"Unsupported model '{model}'.")
 
-        suffix = Path(file.filename or "audio.wav").suffix or ".wav"
-        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            temp_file.write(await file.read())
-            temp_path = temp_file.name
-
+        temp_path = await persist_upload_to_tempfile(file, "audio.wav")
         cleanup_paths: list[Path] = []
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
-            transcription = asr.transcribe_file(
-                file_path=prepared_path,
-                model_id=asr.model_ids.get("default", ASR_MODEL_IDS["default"]),
-                language=language,
-                send_to_chat=False,
+            transcription = run_or_http_error(
+                lambda: asr.transcribe_file(
+                    file_path=prepared_path,
+                    model_id=asr.model_ids.get("default", ASR_MODEL_IDS["default"]),
+                    language=language,
+                    send_to_chat=False,
+                )
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
-            Path(temp_path).unlink(missing_ok=True)
-            for cleanup_path in cleanup_paths:
-                cleanup_path.unlink(missing_ok=True)
+            cleanup_temp_paths(temp_path, *cleanup_paths)
 
         return {
             "text": transcription.text,
@@ -753,29 +790,21 @@ def create_app(
         language: str = Form("Auto"),
         send_to_chat: bool = Form(False),
     ):
-        suffix = Path(audio.filename or "audio.wav").suffix or ".wav"
-        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            temp_file.write(await audio.read())
-            temp_path = temp_file.name
-
+        temp_path = await persist_upload_to_tempfile(audio, "audio.wav")
         cleanup_paths: list[Path] = []
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
-            response = asr.transcribe_file(
-                file_path=prepared_path,
-                model_id=unbrand_ivy_text(model_id) or model_id,
-                language=language,
-                send_to_chat=send_to_chat,
+            response = run_or_http_error(
+                lambda: asr.transcribe_file(
+                    file_path=prepared_path,
+                    model_id=unbrand_ivy_text(model_id) or model_id,
+                    language=language,
+                    send_to_chat=send_to_chat,
+                )
             )
             return brand_asr_transcription_response(response)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
-            Path(temp_path).unlink(missing_ok=True)
-            for cleanup_path in cleanup_paths:
-                cleanup_path.unlink(missing_ok=True)
+            cleanup_temp_paths(temp_path, *cleanup_paths)
 
     @app.post("/api/chat/reply-voice/clone-profile", response_model=CloneVoiceProfileResponse)
     async def create_clone_voice_profile(
@@ -784,11 +813,7 @@ def create_app(
         label: str | None = Form(None),
         reference_text: str | None = Form(None),
     ) -> CloneVoiceProfileResponse:
-        suffix = Path(audio.filename or "reference.wav").suffix or ".wav"
-        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            temp_file.write(await audio.read())
-            temp_path = temp_file.name
-
+        temp_path = await persist_upload_to_tempfile(audio, "reference.wav")
         cleanup_paths: list[Path] = []
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
@@ -803,8 +828,10 @@ def create_app(
                 language=language,
                 x_vector_only_mode=False,
             )
-            speaker_embedding, ref_codes = tts.prepare_clone_conditioning_assets(
-                ref_audio_path=prompt_path
+            speaker_embedding, ref_codes = run_or_http_error(
+                lambda: tts.prepare_clone_conditioning_assets(
+                    ref_audio_path=prompt_path
+                )
             )
             return voice_profiles.save_profile(
                 source_path=prompt_path,
@@ -815,21 +842,12 @@ def create_app(
                 speaker_embedding=speaker_embedding,
                 ref_codes=ref_codes,
             )
-        except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
-            Path(temp_path).unlink(missing_ok=True)
-            for cleanup_path in cleanup_paths:
-                cleanup_path.unlink(missing_ok=True)
+            cleanup_temp_paths(temp_path, *cleanup_paths)
 
     @app.post("/api/generate/custom", response_model=GenerationRunResponse)
     def generate_custom(payload: CustomGenerationRequest) -> GenerationRunResponse:
-        try:
-            wavs, sample_rate = tts.generate_custom(payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        wavs, sample_rate = run_or_http_error(lambda: tts.generate_custom(payload))
 
         clips = [
             storage.save_clip(
@@ -843,15 +861,11 @@ def create_app(
             )
             for index, (segment, wav) in enumerate(zip(payload.segments, wavs, strict=True))
         ]
-        return brand_generation_run_response(
-            GenerationRunResponse(
-            run_id=uuid4().hex,
+        return build_generation_run_response(
             mode="custom",
             model_id=tts.model_ids["custom"],
             device=tts.selected_device,
-            created_at=datetime.now(timezone.utc),
             clips=clips,
-            )
         )
 
     def build_streaming_response(
@@ -960,12 +974,7 @@ def create_app(
 
     @app.post("/api/generate/design", response_model=GenerationRunResponse)
     def generate_design(payload: DesignGenerationRequest) -> GenerationRunResponse:
-        try:
-            wavs, sample_rate = tts.generate_design(payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        wavs, sample_rate = run_or_http_error(lambda: tts.generate_design(payload))
 
         clips = [
             storage.save_clip(
@@ -978,28 +987,18 @@ def create_app(
             )
             for index, (segment, wav) in enumerate(zip(payload.segments, wavs, strict=True))
         ]
-        return brand_generation_run_response(
-            GenerationRunResponse(
-            run_id=uuid4().hex,
+        return build_generation_run_response(
             mode="design",
             model_id=tts.model_ids["design"],
             device=tts.selected_device,
-            created_at=datetime.now(timezone.utc),
             clips=clips,
-            )
         )
 
     @app.post("/api/stream/custom")
     def stream_custom(payload: CustomGenerationRequest) -> StreamingResponse:
         run_id = uuid4().hex
         created_at = datetime.now(timezone.utc)
-
-        try:
-            stream_iter = tts.stream_custom(payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        stream_iter = run_or_http_error(lambda: tts.stream_custom(payload))
 
         return build_streaming_response(
             mode="custom",
@@ -1021,13 +1020,7 @@ def create_app(
     def stream_design(payload: DesignGenerationRequest) -> StreamingResponse:
         run_id = uuid4().hex
         created_at = datetime.now(timezone.utc)
-
-        try:
-            stream_iter = tts.stream_design(payload)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        stream_iter = run_or_http_error(lambda: tts.stream_design(payload))
 
         return build_streaming_response(
             mode="design",
@@ -1061,11 +1054,7 @@ def create_app(
             )
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=exc.errors()) from exc
-        suffix = Path(ref_audio.filename or "reference.wav").suffix or ".wav"
-        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            temp_file.write(await ref_audio.read())
-            temp_path = temp_file.name
-
+        temp_path = await persist_upload_to_tempfile(ref_audio, "reference.wav")
         cleanup_paths: list[Path] = []
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
@@ -1087,20 +1076,16 @@ def create_app(
                 resolved_ref_text,
             )
             payload = payload.model_copy(update={"language": resolved_language})
-            wavs, sample_rate = tts.generate_clone(
-                payload=payload,
-                ref_audio_path=prompt_path,
-                ref_text=resolved_ref_text,
-                x_vector_only_mode=x_vector_only_mode,
+            wavs, sample_rate = run_or_http_error(
+                lambda: tts.generate_clone(
+                    payload=payload,
+                    ref_audio_path=prompt_path,
+                    ref_text=resolved_ref_text,
+                    x_vector_only_mode=x_vector_only_mode,
+                )
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
         finally:
-            Path(temp_path).unlink(missing_ok=True)
-            for cleanup_path in cleanup_paths:
-                cleanup_path.unlink(missing_ok=True)
+            cleanup_temp_paths(temp_path, *cleanup_paths)
 
         clips = [
             storage.save_clip(
@@ -1114,15 +1099,11 @@ def create_app(
             )
             for index, (segment, wav) in enumerate(zip(payload.segments, wavs, strict=True))
         ]
-        return brand_generation_run_response(
-            GenerationRunResponse(
-            run_id=uuid4().hex,
+        return build_generation_run_response(
             mode="clone",
             model_id=tts.model_ids["clone"],
             device=tts.selected_device,
-            created_at=datetime.now(timezone.utc),
             clips=clips,
-            )
         )
 
     @app.post("/api/stream/clone")
@@ -1145,11 +1126,7 @@ def create_app(
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
-        suffix = Path(ref_audio.filename or "reference.wav").suffix or ".wav"
-        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            temp_file.write(await ref_audio.read())
-            temp_path = temp_file.name
-
+        temp_path = await persist_upload_to_tempfile(ref_audio, "reference.wav")
         cleanup_paths: list[Path] = []
         run_id = uuid4().hex
         created_at = datetime.now(timezone.utc)
@@ -1174,22 +1151,17 @@ def create_app(
                 resolved_ref_text,
             )
             payload = payload.model_copy(update={"language": resolved_language})
-            stream_iter = tts.stream_clone(
-                payload=payload,
-                ref_audio_path=prompt_path,
-                ref_text=resolved_ref_text,
-                x_vector_only_mode=x_vector_only_mode,
+            stream_iter = run_or_http_error(
+                lambda: tts.stream_clone(
+                    payload=payload,
+                    ref_audio_path=prompt_path,
+                    ref_text=resolved_ref_text,
+                    x_vector_only_mode=x_vector_only_mode,
+                )
             )
-        except ValueError as exc:
-            Path(temp_path).unlink(missing_ok=True)
-            for cleanup_path in cleanup_paths:
-                cleanup_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            Path(temp_path).unlink(missing_ok=True)
-            for cleanup_path in cleanup_paths:
-                cleanup_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        except HTTPException:
+            cleanup_temp_paths(temp_path, *cleanup_paths)
+            raise
 
         response = build_streaming_response(
             mode="clone",
@@ -1213,9 +1185,7 @@ def create_app(
                 async for chunk in original_iter:
                     yield chunk
             finally:
-                Path(temp_path).unlink(missing_ok=True)
-                for cleanup_path in cleanup_paths:
-                    cleanup_path.unlink(missing_ok=True)
+                cleanup_temp_paths(temp_path, *cleanup_paths)
 
         response.body_iterator = wrapped_iter()
         return response

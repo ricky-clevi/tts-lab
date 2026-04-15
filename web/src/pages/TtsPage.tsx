@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createReplyVoiceCloneProfile, fetchCapabilities, generateRun } from '../api'
-import { Alert, Badge, Button, Card, CardBody, CardHeader, Input, Select, Textarea } from '../components/ui'
-import { useToast } from '../components/ui/Toast'
+import '../styles/pages/tts.css'
+import { Alert, Badge, Button, Card, CardBody, CardHeader, Input, LoadingState, Select, Textarea, useToast } from '../components/ui'
 import { t } from '../i18n'
 import type { AudioClip, CapabilitiesResponse, GenerationRun, Mode } from '../types'
 
@@ -17,10 +17,10 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   max_new_tokens: 2048,
 }
 
-const MODE_META: Record<Mode, { mark: string; title: string; summary: string }> = {
-  custom: { mark: 'BASE', title: 'Preset Speaker', summary: 'Use an available speaker profile for direct synthesis.' },
-  design: { mark: 'STYLE', title: 'Voice Design', summary: 'Describe tone and character to shape the voice dynamically.' },
-  clone: { mark: 'CLONE', title: 'Reference Clone', summary: 'Upload a short sample and build a reusable operator voice.' },
+const MODE_META: Record<Mode, { mark: string; titleKey: string; summaryKey: string }> = {
+  custom: { mark: 'BASE', titleKey: 'tts.mode.custom.title', summaryKey: 'tts.mode.custom.summary' },
+  design: { mark: 'STYLE', titleKey: 'tts.mode.design.title', summaryKey: 'tts.mode.design.summary' },
+  clone: { mark: 'CLONE', titleKey: 'tts.mode.clone.title', summaryKey: 'tts.mode.clone.summary' },
 }
 
 export default function TtsPage() {
@@ -50,7 +50,7 @@ export default function TtsPage() {
         if (caps.speakers.length > 0) setSpeaker(caps.speakers[0].id)
         if (caps.languages.length > 0) setLanguage(caps.languages[0])
       } catch {
-        showError('Failed to load capabilities')
+        showError(t('tts.error.loadCapabilities'))
       } finally {
         setIsLoadingCaps(false)
       }
@@ -62,7 +62,7 @@ export default function TtsPage() {
   const languageOptions =
     capabilities?.languages.map((entry) => ({
       value: entry,
-      label: entry === 'en' ? 'English' : entry === 'ko' ? 'Korean' : entry === 'auto' ? 'Auto' : entry,
+      label: entry === 'en' ? t('language.english') : entry === 'ko' ? t('language.korean') : entry === 'auto' ? t('language.auto') : entry,
     })) || []
 
   const handleSegmentChange = (index: number, value: string) => {
@@ -72,12 +72,12 @@ export default function TtsPage() {
   const handleGenerate = async () => {
     const validSegments = segments.filter((segment) => segment.trim())
     if (validSegments.length === 0) {
-      showError('Please enter at least one text segment')
+      showError(t('tts.error.missingSegment'))
       return
     }
 
     if (mode === 'clone' && !referenceFile) {
-      showError('Please upload a reference audio file for voice cloning')
+      showError(t('tts.error.missingReferenceAudio'))
       return
     }
 
@@ -106,9 +106,9 @@ export default function TtsPage() {
 
       setRuns((prev) => [result, ...prev])
       setSelectedRun(result)
-      success('Audio generated successfully')
+      success(t('tts.toast.generated'))
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Generation failed'
+      const message = err instanceof Error ? err.message : t('error.generationFailed')
       setGenerationError(message)
       showError(message)
     } finally {
@@ -118,7 +118,7 @@ export default function TtsPage() {
 
   const handleSaveCloneProfile = async () => {
     if (!referenceFile || !cloneLabel.trim()) {
-      showError('Please provide a reference audio and label for the voice profile')
+      showError(t('tts.error.cloneProfileMissingFields'))
       return
     }
 
@@ -129,22 +129,19 @@ export default function TtsPage() {
         label: cloneLabel,
         referenceText,
       })
-      success(`Voice profile "${profile.label}" saved successfully`)
+      success(t('tts.toast.profileSaved', { label: profile.label }))
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Failed to save voice profile')
+      showError(err instanceof Error ? err.message : t('tts.error.saveProfile'))
     }
   }
 
-  const getModeDescription = (value: Mode) => capabilities?.modes.find((entry) => entry.id === value)?.description || MODE_META[value].summary
+  const getModeDescription = (value: Mode) => capabilities?.modes.find((entry) => entry.id === value)?.description || t(MODE_META[value].summaryKey)
 
   if (isLoadingCaps) {
     return (
       <div className="page">
         <div className="page-container">
-          <div className="loading-state">
-            <div className="spinner" />
-            <p>Loading TTS capabilities...</p>
-          </div>
+          <LoadingState message={t('tts.loadingCapabilities')} />
         </div>
       </div>
     )
@@ -156,15 +153,13 @@ export default function TtsPage() {
         <div className="page-header">
           <div className="tts-header">
             <div>
-              <p className="tts-kicker">Synthesis Workspace</p>
-              <h1>{t('workspace.tts') || 'TTS Studio'}</h1>
-              <p className="page-description">
-                {t('tts.lead') || 'Generate speech from text using custom voices, voice design, or voice cloning.'}
-              </p>
+              <p className="tts-kicker">{t('tts.workspace.kicker')}</p>
+              <h1>{t('workspace.tts')}</h1>
+              <p className="page-description">{t('tts.lead')}</p>
             </div>
             <div className="tts-header-pills">
-              <span>{capabilities?.selected_device ?? 'Device unavailable'}</span>
-              <span>{capabilities?.runtime_backend ?? 'Unknown backend'}</span>
+              <span>{capabilities?.selected_device ?? t('tts.deviceUnavailable')}</span>
+              <span>{capabilities?.runtime_backend ?? t('tts.backendUnknown')}</span>
             </div>
           </div>
         </div>
@@ -175,8 +170,8 @@ export default function TtsPage() {
               <CardBody>
                 <div className="section-head">
                   <div>
-                    <p className="panel-kicker">Voice Mode</p>
-                    <h2>{MODE_META[mode].title}</h2>
+                    <p className="panel-kicker">{t('tts.voiceMode')}</p>
+                    <h2>{t(MODE_META[mode].titleKey)}</h2>
                   </div>
                   <span className="mode-mark">{MODE_META[mode].mark}</span>
                 </div>
@@ -184,8 +179,8 @@ export default function TtsPage() {
                   {(Object.keys(MODE_META) as Mode[]).map((value) => (
                     <button key={value} className={`mode-tab ${mode === value ? 'mode-tab-active' : ''}`} onClick={() => setMode(value)}>
                       <span className="mode-tab-mark">{MODE_META[value].mark}</span>
-                      <strong>{t(`mode.${value}`) || MODE_META[value].title}</strong>
-                      <span>{MODE_META[value].summary}</span>
+                      <strong>{t(`mode.${value}`)}</strong>
+                      <span>{t(MODE_META[value].summaryKey)}</span>
                     </button>
                   ))}
                 </div>
@@ -194,13 +189,13 @@ export default function TtsPage() {
             </Card>
 
             <Card>
-              <CardHeader><h3>Voice Controls</h3></CardHeader>
+              <CardHeader><h3>{t('tts.voiceControls')}</h3></CardHeader>
               <CardBody>
                 {mode === 'custom' && (
                   <div className="form-stack">
-                    <Select label={t('field.language') || 'Language'} value={language} onChange={(e) => setLanguage(e.target.value)} options={languageOptions} />
+                    <Select label={t('field.language')} value={language} onChange={(e) => setLanguage(e.target.value)} options={languageOptions} />
                     <Select
-                      label={t('field.speaker') || 'Speaker'}
+                      label={t('field.speaker')}
                       value={speaker}
                       onChange={(e) => setSpeaker(e.target.value)}
                       options={capabilities?.speakers.map((entry) => ({ value: entry.id, label: `${entry.name} - ${entry.description}` })) || []}
@@ -210,13 +205,13 @@ export default function TtsPage() {
 
                 {mode === 'design' && (
                   <div className="form-stack">
-                    <Select label={t('field.language') || 'Language'} value={language} onChange={(e) => setLanguage(e.target.value)} options={languageOptions} />
+                    <Select label={t('field.language')} value={language} onChange={(e) => setLanguage(e.target.value)} options={languageOptions} />
                     <Textarea
-                      label={t('field.voicePersona') || 'Voice Persona'}
+                      label={t('field.voicePersona')}
                       value={voicePersona}
                       onChange={(e) => setVoicePersona(e.target.value)}
-                      placeholder="Example: calm, reassuring female voice with steady pace for appointment reminders"
-                      hint="Use concise operator-facing guidance rather than long prose."
+                      placeholder={t('tts.personaPlaceholder')}
+                      hint={t('tts.personaHint')}
                     />
                   </div>
                 )}
@@ -224,42 +219,42 @@ export default function TtsPage() {
                 {mode === 'clone' && (
                   <div className="form-stack">
                     <Select
-                      label={t('field.language') || 'Language'}
+                      label={t('field.language')}
                       value={language}
                       onChange={(e) => setLanguage(e.target.value)}
-                      options={languageOptions.map((entry) => ({ ...entry, label: entry.value === 'auto' ? 'Auto (recommended)' : entry.label }))}
+                      options={languageOptions.map((entry) => ({ ...entry, label: entry.value === 'auto' ? t('tts.autoRecommended') : entry.label }))}
                       hint={t('hint.cloneLanguageAuto')}
                     />
                     <div className="form-group">
-                      <label className="form-label">{t('field.referenceAudio') || 'Reference Audio'}</label>
+                      <label className="form-label">{t('field.referenceAudio')}</label>
                       <div className="file-upload-area">
                         <input type="file" accept="audio/*" onChange={(e) => setReferenceFile(e.target.files?.[0] || null)} className="file-input" />
                         {referenceFile ? (
                           <div className="file-selected">
                             <div>
                               <strong>{referenceFile.name}</strong>
-                              <p>Reference clip loaded</p>
+                              <p>{t('tts.referenceLoaded')}</p>
                             </div>
-                            <Button variant="ghost" size="sm" onClick={() => setReferenceFile(null)}>Remove</Button>
+                            <Button variant="ghost" size="sm" onClick={() => setReferenceFile(null)}>{t('button.removeSegment')}</Button>
                           </div>
                         ) : (
                           <div className="file-placeholder">
-                            <strong>Upload a clean 3-8 second sample</strong>
-                            <p>Use a single speaker and minimal background noise.</p>
+                            <strong>{t('tts.referencePlaceholderTitle')}</strong>
+                            <p>{t('tts.referencePlaceholderDescription')}</p>
                           </div>
                         )}
                       </div>
                     </div>
                     <Textarea
-                      label={t('field.referenceTranscript') || 'Reference Transcript'}
+                      label={t('field.referenceTranscript')}
                       value={referenceText}
                       onChange={(e) => setReferenceText(e.target.value)}
                       placeholder={t('placeholder.referenceTranscript')}
                       hint={t('hint.cloneTranscriptBlank')}
                     />
-                    <Input label="Voice Label" value={cloneLabel} onChange={(e) => setCloneLabel(e.target.value)} placeholder={t('placeholder.voiceLabel') || 'Korean outbound female v1'} />
+                    <Input label={t('field.voiceLabel')} value={cloneLabel} onChange={(e) => setCloneLabel(e.target.value)} placeholder={t('placeholder.voiceLabel')} />
                     <Button variant="secondary" onClick={handleSaveCloneProfile} disabled={!referenceFile || !cloneLabel.trim()}>
-                      Save voice profile
+                      {t('tts.saveVoiceProfile')}
                     </Button>
                   </div>
                 )}
@@ -269,8 +264,8 @@ export default function TtsPage() {
             <Card>
               <CardHeader>
                 <div className="section-head-inline">
-                  <h3>Text Segments</h3>
-                  <Button variant="ghost" size="sm" onClick={() => setSegments((prev) => [...prev, ''])}>Add segment</Button>
+                  <h3>{t('tts.textSegments')}</h3>
+                  <Button variant="ghost" size="sm" onClick={() => setSegments((prev) => [...prev, ''])}>{t('button.addSegment')}</Button>
                 </div>
               </CardHeader>
               <CardBody>
@@ -278,14 +273,14 @@ export default function TtsPage() {
                   {segments.map((segment, index) => (
                     <div key={index} className="segment-item">
                       <Textarea
-                        label={segments.length > 1 ? `Segment ${index + 1}` : undefined}
+                        label={segments.length > 1 ? t('field.textSegment', { index: index + 1 }) : undefined}
                         value={segment}
                         onChange={(e) => handleSegmentChange(index, e.target.value)}
-                        placeholder={t('placeholder.pasteText') || 'Enter text to synthesize...'}
+                        placeholder={t('placeholder.pasteText')}
                       />
                       {segments.length > 1 && (
                         <Button variant="ghost" size="sm" onClick={() => setSegments((prev) => prev.filter((_, currentIndex) => currentIndex !== index))} className="remove-segment-btn">
-                          Remove
+                          {t('button.removeSegment')}
                         </Button>
                       )}
                     </div>
@@ -298,16 +293,16 @@ export default function TtsPage() {
               <CardBody>
                 <button className="advanced-toggle" onClick={() => setShowAdvanced((value) => !value)}>
                   <div>
-                    <p className="panel-kicker">Generation Controls</p>
-                    <h3>Advanced settings</h3>
+                    <p className="panel-kicker">{t('tts.generationControls')}</p>
+                    <h3>{t('tts.advancedSettings')}</h3>
                   </div>
-                  <span className="toggle-icon">{showAdvanced ? 'Hide' : 'Show'}</span>
+                  <span className="toggle-icon">{showAdvanced ? t('common.hide') : t('common.show')}</span>
                 </button>
                 {showAdvanced && (
                   <div className="advanced-settings">
-                    <Input label="Temperature" type="number" step="0.1" min="0" max="2" value={settings.temperature} onChange={(e) => setSettings((prev) => ({ ...prev, temperature: Number.parseFloat(e.target.value) || 0 }))} />
-                    <Input label="Top P" type="number" step="0.1" min="0" max="1" value={settings.top_p} onChange={(e) => setSettings((prev) => ({ ...prev, top_p: Number.parseFloat(e.target.value) || 0 }))} />
-                    <Input label="Max New Tokens" type="number" min="256" max="8192" value={settings.max_new_tokens} onChange={(e) => setSettings((prev) => ({ ...prev, max_new_tokens: Number.parseInt(e.target.value, 10) || 0 }))} />
+                    <Input label={t('field.temperature')} type="number" step="0.1" min="0" max="2" value={settings.temperature} onChange={(e) => setSettings((prev) => ({ ...prev, temperature: Number.parseFloat(e.target.value) || 0 }))} />
+                    <Input label={t('generation.topP')} type="number" step="0.1" min="0" max="1" value={settings.top_p} onChange={(e) => setSettings((prev) => ({ ...prev, top_p: Number.parseFloat(e.target.value) || 0 }))} />
+                    <Input label={t('generation.maxNewTokens')} type="number" min="256" max="8192" value={settings.max_new_tokens} onChange={(e) => setSettings((prev) => ({ ...prev, max_new_tokens: Number.parseInt(e.target.value, 10) || 0 }))} />
                   </div>
                 )}
               </CardBody>
@@ -316,7 +311,7 @@ export default function TtsPage() {
             {generationError && <Alert variant="error" onDismiss={() => setGenerationError('')}>{generationError}</Alert>}
 
             <Button variant="primary" size="lg" fullWidth onClick={handleGenerate} isLoading={isGenerating} disabled={isGenerating || segments.every((segment) => !segment.trim())}>
-              {isGenerating ? t('button.generating') || 'Generating...' : t('button.generateAudio') || 'Generate Audio'}
+              {isGenerating ? t('button.generating') : t('button.generateAudio')}
             </Button>
           </div>
 
@@ -324,27 +319,27 @@ export default function TtsPage() {
             <Card>
               <CardHeader className="results-header">
                 <div>
-                  <p className="panel-kicker">Output Review</p>
-                  <h3>Generated results</h3>
+                  <p className="panel-kicker">{t('tts.outputReview')}</p>
+                  <h3>{t('tts.generatedResults')}</h3>
                 </div>
-                {runs.length > 0 && <Badge variant="primary">{runs.length} runs</Badge>}
+                {runs.length > 0 && <Badge variant="primary">{t('tts.runsBadge', { count: runs.length })}</Badge>}
               </CardHeader>
               <CardBody>
                 {runs.length === 0 ? (
                   <div className="empty-results">
                     <span className="empty-mark">AUDIO</span>
-                    <h3>No generations yet</h3>
-                    <p>Use the controls on the left to create your first synthesis run.</p>
+                    <h3>{t('tts.emptyResults.title')}</h3>
+                    <p>{t('tts.emptyResults.description')}</p>
                   </div>
                 ) : (
                   <>
                     {runs.length > 1 && (
                       <div className="run-history">
-                        <label className="form-label">Run History</label>
+                        <label className="form-label">{t('results.runHistory')}</label>
                         <div className="history-list">
                           {runs.map((run) => (
                             <button key={run.run_id} className={`history-item ${selectedRun?.run_id === run.run_id ? 'history-item-active' : ''}`} onClick={() => setSelectedRun(run)}>
-                              <strong>{run.mode}</strong>
+                              <strong>{t(`mode.${run.mode}`)}</strong>
                               <span>{new Date(run.created_at).toLocaleTimeString()}</span>
                             </button>
                           ))}
@@ -371,107 +366,6 @@ export default function TtsPage() {
           </div>
         </div>
       </div>
-
-      <style>{`
-        .tts-page .page-container { max-width: 1400px; }
-        .tts-header { display: flex; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
-        .tts-kicker, .panel-kicker {
-          color: var(--color-primary-700);
-          font-size: var(--text-xs);
-          font-weight: var(--font-bold);
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-          margin-bottom: var(--space-2);
-        }
-        .tts-header-pills { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: start; }
-        .tts-header-pills span {
-          display: inline-flex;
-          padding: 0.55rem 0.85rem;
-          border-radius: var(--radius-full);
-          background: color-mix(in oklab, var(--color-surface-elevated) 78%, white 22%);
-          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
-          color: var(--color-gray-700);
-          font-size: var(--text-sm);
-          font-weight: var(--font-medium);
-        }
-        .tts-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(22rem, 0.9fr); gap: var(--space-6); align-items: start; }
-        .tts-controls { display: grid; gap: var(--space-4); }
-        .tts-results .card { position: sticky; top: calc(var(--navbar-height) + var(--space-4)); }
-        .section-head, .section-head-inline, .results-header { display: flex; justify-content: space-between; align-items: start; gap: var(--space-3); }
-        .mode-mark, .mode-tab-mark, .empty-mark {
-          display: inline-grid;
-          place-items: center;
-          width: fit-content;
-          padding: 0.4rem 0.7rem;
-          border-radius: var(--radius-full);
-          background: color-mix(in oklab, var(--color-primary-100) 70%, white 30%);
-          color: var(--color-primary-800);
-          font-size: 0.7rem;
-          font-weight: var(--font-extrabold);
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-        .mode-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-5) 0 var(--space-4); }
-        .mode-tab {
-          display: grid;
-          gap: var(--space-2);
-          padding: var(--space-4);
-          text-align: left;
-          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
-          border-radius: var(--radius-xl);
-          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
-        }
-        .mode-tab strong { font-family: var(--font-family-display); font-size: var(--text-base); color: var(--color-gray-900); }
-        .mode-tab span:last-child, .mode-description, .file-placeholder p, .empty-results p { color: var(--color-gray-600); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
-        .mode-tab-active { border-color: var(--color-primary-400); background: color-mix(in oklab, var(--color-primary-50) 44%, white 56%); box-shadow: var(--shadow-sm); }
-        .form-stack, .segments-list, .run-details, .clips-list { display: grid; gap: var(--space-4); }
-        .file-upload-area {
-          display: grid;
-          gap: var(--space-3);
-          padding: var(--space-4);
-          border-radius: var(--radius-xl);
-          border: 1px dashed color-mix(in oklab, var(--color-primary-300) 56%, var(--color-line) 44%);
-          background: color-mix(in oklab, var(--color-primary-50) 26%, white 74%);
-        }
-        .file-selected, .file-placeholder { display: flex; justify-content: space-between; gap: var(--space-3); align-items: center; }
-        .segment-item { position: relative; }
-        .remove-segment-btn { position: absolute; top: 0; right: 0; }
-        .advanced-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; text-align: left; border: none; background: none; padding: 0; }
-        .toggle-icon { color: var(--color-primary-700); font-size: var(--text-sm); font-weight: var(--font-bold); }
-        .advanced-settings { display: grid; gap: var(--space-4); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%); }
-        .empty-results { display: grid; justify-items: start; gap: var(--space-3); padding: var(--space-4) 0; }
-        .run-history { margin-bottom: var(--space-5); }
-        .history-list { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
-        .history-item {
-          display: grid;
-          gap: 0.15rem;
-          padding: var(--space-3);
-          border-radius: var(--radius-lg);
-          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
-          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
-          text-align: left;
-        }
-        .history-item strong { text-transform: capitalize; }
-        .history-item span, .run-meta span { color: var(--color-gray-500); font-size: var(--text-sm); }
-        .history-item-active { border-color: var(--color-primary-400); background: color-mix(in oklab, var(--color-primary-50) 42%, white 58%); }
-        .run-meta { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
-        .loading-state {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          min-height: 400px;
-          gap: var(--space-4);
-          color: var(--color-gray-500);
-        }
-        @media (max-width: 1100px) {
-          .tts-layout { grid-template-columns: 1fr; }
-          .tts-results .card { position: static; }
-        }
-        @media (max-width: 780px) {
-          .mode-tabs { grid-template-columns: 1fr; }
-        }
-      `}</style>
     </div>
   )
 }
@@ -487,14 +381,14 @@ function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
-    return mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${secs}s`
+    return mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : t('unit.secondsShort', { value: secs })
   }
 
   return (
     <div className="clip-card">
       <div className="clip-header">
         <div>
-          <p className="clip-kicker">Segment {index + 1}</p>
+          <p className="clip-kicker">{t('results.segment', { index: index + 1 })}</p>
           <strong>{formatDuration(clip.duration_seconds)}</strong>
         </div>
         <Badge variant="info">{clip.language}</Badge>
@@ -502,42 +396,12 @@ function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
       <p className="clip-text">{clip.text}</p>
       <audio src={clip.audio_url} controls className="clip-audio" />
       <div className="clip-meta">
-        <span>Sample rate {clip.sample_rate} Hz</span>
-        {clip.speaker && <span>Speaker {clip.speaker}</span>}
+        <span>{t('tts.sampleRateMeta', { sampleRate: clip.sample_rate })}</span>
+        {clip.speaker && <span>{t('tts.speakerMeta', { speaker: clip.speaker })}</span>}
       </div>
       <Button variant="secondary" size="sm" onClick={handleDownload}>
-        Download clip
+        {t('tts.downloadClip')}
       </Button>
-      <style>{`
-        .clip-card {
-          display: grid;
-          gap: var(--space-3);
-          padding: var(--space-4);
-          border-radius: var(--radius-xl);
-          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
-          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
-        }
-        .clip-header { display: flex; justify-content: space-between; gap: var(--space-3); align-items: start; }
-        .clip-kicker {
-          color: var(--color-gray-500);
-          font-size: var(--text-xs);
-          font-weight: var(--font-bold);
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          margin-bottom: 0.25rem;
-        }
-        .clip-header strong { font-family: var(--font-family-display); font-size: var(--text-lg); color: var(--color-gray-900); }
-        .clip-text {
-          padding: var(--space-3);
-          border-radius: var(--radius-lg);
-          background: var(--color-white);
-          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
-          color: var(--color-gray-700);
-          line-height: var(--leading-relaxed);
-        }
-        .clip-audio { width: 100%; height: 40px; }
-        .clip-meta { display: flex; gap: var(--space-3); flex-wrap: wrap; color: var(--color-gray-500); font-size: var(--text-xs); }
-      `}</style>
     </div>
   )
 }

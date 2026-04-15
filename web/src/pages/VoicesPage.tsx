@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { deleteVoice, fetchVoices } from '../api'
-import { Alert, Badge, Button, Card, CardBody, ConfirmModal, EmptyState, Input, Select, Skeleton } from '../components/ui'
-import { useToast } from '../components/ui/Toast'
+import '../styles/pages/voices.css'
+import { Alert, Badge, Button, Card, CardBody, ConfirmModal, EmptyState, Input, Select, Skeleton, useToast } from '../components/ui'
 import { t } from '../i18n'
 import type { CloneVoiceProfileResponse } from '../types'
 
@@ -33,7 +33,7 @@ export default function VoicesPage() {
       setError('')
       setVoices(await fetchVoices())
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load voices')
+      setError(err instanceof Error ? err.message : t('voices.error.load'))
     } finally {
       setLoading(false)
     }
@@ -74,7 +74,7 @@ export default function VoicesPage() {
   const handleCopyId = (id: string) => {
     navigator.clipboard.writeText(id)
     setCopiedId(id)
-    success('Voice ID copied to clipboard')
+    success(t('voices.toast.copied'))
     setTimeout(() => setCopiedId(''), 2000)
   }
 
@@ -85,11 +85,11 @@ export default function VoicesPage() {
       setIsDeleting(true)
       await deleteVoice(voiceToDelete.id)
       setVoices((prev) => prev.filter((voice) => voice.id !== voiceToDelete.id))
-      success(`Voice "${voiceToDelete.label}" deleted successfully`)
+      success(t('voices.toast.deleted', { label: voiceToDelete.label }))
       setDeleteModalOpen(false)
       setVoiceToDelete(null)
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Failed to delete voice')
+      showError(err instanceof Error ? err.message : t('voices.error.delete'))
     } finally {
       setIsDeleting(false)
     }
@@ -102,12 +102,12 @@ export default function VoicesPage() {
       <div className="page-container">
         <div className="page-header">
           <div className="header-content">
-            <p className="voices-kicker">Asset Library</p>
-            <h1>{t('voices.title') || 'Voice Library'}</h1>
-            <p className="page-description">Your custom and cloned voice profiles. Use voice IDs to integrate with the on-prem TTS API.</p>
+            <p className="voices-kicker">{t('voices.kicker')}</p>
+            <h1>{t('voices.title')}</h1>
+            <p className="page-description">{t('voices.description')}</p>
           </div>
           <Link to="/tts" className="btn btn-primary">
-            Create New Voice
+            {t('voices.create')}
           </Link>
         </div>
 
@@ -117,40 +117,40 @@ export default function VoicesPage() {
           <CardBody>
             <div className="filters-row">
               <div className="search-field">
-                <Input placeholder="Search voices..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon="ID" />
+                <Input placeholder={t('voices.searchPlaceholder')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon="ID" />
               </div>
               <Select
                 value={languageFilter}
                 onChange={(e) => setLanguageFilter(e.target.value)}
-                options={[{ value: 'all', label: 'All Languages' }, ...languages.map((entry) => ({ value: entry, label: entry === 'en' ? 'English' : entry === 'ko' ? 'Korean' : entry }))]}
+                options={[{ value: 'all', label: t('voices.filter.allLanguages') }, ...languages.map((entry) => ({ value: entry, label: entry === 'en' ? t('language.english') : entry === 'ko' ? t('language.korean') : entry }))]}
               />
               <Select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
                 options={[
-                  { value: 'newest', label: 'Newest First' },
-                  { value: 'oldest', label: 'Oldest First' },
-                  { value: 'name-asc', label: 'Name (A-Z)' },
-                  { value: 'name-desc', label: 'Name (Z-A)' },
+                  { value: 'newest', label: t('voices.sort.newest') },
+                  { value: 'oldest', label: t('voices.sort.oldest') },
+                  { value: 'name-asc', label: t('voices.sort.nameAsc') },
+                  { value: 'name-desc', label: t('voices.sort.nameDesc') },
                 ]}
               />
               <div className="view-toggle">
-                <button className={`view-btn ${viewMode === 'grid' ? 'view-btn-active' : ''}`} onClick={() => setViewMode('grid')} aria-label="Grid view">
-                  Cards
+                <button className={`view-btn ${viewMode === 'grid' ? 'view-btn-active' : ''}`} onClick={() => setViewMode('grid')} aria-label={t('voices.view.grid')}>
+                  {t('voices.view.cards')}
                 </button>
-                <button className={`view-btn ${viewMode === 'list' ? 'view-btn-active' : ''}`} onClick={() => setViewMode('list')} aria-label="List view">
-                  List
+                <button className={`view-btn ${viewMode === 'list' ? 'view-btn-active' : ''}`} onClick={() => setViewMode('list')} aria-label={t('voices.view.list')}>
+                  {t('voices.view.listLabel')}
                 </button>
               </div>
               {hasActiveFilters && (
                 <Button variant="ghost" size="sm" onClick={() => { setSearchQuery(''); setLanguageFilter('all'); setSortBy('newest') }}>
-                  Clear Filters
+                  {t('voices.filter.clear')}
                 </Button>
               )}
             </div>
 
             <div className="results-count">
-              {loading ? <Skeleton width={120} height={16} /> : <span>{filteredVoices.length} of {voices.length} voices{hasActiveFilters && ' (filtered)'}</span>}
+              {loading ? <Skeleton width={120} height={16} /> : <span>{t('voices.results.count', { shown: filteredVoices.length, total: voices.length })}{hasActiveFilters ? ` ${t('voices.results.filtered')}` : ''}</span>}
             </div>
           </CardBody>
         </Card>
@@ -169,9 +169,9 @@ export default function VoicesPage() {
           <Card>
             <CardBody>
               {voices.length === 0 ? (
-                <EmptyState icon="LIB" title={t('voices.empty') || 'No voices yet'} description="Create your first voice by going to the TTS Studio and cloning a voice." action={{ label: 'Go to TTS Studio', href: '/tts' }} />
+                <EmptyState icon="LIB" title={t('voices.empty')} description={t('voices.emptyDescription')} action={{ label: t('voices.emptyAction'), href: '/tts' }} />
               ) : (
-                <EmptyState icon="?" title="No results found" description={`No voices match "${searchQuery}". Try adjusting your search or filters.`} action={{ label: 'Clear Filters', onClick: () => { setSearchQuery(''); setLanguageFilter('all'); setSortBy('newest') } }} />
+                <EmptyState icon="?" title={t('voices.noResults.title')} description={t('voices.noResults.description', { query: searchQuery })} action={{ label: t('voices.filter.clear'), onClick: () => { setSearchQuery(''); setLanguageFilter('all'); setSortBy('newest') } }} />
               )}
             </CardBody>
           </Card>
@@ -187,57 +187,14 @@ export default function VoicesPage() {
           isOpen={deleteModalOpen}
           onClose={() => { setDeleteModalOpen(false); setVoiceToDelete(null) }}
           onConfirm={handleDeleteConfirm}
-          title="Delete Voice Profile"
-          message={`Are you sure you want to delete "${voiceToDelete?.label}"? This action cannot be undone.`}
-          confirmText="Delete"
-          cancelText="Cancel"
+          title={t('voices.delete.title')}
+          message={t('voices.delete.message', { label: voiceToDelete?.label ?? '' })}
+          confirmText={t('voices.delete.confirm')}
+          cancelText={t('modal.cancel')}
           variant="danger"
           isLoading={isDeleting}
         />
       </div>
-
-      <style>{`
-        .voices-kicker {
-          color: var(--color-primary-700);
-          font-size: var(--text-xs);
-          font-weight: var(--font-bold);
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-          margin-bottom: var(--space-2);
-        }
-        .voices-page .page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-4); }
-        .header-content { flex: 1; }
-        .filters-card { margin-bottom: var(--space-6); }
-        .filters-row { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: flex-end; }
-        .search-field { flex: 1; min-width: 220px; }
-        .filters-row .form-group { margin: 0; }
-        .view-toggle {
-          display: flex;
-          padding: 0.25rem;
-          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
-          border-radius: var(--radius-full);
-          background: color-mix(in oklab, var(--color-surface) 82%, white 18%);
-        }
-        .view-btn {
-          min-width: 4.8rem;
-          padding: var(--space-2) var(--space-4);
-          background: transparent;
-          border: none;
-          border-radius: var(--radius-full);
-          color: var(--color-gray-500);
-          font-size: var(--text-sm);
-          font-weight: var(--font-bold);
-        }
-        .view-btn-active { background: var(--color-white); color: var(--color-primary-700); box-shadow: var(--shadow-sm); }
-        .results-count { margin-top: var(--space-3); font-size: var(--text-sm); color: var(--color-gray-500); }
-        .voices-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: var(--space-4); }
-        .voices-list { display: flex; flex-direction: column; gap: var(--space-3); }
-        @media (max-width: 768px) {
-          .voices-page .page-header, .filters-row { flex-direction: column; }
-          .search-field { width: 100%; }
-          .voices-grid { grid-template-columns: 1fr; }
-        }
-      `}</style>
     </div>
   )
 }
@@ -260,7 +217,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete }: VoiceCardP
           <div className="voice-header">
             <div className="voice-info">
               <h3 className="voice-name">{voice.label}</h3>
-              <Badge variant="info">{voice.language === 'en' ? 'English' : voice.language === 'ko' ? 'Korean' : voice.language}</Badge>
+              <Badge variant="info">{voice.language === 'en' ? t('language.english') : voice.language === 'ko' ? t('language.korean') : voice.language}</Badge>
             </div>
             <span className="voice-date">{new Date(voice.created_at).toLocaleDateString()}</span>
           </div>
@@ -268,14 +225,15 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete }: VoiceCardP
           {isGrid && <p className="voice-text">{voice.reference_text.substring(0, 120)}{voice.reference_text.length > 120 ? '...' : ''}</p>}
 
           <div className="voice-id-section">
-            <span className="voice-id-label">Voice ID</span>
+            <span className="voice-id-label">{t('voices.voiceId')}</span>
             <div className="voice-id-row">
               <code className="voice-id-value">{voice.id}</code>
               <Button variant={copiedId === voice.id ? 'primary' : 'secondary'} size="sm" onClick={() => onCopyId(voice.id)}>
-                {copiedId === voice.id ? 'Copied' : 'Copy'}
+                {copiedId === voice.id ? t('voices.copied') : t('voices.copyId')}
               </Button>
             </div>
-            <p className="voice-id-hint">{t('voices.usageHint') || 'Use this Voice ID in the voice field when calling the TTS API'}</p>
+            <p className="voice-id-hint">{t('voices.usageHint')}</p>
+
           </div>
 
           {isGrid && voice.audio_path && (
@@ -285,61 +243,11 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete }: VoiceCardP
           )}
 
           <div className="voice-actions">
-            <Button variant="danger" size="sm" onClick={() => onDelete(voice)}>Delete</Button>
+            <Button variant="danger" size="sm" onClick={() => onDelete(voice)}>{t('voices.delete.confirm')}</Button>
           </div>
         </div>
       </CardBody>
 
-      <style>{`
-        .voice-card-grid .voice-card-content { display: flex; flex-direction: column; gap: var(--space-4); }
-        .voice-card-list .voice-card-content { display: flex; align-items: center; gap: var(--space-6); }
-        .voice-card-list .voice-info { min-width: 150px; }
-        .voice-card-list .voice-id-section { flex: 1; }
-        .voice-header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
-        .voice-info { display: flex; flex-direction: column; gap: var(--space-2); }
-        .voice-name { margin: 0; font-size: var(--text-lg); font-weight: var(--font-semibold); }
-        .voice-date { font-size: var(--text-sm); color: var(--color-gray-400); white-space: nowrap; }
-        .voice-text {
-          margin: 0;
-          font-size: var(--text-sm);
-          color: var(--color-gray-600);
-          line-height: var(--leading-relaxed);
-          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
-          padding: var(--space-3);
-          border-radius: var(--radius-md);
-        }
-        .voice-id-section {
-          padding: var(--space-3);
-          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
-          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
-          border-radius: var(--radius-md);
-        }
-        .voice-id-label {
-          display: block;
-          font-size: var(--text-xs);
-          font-weight: var(--font-bold);
-          letter-spacing: 0.12em;
-          text-transform: uppercase;
-          color: var(--color-gray-500);
-          margin-bottom: var(--space-2);
-        }
-        .voice-id-row { display: flex; gap: var(--space-2); align-items: center; }
-        .voice-id-value {
-          flex: 1;
-          padding: var(--space-2);
-          background: var(--color-white);
-          border-radius: var(--radius-sm);
-          font-size: var(--text-sm);
-          color: var(--color-gray-700);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-        .voice-id-hint { margin: var(--space-2) 0 0; font-size: var(--text-xs); color: var(--color-gray-500); }
-        .voice-audio { width: 100%; height: 36px; }
-        .voice-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
-        .voice-card-list .voice-actions { flex-shrink: 0; }
-      `}</style>
     </Card>
   )
 }

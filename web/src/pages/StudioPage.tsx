@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { createUser, deleteUser, fetchUsers } from '../api'
-import { Alert, Badge, Button, Card, CardBody, CardHeader, ConfirmModal, Input, Select, SkeletonTable } from '../components/ui'
-import { useToast } from '../components/ui/Toast'
+import '../styles/pages/studio.css'
+import { Alert, Badge, Button, Card, CardBody, CardHeader, ConfirmModal, Input, Select, SkeletonTable, useToast } from '../components/ui'
+import { t } from '../i18n'
+import { createSecurePassword } from '../lib/clientIds'
 import type { UserResponse } from '../types'
 
 export default function StudioPage() {
@@ -30,7 +32,7 @@ export default function StudioPage() {
       setError('')
       setUsers(await fetchUsers())
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load users')
+      setError(err instanceof Error ? err.message : t('studio.error.loadUsers'))
     } finally {
       setLoading(false)
     }
@@ -43,18 +45,13 @@ export default function StudioPage() {
   }, [users, searchQuery])
 
   const generatePassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'
-    let result = ''
-    for (let index = 0; index < 16; index += 1) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length))
-    }
-    setPassword(result)
+    setPassword(createSecurePassword())
   }
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!username.trim() || !password.trim()) {
-      showError('Username and password are required')
+      showError(t('studio.error.missingCredentials'))
       return
     }
 
@@ -67,9 +64,9 @@ export default function StudioPage() {
       setUsername('')
       setPassword('')
       setRole('user')
-      success(`User "${result.user.username}" created successfully`)
+      success(t('studio.toast.created', { username: result.user.username }))
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Failed to create user')
+      showError(err instanceof Error ? err.message : t('studio.error.createUser'))
     } finally {
       setIsCreating(false)
     }
@@ -82,11 +79,11 @@ export default function StudioPage() {
       setIsDeleting(true)
       await deleteUser(userToDelete.id)
       setUsers((prev) => prev.filter((user) => user.id !== userToDelete.id))
-      success(`User "${userToDelete.username}" deleted`)
+      success(t('studio.toast.deleted', { username: userToDelete.username }))
       setDeleteModalOpen(false)
       setUserToDelete(null)
     } catch (err) {
-      showError(err instanceof Error ? err.message : 'Failed to delete user')
+      showError(err instanceof Error ? err.message : t('studio.error.deleteUser'))
     } finally {
       setIsDeleting(false)
     }
@@ -94,8 +91,8 @@ export default function StudioPage() {
 
   const handleCopyCredentials = () => {
     if (!generatedCredentials) return
-    navigator.clipboard.writeText(`Username: ${generatedCredentials.username}\nPassword: ${generatedCredentials.password}`)
-    success('Credentials copied to clipboard')
+    navigator.clipboard.writeText(`${t('studio.credentials.username')}: ${generatedCredentials.username}\n${t('studio.credentials.password')}: ${generatedCredentials.password}`)
+    success(t('studio.toast.copiedCredentials'))
   }
 
   const adminCount = users.filter((user) => user.role === 'admin').length
@@ -105,9 +102,9 @@ export default function StudioPage() {
     <div className="page studio-page">
       <div className="page-container">
         <div className="page-header">
-          <p className="studio-kicker">Admin Controls</p>
-          <h1>Admin Studio</h1>
-          <p className="page-description">Manage workspace access and keep operator accounts ready for voice-production workflows.</p>
+          <p className="studio-kicker">{t('studio.kicker')}</p>
+          <h1>{t('studio.title')}</h1>
+          <p className="page-description">{t('studio.description')}</p>
         </div>
 
         {error && <Alert variant="error" onDismiss={() => setError('')}>{error}</Alert>}
@@ -116,22 +113,22 @@ export default function StudioPage() {
           <Card className="create-user-card">
             <CardHeader>
               <div>
-                <p className="studio-section-kicker">Provision Access</p>
-                <h2>Create New User</h2>
+                <p className="studio-section-kicker">{t('studio.provision.kicker')}</p>
+                <h2>{t('studio.provision.title')}</h2>
               </div>
             </CardHeader>
             <CardBody>
               <form onSubmit={handleCreateUser} className="create-form">
-                <Input label="Username" value={username} onChange={(e) => setUsername(e.target.value)} disabled={isCreating} required placeholder="Enter username" />
+                <Input label={t('login.username')} value={username} onChange={(e) => setUsername(e.target.value)} disabled={isCreating} required placeholder={t('studio.form.usernamePlaceholder')} />
                 <div className="password-field">
-                  <Input label="Password" type="text" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isCreating} required placeholder="Enter or generate password" />
+                  <Input label={t('login.password')} type="text" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isCreating} required placeholder={t('studio.form.passwordPlaceholder')} />
                   <Button type="button" variant="secondary" size="sm" onClick={generatePassword} disabled={isCreating} className="generate-btn">
-                    Generate
+                    {t('studio.form.generate')}
                   </Button>
                 </div>
-                <Select label="Role" value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'user')} disabled={isCreating} options={[{ value: 'user', label: 'User' }, { value: 'admin', label: 'Admin' }]} />
+                <Select label={t('studio.form.role')} value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'user')} disabled={isCreating} options={[{ value: 'user', label: t('studio.role.user') }, { value: 'admin', label: t('studio.role.admin') }]} />
                 <Button type="submit" variant="primary" fullWidth isLoading={isCreating}>
-                  {isCreating ? 'Creating...' : 'Create User'}
+                  {isCreating ? t('studio.form.creating') : t('studio.form.create')}
                 </Button>
               </form>
             </CardBody>
@@ -141,48 +138,48 @@ export default function StudioPage() {
             <CardHeader>
               <div className="users-header">
                 <div>
-                  <p className="studio-section-kicker">Workspace Access</p>
-                  <h2>Users ({users.length})</h2>
+                  <p className="studio-section-kicker">{t('studio.users.kicker')}</p>
+                  <h2>{t('studio.users.title', { count: users.length })}</h2>
                 </div>
                 <div className="user-stats">
-                  <Badge variant="admin">{adminCount} Admins</Badge>
-                  <Badge variant="user">{userCount} Users</Badge>
+                  <Badge variant="admin">{t('studio.users.adminCount', { count: adminCount })}</Badge>
+                  <Badge variant="user">{t('studio.users.userCount', { count: userCount })}</Badge>
                 </div>
               </div>
             </CardHeader>
             <CardBody>
               <div className="users-toolbar">
-                <Input placeholder="Search users..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon="ID" />
+                <Input placeholder={t('studio.users.searchPlaceholder')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon="ID" />
               </div>
 
               {loading ? (
                 <SkeletonTable rows={5} columns={4} />
               ) : filteredUsers.length === 0 ? (
                 <div className="empty-users">
-                  <p>{users.length === 0 ? 'No users found' : `No users match "${searchQuery}"`}</p>
+                  <p>{users.length === 0 ? t('studio.users.empty') : t('studio.users.noMatch', { query: searchQuery })}</p>
                 </div>
               ) : (
                 <div className="users-table-container">
                   <table className="table users-table">
                     <thead>
                       <tr>
-                        <th>Username</th>
-                        <th>Role</th>
-                        <th>Created</th>
-                        <th>Status</th>
-                        <th>Action</th>
+                        <th>{t('studio.table.username')}</th>
+                        <th>{t('studio.table.role')}</th>
+                        <th>{t('studio.table.created')}</th>
+                        <th>{t('studio.table.status')}</th>
+                        <th>{t('studio.table.action')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredUsers.map((user) => (
                         <tr key={user.id}>
                           <td><span className="user-name">{user.username}</span></td>
-                          <td><Badge variant={user.role === 'admin' ? 'admin' : 'user'}>{user.role}</Badge></td>
+                          <td><Badge variant={user.role === 'admin' ? 'admin' : 'user'}>{user.role === 'admin' ? t('studio.role.admin') : t('studio.role.user')}</Badge></td>
                           <td className="date-cell">{new Date(user.created_at).toLocaleDateString()}</td>
-                          <td><Badge variant={user.is_active ? 'success' : 'error'}>{user.is_active ? 'Active' : 'Inactive'}</Badge></td>
+                          <td><Badge variant={user.is_active ? 'success' : 'error'}>{user.is_active ? t('studio.status.active') : t('studio.status.inactive')}</Badge></td>
                           <td>
                             <Button variant="danger" size="sm" onClick={() => { setUserToDelete(user); setDeleteModalOpen(true) }} disabled={user.role === 'admin' && adminCount <= 1}>
-                              Delete
+                              {t('studio.delete.action')}
                             </Button>
                           </td>
                         </tr>
@@ -199,24 +196,24 @@ export default function StudioPage() {
           <div className="modal-backdrop" onClick={() => setShowCredentials(false)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">User Created Successfully</h2>
+                <h2 className="modal-title">{t('studio.credentials.title')}</h2>
               </div>
               <div className="modal-body">
-                <Alert variant="success">Save these credentials now. The password will not be shown again.</Alert>
+                <Alert variant="success">{t('studio.credentials.description')}</Alert>
                 <div className="credentials-box">
                   <div className="credential-row">
-                    <span className="credential-label">Username</span>
+                    <span className="credential-label">{t('studio.credentials.username')}</span>
                     <code className="credential-value">{generatedCredentials.username}</code>
                   </div>
                   <div className="credential-row">
-                    <span className="credential-label">Password</span>
+                    <span className="credential-label">{t('studio.credentials.password')}</span>
                     <code className="credential-value">{generatedCredentials.password}</code>
                   </div>
                 </div>
               </div>
               <div className="modal-footer">
-                <Button variant="secondary" onClick={handleCopyCredentials}>Copy Credentials</Button>
-                <Button variant="primary" onClick={() => setShowCredentials(false)}>Done</Button>
+                <Button variant="secondary" onClick={handleCopyCredentials}>{t('studio.credentials.copy')}</Button>
+                <Button variant="primary" onClick={() => setShowCredentials(false)}>{t('studio.credentials.done')}</Button>
               </div>
             </div>
           </div>
@@ -226,59 +223,14 @@ export default function StudioPage() {
           isOpen={deleteModalOpen}
           onClose={() => { setDeleteModalOpen(false); setUserToDelete(null) }}
           onConfirm={handleDeleteConfirm}
-          title="Delete User"
-          message={`Are you sure you want to delete user "${userToDelete?.username}"? This will also delete all their voice profiles.`}
-          confirmText="Delete User"
-          cancelText="Cancel"
+          title={t('studio.delete.title')}
+          message={t('studio.delete.message', { username: userToDelete?.username ?? '' })}
+          confirmText={t('studio.delete.confirm')}
+          cancelText={t('modal.cancel')}
           variant="danger"
           isLoading={isDeleting}
         />
       </div>
-
-      <style>{`
-        .studio-kicker, .studio-section-kicker {
-          color: var(--color-primary-700);
-          font-size: var(--text-xs);
-          font-weight: var(--font-bold);
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-          margin-bottom: var(--space-2);
-        }
-        .studio-page .page-container { max-width: 1200px; }
-        .studio-layout { display: grid; grid-template-columns: 350px 1fr; gap: var(--space-6); align-items: start; }
-        .create-form { display: flex; flex-direction: column; gap: var(--space-4); }
-        .password-field { display: flex; gap: var(--space-2); align-items: flex-end; }
-        .password-field .form-group { flex: 1; }
-        .generate-btn { margin-bottom: 2px; white-space: nowrap; }
-        .users-header { display: flex; justify-content: space-between; align-items: center; width: 100%; }
-        .user-stats { display: flex; gap: var(--space-2); }
-        .users-toolbar { margin-bottom: var(--space-4); }
-        .users-table-container { overflow-x: auto; }
-        .users-table { min-width: 600px; }
-        .user-name { font-weight: var(--font-medium); }
-        .date-cell { color: var(--color-gray-500); font-size: var(--text-sm); }
-        .empty-users { text-align: center; padding: var(--space-8); color: var(--color-gray-500); }
-        .credentials-box {
-          margin-top: var(--space-4);
-          padding: var(--space-4);
-          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
-          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
-          border-radius: var(--radius-md);
-        }
-        .credential-row { display: flex; gap: var(--space-4); padding: var(--space-2) 0; }
-        .credential-row:first-child { border-bottom: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%); }
-        .credential-label { font-weight: var(--font-semibold); color: var(--color-gray-600); min-width: 80px; }
-        .credential-value { background: var(--color-white); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); word-break: break-all; }
-        @media (max-width: 1024px) {
-          .studio-layout { grid-template-columns: 1fr; }
-          .create-user-card { order: 2; }
-          .users-card { order: 1; }
-        }
-        @media (max-width: 640px) {
-          .users-header, .password-field { flex-direction: column; align-items: stretch; }
-          .generate-btn { width: 100%; }
-        }
-      `}</style>
     </div>
   )
 }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchHealth, fetchVoices } from '../api'
-import { useAuth } from '../auth/AuthContext'
+import '../styles/pages/dashboard.css'
+import { useAuth } from '../auth/useAuth'
 import { Alert, Badge, Card, CardBody, Skeleton, SkeletonText } from '../components/ui'
 import { t } from '../i18n'
 import type { CloneVoiceProfileResponse, HealthResponse } from '../types'
@@ -9,20 +10,20 @@ import type { CloneVoiceProfileResponse, HealthResponse } from '../types'
 const QUICK_ACTIONS = [
   {
     mark: 'TTS',
-    title: 'Synthesis',
-    description: 'Generate production-ready speech from approved text segments.',
+    titleKey: 'dashboard.quickActions.tts.title',
+    descriptionKey: 'dashboard.quickActions.tts.description',
     href: '/tts',
   },
   {
     mark: 'LIB',
-    title: 'Voice Library',
-    description: 'Review reusable voice IDs, references, and playback samples.',
+    titleKey: 'dashboard.quickActions.voices.title',
+    descriptionKey: 'dashboard.quickActions.voices.description',
     href: '/voices',
   },
   {
     mark: 'LIVE',
-    title: 'Realtime QA',
-    description: 'Test prompt behavior and reply speech in a live conversation loop.',
+    titleKey: 'dashboard.quickActions.chat.title',
+    descriptionKey: 'dashboard.quickActions.chat.description',
     href: '/chat',
   },
 ]
@@ -43,7 +44,7 @@ export default function DashboardPage() {
         setHealth(healthData)
         setVoices(voicesData)
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load data')
+        setError(err instanceof Error ? err.message : t('dashboard.error.loadData'))
       } finally {
         setLoading(false)
       }
@@ -52,38 +53,38 @@ export default function DashboardPage() {
     loadData()
   }, [])
 
-  const activeModel = health?.active_model?.split('/').pop() ?? 'Not loaded'
-  const backend = health?.runtime_backend ?? 'Unknown'
+  const activeModel = health?.active_model?.split('/').pop() ?? t('dashboard.runtime.notLoaded')
+  const backend = health?.runtime_backend ?? t('dashboard.runtime.unknown')
 
   return (
     <div className="page dashboard-page">
       <div className="page-container">
         <section className="dashboard-hero">
           <div className="hero-copy">
-            <p className="hero-kicker">Voice Operations Overview</p>
+            <p className="hero-kicker">{t('dashboard.hero.kicker')}</p>
             <h1>
-              {t('dashboard.welcome') || 'Welcome'}, {user?.username}
+              {t('dashboard.welcome')}, {user?.username}
             </h1>
             <p className="hero-description">
-              Monitor runtime health, move quickly between synthesis tasks, and keep voice assets ready for Korean call-center workflows.
+              {t('dashboard.hero.description')}
             </p>
             <div className="hero-pills">
-              <span>Trustworthy</span>
-              <span>Operational</span>
-              <span>Precise</span>
+              <span>{t('dashboard.hero.pill.trustworthy')}</span>
+              <span>{t('dashboard.hero.pill.operational')}</span>
+              <span>{t('dashboard.hero.pill.precise')}</span>
             </div>
           </div>
 
-          <div className="hero-side">
+            <div className="hero-side">
             <div className="hero-status-card">
-              <p>Runtime Health</p>
-              <strong>{health ? 'Online' : loading ? 'Checking' : 'Unavailable'}</strong>
-              <span>{health?.selected_device ?? 'Waiting for device status'}</span>
+              <p>{t('dashboard.runtime.health')}</p>
+              <strong>{health ? t('dashboard.runtime.online') : loading ? t('dashboard.runtime.checking') : t('dashboard.runtime.unavailable')}</strong>
+              <span>{health?.selected_device ?? t('dashboard.runtime.waiting')}</span>
             </div>
             {isAdmin && (
               <Link to="/studio" className="hero-admin-link">
-                <Badge variant="admin">Admin</Badge>
-                <span>Open Admin Studio</span>
+                <Badge variant="admin">{t('dashboard.admin.badge')}</Badge>
+                <span>{t('dashboard.admin.openStudio')}</span>
               </Link>
             )}
           </div>
@@ -94,8 +95,8 @@ export default function DashboardPage() {
         <section className="dashboard-section">
           <div className="section-heading">
             <div>
-              <p className="section-kicker">Primary Workflows</p>
-              <h2>Move directly into the next task.</h2>
+              <p className="section-kicker">{t('dashboard.section.primary.kicker')}</p>
+              <h2>{t('dashboard.section.primary.title')}</h2>
             </div>
           </div>
           <div className="quick-actions-grid">
@@ -105,10 +106,10 @@ export default function DashboardPage() {
                   <CardBody>
                     <span className="action-mark">{action.mark}</span>
                     <div className="action-copy">
-                      <h3>{action.title}</h3>
-                      <p>{action.description}</p>
+                      <h3>{t(action.titleKey)}</h3>
+                      <p>{t(action.descriptionKey)}</p>
                     </div>
-                    <span className="action-arrow">Open</span>
+                    <span className="action-arrow">{t('dashboard.quickActions.open')}</span>
                   </CardBody>
                 </Card>
               </Link>
@@ -119,8 +120,8 @@ export default function DashboardPage() {
         <section className="dashboard-section">
           <div className="section-heading">
             <div>
-              <p className="section-kicker">System Snapshot</p>
-              <h2>Current runtime and asset status.</h2>
+              <p className="section-kicker">{t('dashboard.section.system.kicker')}</p>
+              <h2>{t('dashboard.section.system.title')}</h2>
             </div>
           </div>
 
@@ -134,11 +135,11 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <div className="stat-card">
-                    <span className="stat-label">Voice Profiles</span>
+                    <span className="stat-label">{t('dashboard.stats.voiceProfiles.label')}</span>
                     <strong className="stat-value">{voices.length}</strong>
-                    <p className="stat-note">Profiles available for cloning, playback, and API reuse.</p>
+                    <p className="stat-note">{t('dashboard.stats.voiceProfiles.note')}</p>
                     <Link to="/voices" className="stat-link">
-                      Review library
+                      {t('dashboard.stats.voiceProfiles.link')}
                     </Link>
                   </div>
                 )}
@@ -154,16 +155,16 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <div className="stat-card">
-                    <span className="stat-label">Runtime Backend</span>
-                    <strong className="stat-value stat-value-compact">{health ? backend : 'Offline'}</strong>
+                    <span className="stat-label">{t('dashboard.stats.runtime.label')}</span>
+                    <strong className="stat-value stat-value-compact">{health ? backend : t('dashboard.runtime.offline')}</strong>
                     <div className="stat-details">
                       <div>
-                        <span>Model</span>
+                        <span>{t('dashboard.stats.runtime.model')}</span>
                         <strong>{activeModel}</strong>
                       </div>
                       <div>
-                        <span>Device</span>
-                        <strong>{health?.selected_device ?? 'Unavailable'}</strong>
+                        <span>{t('dashboard.stats.runtime.device')}</span>
+                        <strong>{health?.selected_device ?? t('dashboard.runtime.unavailable')}</strong>
                       </div>
                     </div>
                   </div>
@@ -177,11 +178,11 @@ export default function DashboardPage() {
           <section className="dashboard-section">
             <div className="section-heading">
               <div>
-                <p className="section-kicker">Recent Assets</p>
-                <h2>Latest voice profiles.</h2>
+                <p className="section-kicker">{t('dashboard.section.recent.kicker')}</p>
+                <h2>{t('dashboard.section.recent.title')}</h2>
               </div>
               <Link to="/voices" className="section-link">
-                View full library
+                {t('dashboard.section.recent.link')}
               </Link>
             </div>
             <div className="voices-preview-grid">
@@ -210,16 +211,16 @@ export default function DashboardPage() {
                   <div className="getting-started">
                     <span className="getting-started-mark">01</span>
                     <div className="getting-started-copy">
-                      <h2>Create your first production voice.</h2>
-                      <p>Start with clone mode in TTS Studio, upload a short clean sample, then save the resulting profile into your shared library.</p>
+                      <h2>{t('dashboard.gettingStarted.title')}</h2>
+                      <p>{t('dashboard.gettingStarted.description')}</p>
                     </div>
                     <div className="getting-started-steps">
-                      <span>Open TTS Studio</span>
-                      <span>Choose Clone</span>
-                      <span>Save profile</span>
+                      <span>{t('dashboard.gettingStarted.step1')}</span>
+                      <span>{t('dashboard.gettingStarted.step2')}</span>
+                      <span>{t('dashboard.gettingStarted.step3')}</span>
                     </div>
                     <Link to="/tts" className="btn btn-primary">
-                      Start in TTS Studio
+                      {t('dashboard.gettingStarted.action')}
                     </Link>
                   </div>
                 </CardBody>
@@ -228,149 +229,6 @@ export default function DashboardPage() {
           )
         )}
       </div>
-
-      <style>{`
-        .dashboard-page .page-container { max-width: 1180px; }
-        .dashboard-hero {
-          display: grid;
-          grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 22rem);
-          gap: var(--space-6);
-          margin-bottom: var(--space-8);
-          padding: clamp(1.7rem, 4vw, 2.6rem);
-          border-radius: var(--radius-2xl);
-          border: 1px solid color-mix(in oklab, var(--color-primary-200) 38%, var(--color-line) 62%);
-          background:
-            radial-gradient(circle at top right, color-mix(in oklab, var(--color-primary-100) 48%, transparent), transparent 36%),
-            linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 95%, white 5%), color-mix(in oklab, var(--color-surface) 88%, var(--color-primary-50) 12%));
-          box-shadow: var(--shadow-xl);
-        }
-        .hero-copy { display: grid; gap: var(--space-4); }
-        .hero-kicker, .section-kicker {
-          color: var(--color-primary-700);
-          font-size: var(--text-xs);
-          font-weight: var(--font-bold);
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-        }
-        .hero-description {
-          max-width: 56ch;
-          color: var(--color-gray-600);
-          font-size: var(--text-lg);
-          line-height: var(--leading-relaxed);
-        }
-        .hero-pills, .getting-started-steps { display: flex; gap: var(--space-3); flex-wrap: wrap; }
-        .hero-pills span, .getting-started-steps span {
-          display: inline-flex;
-          align-items: center;
-          padding: 0.5rem 0.8rem;
-          border-radius: var(--radius-full);
-          background: color-mix(in oklab, var(--color-surface-elevated) 76%, white 24%);
-          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
-          color: var(--color-gray-700);
-          font-size: var(--text-sm);
-          font-weight: var(--font-medium);
-        }
-        .hero-side { display: grid; gap: var(--space-4); align-content: start; }
-        .hero-status-card {
-          display: grid;
-          gap: var(--space-2);
-          padding: var(--space-5);
-          border-radius: var(--radius-xl);
-          background: color-mix(in oklab, var(--color-surface-elevated) 78%, white 22%);
-          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
-        }
-        .hero-status-card p, .hero-status-card span { color: var(--color-gray-500); }
-        .hero-status-card strong {
-          font-family: var(--font-family-display);
-          font-size: clamp(1.6rem, 4vw, 2.2rem);
-          letter-spacing: -0.04em;
-          color: var(--color-gray-900);
-        }
-        .hero-admin-link {
-          display: inline-flex;
-          align-items: center;
-          gap: var(--space-3);
-          width: fit-content;
-          padding: var(--space-3) var(--space-4);
-          border-radius: var(--radius-full);
-          background: color-mix(in oklab, var(--color-surface-elevated) 78%, white 22%);
-          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
-          color: var(--color-gray-800);
-        }
-        .dashboard-section { margin-bottom: var(--space-8); }
-        .section-heading {
-          display: flex;
-          align-items: end;
-          justify-content: space-between;
-          gap: var(--space-4);
-          margin-bottom: var(--space-4);
-        }
-        .section-heading h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); letter-spacing: -0.04em; }
-        .section-link, .stat-link { color: var(--color-primary-700); font-size: var(--text-sm); font-weight: var(--font-bold); }
-        .quick-actions-grid, .stats-grid, .voices-preview-grid { display: grid; gap: var(--space-4); }
-        .quick-actions-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-        .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .voices-preview-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-        .quick-action-card { color: inherit; }
-        .quick-action-card .card-body { display: grid; gap: var(--space-4); }
-        .action-mark, .voice-mark, .getting-started-mark {
-          width: fit-content;
-          display: inline-grid;
-          place-items: center;
-          padding: 0.55rem 0.8rem;
-          border-radius: 0.95rem;
-          background: color-mix(in oklab, var(--color-primary-100) 70%, white 30%);
-          color: var(--color-primary-800);
-          font-family: var(--font-family-display);
-          font-size: 0.72rem;
-          font-weight: var(--font-extrabold);
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-        .action-copy { display: grid; gap: var(--space-2); }
-        .action-copy h3, .voice-preview h3 { font-size: var(--text-xl); letter-spacing: -0.03em; }
-        .action-copy p, .voice-preview p, .stat-note, .getting-started-copy p {
-          color: var(--color-gray-600);
-          line-height: var(--leading-relaxed);
-        }
-        .action-arrow { color: var(--color-primary-700); font-size: var(--text-sm); font-weight: var(--font-bold); text-transform: uppercase; letter-spacing: 0.08em; }
-        .stat-loading { display: grid; gap: var(--space-3); }
-        .stat-card { display: grid; gap: var(--space-3); }
-        .stat-label {
-          color: var(--color-gray-500);
-          font-size: var(--text-xs);
-          font-weight: var(--font-bold);
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-        }
-        .stat-value {
-          font-family: var(--font-family-display);
-          font-size: clamp(2.6rem, 6vw, 4rem);
-          font-weight: var(--font-extrabold);
-          letter-spacing: -0.07em;
-          color: var(--color-gray-900);
-        }
-        .stat-value-compact { font-size: clamp(1.8rem, 4vw, 2.8rem); }
-        .stat-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
-        .stat-details div {
-          display: grid;
-          gap: 0.35rem;
-          padding: var(--space-3);
-          border-radius: var(--radius-lg);
-          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
-          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
-        }
-        .stat-details span { color: var(--color-gray-500); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; }
-        .stat-details strong { color: var(--color-gray-800); font-size: var(--text-sm); }
-        .voice-preview { display: grid; gap: var(--space-3); }
-        .voice-preview-top { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
-        .getting-started { display: grid; gap: var(--space-5); align-items: start; }
-        .getting-started-copy { display: grid; gap: var(--space-2); max-width: 48ch; }
-        .getting-started-copy h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.04em; }
-        @media (max-width: 1024px) {
-          .dashboard-hero, .quick-actions-grid, .stats-grid, .voices-preview-grid { grid-template-columns: 1fr; }
-        }
-      `}</style>
     </div>
   )
 }

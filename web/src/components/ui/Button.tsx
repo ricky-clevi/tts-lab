@@ -1,4 +1,5 @@
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { t } from '../../i18n'
 
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
 export type ButtonSize = 'sm' | 'md' | 'lg'
@@ -61,7 +62,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {isLoading ? (
           <>
             <span className="spinner" aria-hidden="true" />
-            <span>Loading...</span>
+            <span>{t('button.loading')}</span>
           </>
         ) : (
           <>

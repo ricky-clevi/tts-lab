@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { t } from '../../i18n'
 import { Button } from './Button'
 
 export interface EmptyStateProps {
@@ -37,9 +38,9 @@ export function NoDataEmptyState({ onAction }: { onAction?: () => void }) {
   return (
     <EmptyState
       icon="0"
-      title="No data yet"
-      description="There's nothing here at the moment. Create something new to get started."
-      action={onAction ? { label: 'Create New', onClick: onAction } : undefined}
+      title={t('empty.noData.title')}
+      description={t('empty.noData.description')}
+      action={onAction ? { label: t('empty.noData.action'), onClick: onAction } : undefined}
     />
   )
 }
@@ -48,9 +49,9 @@ export function NoSearchResultsEmptyState({ query, onClear }: { query: string; o
   return (
     <EmptyState
       icon="?"
-      title="No results found"
-      description={`We couldn't find anything matching "${query}". Try adjusting your search.`}
-      action={{ label: 'Clear Search', onClick: onClear }}
+      title={t('empty.noResults.title')}
+      description={t('empty.noResults.description', { query })}
+      action={{ label: t('empty.noResults.action'), onClick: onClear }}
     />
   )
 }
@@ -59,9 +60,9 @@ export function ErrorEmptyState({ message, onRetry }: { message?: string; onRetr
   return (
     <EmptyState
       icon="!"
-      title="Something went wrong"
-      description={message || 'An error occurred while loading data. Please try again.'}
-      action={onRetry ? { label: 'Try Again', onClick: onRetry } : undefined}
+      title={t('empty.error.title')}
+      description={message || t('empty.error.description')}
+      action={onRetry ? { label: t('empty.error.action'), onClick: onRetry } : undefined}
     />
   )
 }

@@ -1,0 +1,285 @@
+.dashboard-page .page-container {
+  max-width: 1180px;
+}
+
+.dashboard-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 22rem);
+  gap: var(--space-6);
+  margin-bottom: var(--space-8);
+  padding: clamp(1.7rem, 4vw, 2.6rem);
+  border-radius: var(--radius-2xl);
+  border: 1px solid color-mix(in oklab, var(--color-primary-200) 38%, var(--color-line) 62%);
+  background:
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-primary-100) 48%, transparent), transparent 36%),
+    linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 95%, white 5%), color-mix(in oklab, var(--color-surface) 88%, var(--color-primary-50) 12%));
+  box-shadow: var(--shadow-xl);
+}
+
+.hero-copy {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.hero-kicker,
+.section-kicker {
+  color: var(--color-primary-700);
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hero-description {
+  max-width: 56ch;
+  color: var(--color-gray-600);
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
+}
+
+.hero-pills,
+.getting-started-steps {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.hero-pills span,
+.getting-started-steps span {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 0.8rem;
+  border-radius: var(--radius-full);
+  background: color-mix(in oklab, var(--color-surface-elevated) 76%, white 24%);
+  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+  color: var(--color-gray-700);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.hero-side {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+}
+
+.hero-status-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklab, var(--color-surface-elevated) 78%, white 22%);
+  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+}
+
+.hero-status-card p,
+.hero-status-card span {
+  color: var(--color-gray-500);
+}
+
+.hero-status-card strong {
+  font-family: var(--font-family-display);
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+  letter-spacing: -0.04em;
+  color: var(--color-gray-900);
+}
+
+.hero-admin-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: fit-content;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-full);
+  background: color-mix(in oklab, var(--color-surface-elevated) 78%, white 22%);
+  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+  color: var(--color-gray-800);
+}
+
+.dashboard-section {
+  margin-bottom: var(--space-8);
+}
+
+.section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.section-heading h2 {
+  font-size: clamp(1.5rem, 3vw, 2.1rem);
+  letter-spacing: -0.04em;
+}
+
+.section-link,
+.stat-link {
+  color: var(--color-primary-700);
+  font-size: var(--text-sm);
+  font-weight: var(--font-bold);
+}
+
+.quick-actions-grid,
+.stats-grid,
+.voices-preview-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.quick-actions-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.stats-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.voices-preview-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.quick-action-card {
+  color: inherit;
+}
+
+.quick-action-card .card-body {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.action-mark,
+.voice-mark,
+.getting-started-mark {
+  width: fit-content;
+  display: inline-grid;
+  place-items: center;
+  padding: 0.55rem 0.8rem;
+  border-radius: 0.95rem;
+  background: color-mix(in oklab, var(--color-primary-100) 70%, white 30%);
+  color: var(--color-primary-800);
+  font-family: var(--font-family-display);
+  font-size: 0.72rem;
+  font-weight: var(--font-extrabold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.action-copy {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.action-copy h3,
+.voice-preview h3 {
+  font-size: var(--text-xl);
+  letter-spacing: -0.03em;
+}
+
+.action-copy p,
+.voice-preview p,
+.stat-note,
+.getting-started-copy p {
+  color: var(--color-gray-600);
+  line-height: var(--leading-relaxed);
+}
+
+.action-arrow {
+  color: var(--color-primary-700);
+  font-size: var(--text-sm);
+  font-weight: var(--font-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.stat-loading,
+.stat-card,
+.voice-preview,
+.getting-started,
+.getting-started-copy {
+  display: grid;
+}
+
+.stat-loading,
+.stat-card,
+.voice-preview {
+  gap: var(--space-3);
+}
+
+.getting-started {
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.getting-started-copy {
+  gap: var(--space-2);
+  max-width: 48ch;
+}
+
+.stat-label {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.stat-value {
+  font-family: var(--font-family-display);
+  font-size: clamp(2.6rem, 6vw, 4rem);
+  font-weight: var(--font-extrabold);
+  letter-spacing: -0.07em;
+  color: var(--color-gray-900);
+}
+
+.stat-value-compact {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+}
+
+.stat-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.stat-details div {
+  display: grid;
+  gap: 0.35rem;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
+  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+}
+
+.stat-details span {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.stat-details strong {
+  color: var(--color-gray-800);
+  font-size: var(--text-sm);
+}
+
+.voice-preview-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.getting-started-copy h2 {
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  letter-spacing: -0.04em;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-hero,
+  .quick-actions-grid,
+  .stats-grid,
+  .voices-preview-grid {
+    grid-template-columns: 1fr;
+  }
+}

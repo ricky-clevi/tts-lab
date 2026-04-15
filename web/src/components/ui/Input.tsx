@@ -1,4 +1,9 @@
-import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes, type ReactNode } from 'react'
+import { forwardRef, useId, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes, type ReactNode } from 'react'
+
+function useStableFieldId(id: string | undefined, prefix: string): string {
+  const generatedId = useId().replace(/:/g, '')
+  return id ?? `${prefix}-${generatedId}`
+}
 
 // ============ Input ============
 
@@ -13,7 +18,7 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, hint, error, required, leftIcon, rightIcon, className = '', id, ...props }, ref) => {
-    const inputId = id || `input-${Math.random().toString(36).substr(2, 9)}`
+    const inputId = useStableFieldId(id, 'input')
     const inputClass = ['form-input', error ? 'form-input-error' : '', className].filter(Boolean).join(' ')
 
     return (
@@ -71,7 +76,7 @@ export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ label, hint, error, required, className = '', id, ...props }, ref) => {
-    const textareaId = id || `textarea-${Math.random().toString(36).substr(2, 9)}`
+    const textareaId = useStableFieldId(id, 'textarea')
     const textareaClass = ['form-textarea', error ? 'form-textarea-error' : '', className].filter(Boolean).join(' ')
 
     return (
@@ -125,7 +130,7 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   ({ label, hint, error, required, options, placeholder, className = '', id, ...props }, ref) => {
-    const selectId = id || `select-${Math.random().toString(36).substr(2, 9)}`
+    const selectId = useStableFieldId(id, 'select')
     const selectClass = ['form-select', error ? 'form-select-error' : '', className].filter(Boolean).join(' ')
 
     return (
@@ -179,7 +184,7 @@ export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement
 
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
   ({ label, className = '', id, ...props }, ref) => {
-    const checkboxId = id || `checkbox-${Math.random().toString(36).substr(2, 9)}`
+    const checkboxId = useStableFieldId(id, 'checkbox')
 
     return (
       <label htmlFor={checkboxId} className={`form-checkbox ${className}`}>

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
-import { useAuth } from './AuthContext'
+import './protected-route.css'
+import { t } from '../i18n'
+import { useAuth } from './useAuth'
 
 type ProtectedRouteProps = {
   children: ReactNode
@@ -15,18 +17,7 @@ export function ProtectedRoute({ children, adminOnly = false }: ProtectedRoutePr
     return (
       <div className="auth-loading">
         <div className="spinner" />
-        <p>Checking authentication...</p>
-        <style>{`
-          .auth-loading {
-            min-height: calc(100vh - var(--navbar-height, 64px));
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: var(--space-4);
-            color: var(--color-gray-500);
-          }
-        `}</style>
+        <p>{t('auth.checking')}</p>
       </div>
     )
   }

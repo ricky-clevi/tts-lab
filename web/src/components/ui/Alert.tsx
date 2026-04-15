@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from 'react'
+import { t } from '../../i18n'
 
 export type AlertVariant = 'error' | 'success' | 'warning' | 'info'
 
@@ -8,11 +9,11 @@ export interface AlertProps extends HTMLAttributes<HTMLDivElement> {
   onDismiss?: () => void
 }
 
-const LABELS: Record<AlertVariant, string> = {
-  error: 'Error',
-  success: 'Success',
-  warning: 'Warning',
-  info: 'Info',
+const LABEL_KEYS: Record<AlertVariant, string> = {
+  error: 'alert.error',
+  success: 'alert.success',
+  warning: 'alert.warning',
+  info: 'alert.info',
 }
 
 export function Alert({ variant = 'info', children, onDismiss, className = '', ...props }: AlertProps) {
@@ -35,7 +36,7 @@ export function Alert({ variant = 'info', children, onDismiss, className = '', .
           textTransform: 'uppercase',
         }}
       >
-        {LABELS[variant]}
+        {t(LABEL_KEYS[variant])}
       </span>
       <div style={{ flex: 1 }}>{children}</div>
       {onDismiss && (
@@ -50,7 +51,7 @@ export function Alert({ variant = 'info', children, onDismiss, className = '', .
             color: 'inherit',
             opacity: 0.7,
           }}
-          aria-label="Dismiss"
+          aria-label={t('button.dismissMessage')}
         >
           x
         </button>

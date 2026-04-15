@@ -1,5 +1,6 @@
 import { useEffect, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { t } from '../../i18n'
 import { Button } from './Button'
 
 export interface ModalProps {
@@ -103,8 +104,8 @@ export function ConfirmModal({
   onConfirm,
   title,
   message,
-  confirmText = 'Confirm',
-  cancelText = 'Cancel',
+  confirmText = t('modal.confirm'),
+  cancelText = t('modal.cancel'),
   variant = 'primary',
   isLoading = false,
 }: ConfirmModalProps) {

@@ -1,9 +1,39 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { BrowserRouter } from 'react-router-dom'
 
 import App from './App'
+import { AuthProvider } from './auth/AuthContext'
+import { ToastProvider } from './components/ui'
 
 const OriginalWebSocket = globalThis.WebSocket
+
+function createStoredToken() {
+  const header = btoa(JSON.stringify({ alg: 'none', typ: 'JWT' }))
+  const payload = btoa(
+    JSON.stringify({
+      sub: 'test-user-id',
+      username: 'admin',
+      role: 'admin',
+    }),
+  )
+
+  return `${header}.${payload}.signature`
+}
+
+function renderApp() {
+  window.localStorage.setItem('tts-lab-token', createStoredToken())
+
+  return render(
+    <BrowserRouter>
+      <AuthProvider>
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      </AuthProvider>
+    </BrowserRouter>,
+  )
+}
 
 const capabilities = {
   active_mode: null,
@@ -217,7 +247,7 @@ afterEach(() => {
 
 test('switches the visible chrome to korean', async () => {
   mockFetchSequence()
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: '한국어' }))
@@ -229,7 +259,7 @@ test('switches the visible chrome to korean', async () => {
 
 test('switches to voice chat and shows provider controls', async () => {
   mockFetchSequence()
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
@@ -241,7 +271,7 @@ test('switches to voice chat and shows provider controls', async () => {
 
 test('adds and removes segments in the tts lab', async () => {
   mockFetchSequence()
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /add segment/i }))
@@ -253,7 +283,7 @@ test('adds and removes segments in the tts lab', async () => {
 
 test('renders generated clips and history after a successful run', async () => {
   mockFetchSequence()
-  const { container } = render(<App />)
+  const { container } = renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.clear(screen.getByLabelText(/text segment 1/i))
@@ -297,7 +327,7 @@ test('sends structured style controls as part of the tts instruction prompt', as
     return Promise.resolve(new Response('{}', { status: 404 }))
   })
 
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.selectOptions(screen.getByLabelText(/mood/i), 'calm')
@@ -314,7 +344,7 @@ test('sends structured style controls as part of the tts instruction prompt', as
 
 test('tests the selected provider from the voice chat workspace', async () => {
   mockFetchSequence()
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
@@ -325,7 +355,7 @@ test('tests the selected provider from the voice chat workspace', async () => {
 
 test('syncs the conversation provider when a provider tab is selected', async () => {
   mockFetchSequence()
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
@@ -336,7 +366,7 @@ test('syncs the conversation provider when a provider tab is selected', async ()
 
 test('shows clone reply voice controls in voice chat', async () => {
   mockFetchSequence()
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
@@ -368,7 +398,7 @@ test('saves raw reply voice guidance without reserializing composed style text',
     return Promise.resolve(new Response('{}', { status: 404 }))
   })
 
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
@@ -384,7 +414,7 @@ test('saves raw reply voice guidance without reserializing composed style text',
 })
 
 test('shows provider test failures without clearing the form', async () => {
-  vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+  vi.spyOn(global, 'fetch').mockImplementation((input) => {
     const url = String(input)
 
     if (url.endsWith('/api/capabilities')) {
@@ -414,7 +444,7 @@ test('shows provider test failures without clearing the form', async () => {
     return Promise.resolve(new Response('{}', { status: 404 }))
   })
 
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
@@ -467,7 +497,7 @@ test('auto-prepares a cloned reply voice before sending a typed chat message', a
 
   globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket
 
-  vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+  vi.spyOn(global, 'fetch').mockImplementation((input) => {
     const url = String(input)
 
     if (url.endsWith('/api/capabilities')) {
@@ -499,7 +529,7 @@ test('auto-prepares a cloned reply voice before sending a typed chat message', a
     return Promise.resolve(new Response('{}', { status: 404 }))
   })
 
-  render(<App />)
+  renderApp()
 
   await screen.findByText('Ivy3-TTS Lab')
   await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))

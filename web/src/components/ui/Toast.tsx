@@ -1,32 +1,14 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { useCallback, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { t } from '../../i18n'
+import { createClientId } from '../../lib/clientIds'
+import { ToastContext, type Toast, type ToastType } from './toast-context'
 
-export type ToastType = 'success' | 'error' | 'warning' | 'info'
-
-export interface Toast {
-  id: string
-  type: ToastType
-  message: string
-  duration?: number
-}
-
-interface ToastContextValue {
-  toasts: Toast[]
-  addToast: (type: ToastType, message: string, duration?: number) => void
-  removeToast: (id: string) => void
-  success: (message: string, duration?: number) => void
-  error: (message: string, duration?: number) => void
-  warning: (message: string, duration?: number) => void
-  info: (message: string, duration?: number) => void
-}
-
-const ToastContext = createContext<ToastContextValue | undefined>(undefined)
-
-const ICON_LABELS: Record<ToastType, string> = {
-  success: 'OK',
-  error: 'ERR',
-  warning: 'WARN',
-  info: 'INFO',
+const ICON_LABEL_KEYS: Record<ToastType, string> = {
+  success: 'toast.label.success',
+  error: 'toast.label.error',
+  warning: 'toast.label.warning',
+  info: 'toast.label.info',
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -38,7 +20,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const addToast = useCallback(
     (type: ToastType, message: string, duration = 5000) => {
-      const id = `toast-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      const id = createClientId('toast')
       const toast: Toast = { id, type, message, duration }
 
       setToasts((prev) => [...prev, toast])
@@ -65,14 +47,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   )
 }
 
-export function useToast() {
-  const context = useContext(ToastContext)
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider')
-  }
-  return context
-}
-
 interface ToastContainerProps {
   toasts: Toast[]
   onDismiss: (id: string) => void
@@ -82,7 +56,7 @@ function ToastContainer({ toasts, onDismiss }: ToastContainerProps) {
   if (toasts.length === 0) return null
 
   const container = (
-    <div className="toast-container" role="region" aria-label="Notifications">
+    <div className="toast-container" role="region" aria-label={t('toast.regionLabel')}>
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onDismiss={onDismiss} />
       ))}
@@ -126,10 +100,10 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
           color: toneColor,
         }}
       >
-        {ICON_LABELS[toast.type]}
+        {t(ICON_LABEL_KEYS[toast.type])}
       </span>
       <p className="toast-message">{toast.message}</p>
-      <button className="toast-dismiss" onClick={() => onDismiss(toast.id)} aria-label="Dismiss notification">
+      <button className="toast-dismiss" onClick={() => onDismiss(toast.id)} aria-label={t('toast.dismiss')}>
         x
       </button>
     </div>
