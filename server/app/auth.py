@@ -6,7 +6,8 @@ Handles JWT tokens, password hashing, and FastAPI dependencies.
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
-import jwt
+from jose import jwt
+from jose.exceptions import JWTError, ExpiredSignatureError
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 

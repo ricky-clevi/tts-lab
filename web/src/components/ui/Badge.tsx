@@ -1,4 +1,4 @@
-import React, { ReactNode, HTMLAttributes } from 'react'
+import type { ReactNode, HTMLAttributes } from 'react'
 
 export type BadgeVariant = 'primary' | 'success' | 'warning' | 'error' | 'info' | 'admin' | 'user'
 

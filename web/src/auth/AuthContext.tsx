@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import { loginApi } from '../api'
 
 export type AuthUser = {
@@ -69,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     token,
     login,
     logout,
-    isAdmin: user?.role === 'admin' ?? false,
+    isAdmin: user?.role === 'admin' || false,
     isLoading,
   }
 

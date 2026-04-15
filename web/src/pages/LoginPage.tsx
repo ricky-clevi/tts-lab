@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import { Button, Input, Alert, Card, CardBody } from '../components/ui'
 import { t } from '../i18n'
 
 export default function LoginPage() {
@@ -8,19 +9,26 @@ export default function LoginPage() {
   const { login } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+
+    if (!username.trim() || !password.trim()) {
+      setError('Please enter both username and password')
+      return
+    }
+
     setIsLoading(true)
 
     try {
       await login(username, password)
       navigate('/')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+      setError(err instanceof Error ? err.message : t('login.error') || 'Login failed')
     } finally {
       setIsLoading(false)
     }
@@ -29,39 +37,72 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-container">
-        <h1>TTS Lab</h1>
-        <form onSubmit={handleSubmit} className="login-form">
-          <div className="form-group">
-            <label htmlFor="username">{t('login.username') || 'Username'}</label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              disabled={isLoading}
-              required
-              autoFocus
-            />
-          </div>
+        <div className="login-branding">
+          <span className="login-logo">🎙️</span>
+          <h1 className="login-title">TTS Lab</h1>
+          <p className="login-subtitle">Voice generation and cloning platform</p>
+        </div>
 
-          <div className="form-group">
-            <label htmlFor="password">{t('login.password') || 'Password'}</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-              required
-            />
-          </div>
+        <Card>
+          <CardBody>
+            <form onSubmit={handleSubmit} className="login-form">
+              <Input
+                label={t('login.username') || 'Username'}
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                disabled={isLoading}
+                required
+                autoFocus
+                autoComplete="username"
+              />
 
-          {error && <div className="error-message">{error}</div>}
+              <div className="password-field">
+                <Input
+                  label={t('login.password') || 'Password'}
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                  required
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? '🙈' : '👁️'}
+                </button>
+              </div>
 
-          <button type="submit" disabled={isLoading} className="submit-button">
-            {isLoading ? 'Logging in...' : t('login.submit') || 'Login'}
-          </button>
-        </form>
+              {error && (
+                <Alert variant="error" onDismiss={() => setError('')}>
+                  {error}
+                </Alert>
+              )}
+
+              <Button
+                type="submit"
+                variant="primary"
+                size="lg"
+                fullWidth
+                isLoading={isLoading}
+              >
+                {isLoading ? 'Logging in...' : t('login.submit') || 'Login'}
+              </Button>
+
+              <p className="login-hint">
+                Press <kbd>Enter</kbd> to submit
+              </p>
+            </form>
+          </CardBody>
+        </Card>
+
+        <p className="login-footer">
+          Contact your administrator for account access
+        </p>
       </div>
 
       <style>{`
@@ -70,92 +111,116 @@ export default function LoginPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          padding: var(--space-4);
+          background: var(--gradient-primary);
         }
 
         .login-container {
-          background: white;
-          border-radius: 8px;
-          padding: 2rem;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
           width: 100%;
-          max-width: 400px;
+          max-width: 420px;
+          animation: fade-in-up var(--transition-slow);
         }
 
-        .login-container h1 {
+        @keyframes fade-in-up {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .login-branding {
           text-align: center;
-          margin: 0 0 2rem;
-          color: #333;
-          font-size: 2rem;
+          margin-bottom: var(--space-8);
+          color: var(--color-white);
+        }
+
+        .login-logo {
+          font-size: 4rem;
+          display: block;
+          margin-bottom: var(--space-4);
+          filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+        }
+
+        .login-title {
+          margin: 0 0 var(--space-2);
+          font-size: var(--text-4xl);
+          font-weight: var(--font-bold);
+          text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .login-subtitle {
+          margin: 0;
+          font-size: var(--text-lg);
+          opacity: 0.9;
         }
 
         .login-form {
           display: flex;
           flex-direction: column;
-          gap: 1rem;
+          gap: var(--space-4);
         }
 
-        .form-group {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
+        .password-field {
+          position: relative;
         }
 
-        .form-group label {
-          font-weight: 600;
-          color: #555;
-          font-size: 0.9rem;
-        }
-
-        .form-group input {
-          padding: 0.75rem;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          font-size: 1rem;
-          transition: border-color 0.2s;
-        }
-
-        .form-group input:focus {
-          outline: none;
-          border-color: #667eea;
-          box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .form-group input:disabled {
-          background-color: #f5f5f5;
-          cursor: not-allowed;
-        }
-
-        .error-message {
-          color: #d32f2f;
-          font-size: 0.9rem;
-          padding: 0.75rem;
-          background-color: #ffebee;
-          border-radius: 4px;
-          text-align: center;
-        }
-
-        .submit-button {
-          padding: 0.75rem;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
+        .password-toggle {
+          position: absolute;
+          right: var(--space-3);
+          top: 38px;
+          background: none;
           border: none;
-          border-radius: 4px;
-          font-size: 1rem;
-          font-weight: 600;
           cursor: pointer;
-          transition: transform 0.2s, box-shadow 0.2s;
-          margin-top: 0.5rem;
+          font-size: var(--text-lg);
+          padding: var(--space-1);
+          opacity: 0.6;
+          transition: opacity var(--transition-fast);
         }
 
-        .submit-button:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        .password-toggle:hover {
+          opacity: 1;
         }
 
-        .submit-button:disabled {
-          opacity: 0.7;
-          cursor: not-allowed;
+        .login-hint {
+          text-align: center;
+          font-size: var(--text-sm);
+          color: var(--color-gray-500);
+          margin: 0;
+        }
+
+        .login-hint kbd {
+          display: inline-block;
+          padding: 2px 6px;
+          background: var(--color-gray-100);
+          border: 1px solid var(--color-gray-300);
+          border-radius: var(--radius-sm);
+          font-family: var(--font-family-mono);
+          font-size: var(--text-xs);
+        }
+
+        .login-footer {
+          text-align: center;
+          margin-top: var(--space-6);
+          font-size: var(--text-sm);
+          color: rgba(255, 255, 255, 0.8);
+        }
+
+        @media (max-width: 480px) {
+          .login-branding {
+            margin-bottom: var(--space-6);
+          }
+
+          .login-logo {
+            font-size: 3rem;
+          }
+
+          .login-title {
+            font-size: var(--text-3xl);
+          }
         }
       `}</style>
     </div>

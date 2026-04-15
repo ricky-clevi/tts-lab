@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Button } from './Button'
 
 export interface EmptyStateProps {
@@ -7,7 +7,7 @@ export interface EmptyStateProps {
   description?: string
   action?: {
     label: string
-    onClick: () => void
+    onClick?: () => void
     href?: string
   }
   className?: string

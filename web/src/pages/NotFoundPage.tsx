@@ -1,16 +1,26 @@
-import React from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import { Button } from '../components/ui'
 
 export default function NotFoundPage() {
+  const navigate = useNavigate()
+
   return (
     <div className="not-found-page">
       <div className="not-found-container">
-        <h1>404</h1>
-        <h2>Page Not Found</h2>
-        <p>The page you're looking for doesn't exist or you don't have permission to access it.</p>
-        <Link to="/" className="home-link">
-          Back to Home
-        </Link>
+        <span className="not-found-icon">🔍</span>
+        <h1 className="not-found-code">404</h1>
+        <h2 className="not-found-title">Page Not Found</h2>
+        <p className="not-found-description">
+          The page you're looking for doesn't exist or you don't have permission to access it.
+        </p>
+        <div className="not-found-actions">
+          <Button variant="primary" onClick={() => navigate('/')}>
+            Go to Dashboard
+          </Button>
+          <Button variant="secondary" onClick={() => navigate(-1)}>
+            Go Back
+          </Button>
+        </div>
       </div>
 
       <style>{`
@@ -19,52 +29,84 @@ export default function NotFoundPage() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: #f5f5f5;
+          background: var(--color-gray-50);
+          padding: var(--space-4);
         }
 
         .not-found-container {
           text-align: center;
-          background: white;
-          padding: 3rem 2rem;
-          border-radius: 8px;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+          background: var(--color-white);
+          padding: var(--space-12) var(--space-8);
+          border-radius: var(--radius-xl);
+          box-shadow: var(--shadow-lg);
           max-width: 500px;
+          width: 100%;
+          animation: fade-in-up var(--transition-slow);
         }
 
-        .not-found-container h1 {
-          font-size: 5rem;
-          margin: 0 0 1rem;
-          color: #667eea;
-          font-weight: 700;
+        @keyframes fade-in-up {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
 
-        .not-found-container h2 {
-          font-size: 2rem;
-          margin: 0 0 1rem;
-          color: #333;
+        .not-found-icon {
+          font-size: 4rem;
+          display: block;
+          margin-bottom: var(--space-4);
         }
 
-        .not-found-container p {
-          color: #666;
-          margin: 0 0 2rem;
-          font-size: 1rem;
-          line-height: 1.5;
+        .not-found-code {
+          font-size: 6rem;
+          font-weight: var(--font-bold);
+          margin: 0;
+          background: var(--gradient-primary);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          line-height: 1;
         }
 
-        .home-link {
-          display: inline-block;
-          padding: 0.75rem 1.5rem;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          text-decoration: none;
-          border-radius: 4px;
-          font-weight: 600;
-          transition: transform 0.2s, box-shadow 0.2s;
+        .not-found-title {
+          font-size: var(--text-2xl);
+          margin: var(--space-4) 0;
+          color: var(--color-gray-900);
         }
 
-        .home-link:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        .not-found-description {
+          color: var(--color-gray-600);
+          margin: 0 0 var(--space-8);
+          line-height: var(--leading-relaxed);
+        }
+
+        .not-found-actions {
+          display: flex;
+          gap: var(--space-3);
+          justify-content: center;
+          flex-wrap: wrap;
+        }
+
+        @media (max-width: 480px) {
+          .not-found-container {
+            padding: var(--space-8) var(--space-4);
+          }
+
+          .not-found-code {
+            font-size: 4rem;
+          }
+
+          .not-found-actions {
+            flex-direction: column;
+          }
+
+          .not-found-actions .btn {
+            width: 100%;
+          }
         }
       `}</style>
     </div>
