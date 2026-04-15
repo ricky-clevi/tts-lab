@@ -9,7 +9,7 @@
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(circle at top center, color-mix(in oklab, var(--color-secondary-200) 16%, transparent), transparent 26%),
+    radial-gradient(circle at top center, color-mix(in oklab, var(--color-secondary-200) 11%, transparent), transparent 26%),
     linear-gradient(180deg, color-mix(in oklab, var(--color-command-900) 2%, transparent), transparent 18%);
   pointer-events: none;
   z-index: -1;
@@ -46,11 +46,11 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at top right, color-mix(in oklab, var(--color-secondary-300) 28%, transparent), transparent 24%),
-    radial-gradient(circle at left 18% bottom 12%, color-mix(in oklab, var(--color-primary-200) 20%, transparent), transparent 30%),
-    repeating-linear-gradient(90deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 4%, transparent) 119px 120px),
-    repeating-linear-gradient(180deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 3%, transparent) 119px 120px);
-  opacity: 0.85;
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-secondary-300) 18%, transparent), transparent 24%),
+    radial-gradient(circle at left 18% bottom 12%, color-mix(in oklab, var(--color-primary-200) 12%, transparent), transparent 30%),
+    repeating-linear-gradient(90deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 2.2%, transparent) 119px 120px),
+    repeating-linear-gradient(180deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 1.7%, transparent) 119px 120px);
+  opacity: 0.7;
   pointer-events: none;
 }
 
@@ -62,7 +62,7 @@
   aspect-ratio: 1;
   border-radius: 50%;
   background: radial-gradient(circle, color-mix(in oklab, var(--color-secondary-400) 16%, transparent), transparent 68%);
-  opacity: 0.75;
+  opacity: 0.48;
   pointer-events: none;
 }
 
@@ -76,8 +76,8 @@
   border-radius: var(--radius-2xl);
   border: 1px solid color-mix(in oklab, var(--color-primary-400) 20%, var(--color-command-900) 80%);
   background:
-    radial-gradient(circle at top right, color-mix(in oklab, var(--color-secondary-300) 24%, transparent), transparent 28%),
-    linear-gradient(135deg, color-mix(in oklab, var(--color-command-800) 94%, var(--color-primary-700) 6%), color-mix(in oklab, var(--color-command-900) 92%, var(--color-primary-800) 8%));
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-secondary-300) 16%, transparent), transparent 28%),
+    linear-gradient(135deg, color-mix(in oklab, var(--color-command-700) 90%, white 10%), color-mix(in oklab, var(--color-command-800) 92%, var(--color-primary-700) 8%));
   box-shadow: var(--shadow-2xl);
   overflow: hidden;
 }
@@ -89,7 +89,7 @@
   background:
     linear-gradient(180deg, color-mix(in oklab, white 9%, transparent), transparent 24%),
     repeating-linear-gradient(90deg, transparent 0 95px, color-mix(in oklab, white 7%, transparent) 95px 96px);
-  opacity: 0.2;
+  opacity: 0.12;
   pointer-events: none;
 }
 
@@ -111,7 +111,7 @@
   font-weight: var(--font-extrabold);
   font-size: 1.1rem;
   letter-spacing: 0.12em;
-  box-shadow: 0 18px 36px color-mix(in oklab, var(--color-secondary-700) 22%, transparent);
+  box-shadow: 0 10px 22px color-mix(in oklab, var(--color-secondary-700) 16%, transparent);
 }
 
 .loading-copy {

@@ -93,13 +93,13 @@
   --color-primary-900: oklch(0.23 0.04 232);
 
   --color-secondary-50: oklch(0.978 0.022 72);
-  --color-secondary-100: oklch(0.948 0.05 72);
-  --color-secondary-200: oklch(0.892 0.09 72);
-  --color-secondary-300: oklch(0.82 0.13 72);
-  --color-secondary-400: oklch(0.748 0.16 70);
-  --color-secondary-500: oklch(0.688 0.17 68);
-  --color-secondary-600: oklch(0.61 0.152 66);
-  --color-secondary-700: oklch(0.5 0.12 64);
+  --color-secondary-100: oklch(0.95 0.034 72);
+  --color-secondary-200: oklch(0.904 0.055 72);
+  --color-secondary-300: oklch(0.842 0.082 72);
+  --color-secondary-400: oklch(0.776 0.102 70);
+  --color-secondary-500: oklch(0.71 0.112 68);
+  --color-secondary-600: oklch(0.634 0.098 66);
+  --color-secondary-700: oklch(0.536 0.08 64);
 
   --color-success-50: oklch(0.97 0.025 155);
   --color-success-100: oklch(0.93 0.04 155);
@@ -127,8 +127,8 @@
 
   --gradient-primary: linear-gradient(
     120deg,
-    color-mix(in oklab, var(--color-secondary-500) 88%, white 12%),
-    color-mix(in oklab, var(--color-secondary-600) 66%, var(--color-primary-700) 34%)
+    color-mix(in oklab, var(--color-secondary-400) 82%, white 18%),
+    color-mix(in oklab, var(--color-secondary-500) 58%, var(--color-primary-600) 42%)
   );
   --gradient-panel: linear-gradient(
     180deg,
@@ -137,20 +137,20 @@
   );
   --gradient-shell: radial-gradient(
       circle at top right,
-      color-mix(in oklab, var(--color-secondary-200) 42%, transparent),
+      color-mix(in oklab, var(--color-secondary-200) 28%, transparent),
       transparent 22%
     ),
-    radial-gradient(circle at left -10% top 0%, color-mix(in oklab, var(--color-primary-100) 62%, transparent), transparent 34%),
-    repeating-linear-gradient(90deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 4%, transparent) 119px 120px),
-    repeating-linear-gradient(180deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 3%, transparent) 119px 120px),
+    radial-gradient(circle at left -10% top 0%, color-mix(in oklab, var(--color-primary-100) 42%, transparent), transparent 34%),
+    repeating-linear-gradient(90deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 2.2%, transparent) 119px 120px),
+    repeating-linear-gradient(180deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 1.7%, transparent) 119px 120px),
     linear-gradient(180deg, var(--color-paper), color-mix(in oklab, var(--color-surface) 97%, var(--color-primary-50) 3%));
 
   /* Shadows */
   --shadow-sm: 0 1px 2px color-mix(in oklab, var(--color-command-900) 7%, transparent);
-  --shadow-md: 0 14px 34px color-mix(in oklab, var(--color-command-900) 10%, transparent);
-  --shadow-lg: 0 22px 60px color-mix(in oklab, var(--color-command-900) 14%, transparent);
-  --shadow-xl: 0 34px 82px color-mix(in oklab, var(--color-command-900) 18%, transparent);
-  --shadow-2xl: 0 42px 104px color-mix(in oklab, var(--color-command-900) 20%, transparent);
+  --shadow-md: 0 10px 24px color-mix(in oklab, var(--color-command-900) 8%, transparent);
+  --shadow-lg: 0 16px 42px color-mix(in oklab, var(--color-command-900) 11%, transparent);
+  --shadow-xl: 0 24px 60px color-mix(in oklab, var(--color-command-900) 14%, transparent);
+  --shadow-2xl: 0 32px 78px color-mix(in oklab, var(--color-command-900) 16%, transparent);
 
   --shadow-focus: 0 0 0 3px color-mix(in oklab, var(--color-primary-400) 32%, transparent);
   --shadow-focus-error: 0 0 0 3px color-mix(in oklab, var(--color-error-500) 26%, transparent);

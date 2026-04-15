@@ -190,7 +190,6 @@ export default function DashboardPage() {
             <div>
               <p className="section-kicker">{t('dashboard.section.primary.kicker')}</p>
               <h2>{t('dashboard.section.primary.title')}</h2>
-              <p className="section-description">{t('dashboard.gettingStarted.description')}</p>
             </div>
           </div>
           <div className="quick-actions-grid">
@@ -312,7 +311,6 @@ export default function DashboardPage() {
               <div>
                 <p className="section-kicker">{t('dashboard.section.recent.kicker')}</p>
                 <h2>{t('dashboard.section.recent.title')}</h2>
-                <p className="section-description">{t('dashboard.stats.voiceProfiles.note')}</p>
               </div>
               <Link to="/voices" className="section-link">
                 {t('dashboard.section.recent.link')}
