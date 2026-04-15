@@ -7,12 +7,14 @@ export default function NotFoundPage() {
   return (
     <div className="not-found-page">
       <div className="not-found-container">
-        <span className="not-found-icon">🔍</span>
-        <h1 className="not-found-code">404</h1>
-        <h2 className="not-found-title">Page Not Found</h2>
-        <p className="not-found-description">
-          The page you're looking for doesn't exist or you don't have permission to access it.
-        </p>
+        <span className="not-found-mark">404</span>
+        <div className="not-found-copy">
+          <p className="not-found-kicker">Navigation Error</p>
+          <h1 className="not-found-title">This route is not available.</h1>
+          <p className="not-found-description">
+            The page may have been moved, removed, or blocked by permissions. Return to the main workspace and continue from there.
+          </p>
+        </div>
         <div className="not-found-actions">
           <Button variant="primary" onClick={() => navigate('/')}>
             Go to Dashboard
@@ -26,80 +28,69 @@ export default function NotFoundPage() {
       <style>{`
         .not-found-page {
           min-height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: var(--color-gray-50);
+          display: grid;
+          place-items: center;
           padding: var(--space-4);
+          background: var(--gradient-shell);
         }
 
         .not-found-container {
-          text-align: center;
-          background: var(--color-white);
-          padding: var(--space-12) var(--space-8);
-          border-radius: var(--radius-xl);
-          box-shadow: var(--shadow-lg);
-          max-width: 500px;
-          width: 100%;
-          animation: fade-in-up var(--transition-slow);
+          width: min(40rem, 100%);
+          display: grid;
+          gap: var(--space-6);
+          padding: clamp(2rem, 5vw, 3.25rem);
+          border-radius: var(--radius-2xl);
+          border: 1px solid color-mix(in oklab, var(--color-primary-200) 36%, var(--color-line) 64%);
+          background:
+            radial-gradient(circle at top right, color-mix(in oklab, var(--color-primary-100) 42%, transparent), transparent 36%),
+            linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 94%, white 6%), color-mix(in oklab, var(--color-surface) 88%, var(--color-primary-50) 12%));
+          box-shadow: var(--shadow-xl);
         }
 
-        @keyframes fade-in-up {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+        .not-found-mark {
+          display: inline-flex;
+          width: fit-content;
+          padding: 0.55rem 0.9rem;
+          border-radius: var(--radius-full);
+          background: color-mix(in oklab, var(--color-primary-100) 68%, white 32%);
+          color: var(--color-primary-800);
+          font-family: var(--font-family-display);
+          font-size: var(--text-sm);
+          font-weight: var(--font-extrabold);
+          letter-spacing: 0.12em;
         }
 
-        .not-found-icon {
-          font-size: 4rem;
-          display: block;
-          margin-bottom: var(--space-4);
+        .not-found-copy {
+          display: grid;
+          gap: var(--space-3);
         }
 
-        .not-found-code {
-          font-size: 6rem;
+        .not-found-kicker {
+          color: var(--color-gray-500);
+          font-size: var(--text-xs);
           font-weight: var(--font-bold);
-          margin: 0;
-          background: var(--gradient-primary);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-          line-height: 1;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
         }
 
         .not-found-title {
-          font-size: var(--text-2xl);
-          margin: var(--space-4) 0;
-          color: var(--color-gray-900);
+          font-size: clamp(2rem, 5vw, 3rem);
+          letter-spacing: -0.05em;
         }
 
         .not-found-description {
           color: var(--color-gray-600);
-          margin: 0 0 var(--space-8);
           line-height: var(--leading-relaxed);
+          max-width: 48ch;
         }
 
         .not-found-actions {
           display: flex;
           gap: var(--space-3);
-          justify-content: center;
           flex-wrap: wrap;
         }
 
         @media (max-width: 480px) {
-          .not-found-container {
-            padding: var(--space-8) var(--space-4);
-          }
-
-          .not-found-code {
-            font-size: 4rem;
-          }
-
           .not-found-actions {
             flex-direction: column;
           }

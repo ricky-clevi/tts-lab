@@ -244,7 +244,6 @@
 .border-0 { border: none; }
 .border-t { border-top: var(--border-width) solid var(--border-color); }
 .border-b { border-bottom: var(--border-width) solid var(--border-color); }
-.border-l { border-left: var(--border-width) solid var(--border-color); }
 .border-r { border-right: var(--border-width) solid var(--border-color); }
 
 .rounded-sm { border-radius: var(--radius-sm); }

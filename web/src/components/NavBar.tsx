@@ -1,7 +1,13 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { t, getCurrentLocale, setLocale } from '../i18n'
+import { getCurrentLocale, setLocale, t } from '../i18n'
+
+const NAV_ITEMS = [
+  { to: '/tts', label: 'TTS', shortLabel: 'Synthesis' },
+  { to: '/voices', label: 'Voices', shortLabel: 'Library' },
+  { to: '/chat', label: 'Chat', shortLabel: 'Realtime' },
+]
 
 export default function NavBar() {
   const navigate = useNavigate()
@@ -18,11 +24,9 @@ export default function NavBar() {
   const toggleLocale = () => {
     const newLocale = getCurrentLocale() === 'en' ? 'ko' : 'en'
     setLocale(newLocale)
-    // Force re-render
     window.location.reload()
   }
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -34,49 +38,37 @@ export default function NavBar() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-    `nav-link ${isActive ? 'nav-link-active' : ''}`
+  const navLinkClass = ({ isActive }: { isActive: boolean }) => `nav-link ${isActive ? 'nav-link-active' : ''}`
 
   return (
     <nav className="navbar" role="navigation" aria-label="Main navigation">
       <div className="navbar-container">
-        {/* Brand */}
-        <div className="navbar-brand">
-          <Link to="/" className="logo">
-            <span className="logo-icon">🎙️</span>
-            <span className="logo-text">TTS Lab</span>
-          </Link>
-        </div>
+        <Link to="/" className="brand-lockup">
+          <span className="brand-mark">VL</span>
+          <span className="brand-copy">
+            <strong>TTS Lab</strong>
+            <span>Voice operations workspace</span>
+          </span>
+        </Link>
 
-        {/* Mobile menu button */}
         <button
           className="mobile-menu-btn"
-          onClick={() => setShowMobileMenu(!showMobileMenu)}
+          onClick={() => setShowMobileMenu((value) => !value)}
           aria-expanded={showMobileMenu}
           aria-label="Toggle navigation menu"
         >
-          <span className="hamburger-line" />
-          <span className="hamburger-line" />
-          <span className="hamburger-line" />
+          Menu
         </button>
 
-        {/* Navigation Links */}
         <div className={`navbar-links ${showMobileMenu ? 'navbar-links-open' : ''}`}>
-          <NavLink to="/tts" className={navLinkClass} onClick={() => setShowMobileMenu(false)}>
-            <span className="nav-icon">🎤</span>
-            {t('nav.tts') || 'TTS'}
-          </NavLink>
-          <NavLink to="/voices" className={navLinkClass} onClick={() => setShowMobileMenu(false)}>
-            <span className="nav-icon">🎵</span>
-            {t('nav.voices') || 'Voices'}
-          </NavLink>
-          <NavLink to="/chat" className={navLinkClass} onClick={() => setShowMobileMenu(false)}>
-            <span className="nav-icon">💬</span>
-            {t('nav.chat') || 'Chat'}
-          </NavLink>
+          {NAV_ITEMS.map((item) => (
+            <NavLink key={item.to} to={item.to} className={navLinkClass} onClick={() => setShowMobileMenu(false)}>
+              <span className="nav-link-title">{t(`nav.${item.label.toLowerCase()}`) || item.label}</span>
+              <span className="nav-link-meta">{item.shortLabel}</span>
+            </NavLink>
+          ))}
         </div>
 
-        {/* Right side */}
         <div className="navbar-right">
           <button
             onClick={toggleLocale}
@@ -84,23 +76,22 @@ export default function NavBar() {
             title="Toggle language"
             aria-label={`Switch to ${getCurrentLocale() === 'en' ? 'Korean' : 'English'}`}
           >
-            {getCurrentLocale() === 'en' ? '한국어' : 'English'}
+            <span>{getCurrentLocale() === 'en' ? 'KO' : 'EN'}</span>
           </button>
 
           <div className="user-menu" ref={dropdownRef}>
             <button
-              onClick={() => setShowUserMenu(!showUserMenu)}
+              onClick={() => setShowUserMenu((value) => !value)}
               className="user-button"
               aria-expanded={showUserMenu}
               aria-haspopup="true"
               title={user?.username}
             >
-              <span className="user-avatar">
-                {user?.username?.charAt(0).toUpperCase()}
+              <span className="user-avatar">{user?.username?.slice(0, 2).toUpperCase()}</span>
+              <span className="user-meta">
+                <strong>{user?.username}</strong>
+                <span>{isAdmin ? 'Admin workspace' : 'Operator workspace'}</span>
               </span>
-              <span className="user-name">{user?.username}</span>
-              {isAdmin && <span className="admin-badge">Admin</span>}
-              <span className="dropdown-arrow">▾</span>
             </button>
 
             {showUserMenu && (
@@ -110,22 +101,11 @@ export default function NavBar() {
                   <span className="dropdown-user-role">{user?.role}</span>
                 </div>
                 {isAdmin && (
-                  <Link
-                    to="/studio"
-                    className="dropdown-item"
-                    role="menuitem"
-                    onClick={() => setShowUserMenu(false)}
-                  >
-                    <span className="dropdown-icon">⚙️</span>
+                  <Link to="/studio" className="dropdown-item" role="menuitem" onClick={() => setShowUserMenu(false)}>
                     Admin Studio
                   </Link>
                 )}
-                <button
-                  onClick={handleLogout}
-                  className="dropdown-item dropdown-item-danger"
-                  role="menuitem"
-                >
-                  <span className="dropdown-icon">🚪</span>
+                <button onClick={handleLogout} className="dropdown-item dropdown-item-danger" role="menuitem">
                   {t('nav.logout') || 'Logout'}
                 </button>
               </div>
@@ -136,103 +116,135 @@ export default function NavBar() {
 
       <style>{`
         .navbar {
-          background: var(--color-white);
-          border-bottom: 1px solid var(--border-color);
           position: sticky;
           top: 0;
           z-index: var(--z-sticky);
-          box-shadow: var(--shadow-sm);
+          padding: var(--space-4) var(--space-4) 0;
+          background: linear-gradient(180deg, color-mix(in oklab, var(--color-paper) 94%, white 6%), transparent);
+          backdrop-filter: blur(12px);
         }
 
         .navbar-container {
           max-width: var(--container-max-width);
+          min-height: var(--navbar-height);
           margin: 0 auto;
-          padding: 0 var(--space-4);
-          height: var(--navbar-height);
+          padding: var(--space-3);
           display: flex;
           align-items: center;
           justify-content: space-between;
-          gap: var(--space-6);
+          gap: var(--space-4);
+          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
+          border-radius: var(--radius-2xl);
+          background: color-mix(in oklab, var(--color-surface-elevated) 86%, white 14%);
+          box-shadow: var(--shadow-md);
         }
 
-        .navbar-brand {
-          flex-shrink: 0;
-        }
-
-        .logo {
-          display: flex;
+        .brand-lockup {
+          display: inline-flex;
           align-items: center;
-          gap: var(--space-2);
-          font-size: var(--text-xl);
-          font-weight: var(--font-bold);
-          color: var(--color-primary-600);
-          text-decoration: none;
-          transition: color var(--transition-fast);
+          gap: var(--space-3);
+          min-width: 0;
         }
 
-        .logo:hover {
-          color: var(--color-secondary-500);
+        .brand-mark {
+          width: 3rem;
+          height: 3rem;
+          display: grid;
+          place-items: center;
+          border-radius: 1rem;
+          background: var(--gradient-primary);
+          color: var(--color-white);
+          font-family: var(--font-family-display);
+          font-weight: var(--font-extrabold);
+          letter-spacing: 0.08em;
+          box-shadow: 0 14px 30px color-mix(in oklab, var(--color-primary-800) 18%, transparent);
         }
 
-        .logo-icon {
-          font-size: var(--text-2xl);
+        .brand-copy {
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
+        }
+
+        .brand-copy strong {
+          color: var(--color-gray-900);
+          font-family: var(--font-family-display);
+          font-size: 1.02rem;
+          letter-spacing: -0.02em;
+        }
+
+        .brand-copy span {
+          color: var(--color-gray-500);
+          font-size: var(--text-xs);
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
         }
 
         .navbar-links {
           display: flex;
           gap: var(--space-2);
+          padding: 0.35rem;
+          border-radius: var(--radius-full);
+          background: color-mix(in oklab, var(--color-surface) 72%, white 28%);
+          border: 1px solid color-mix(in oklab, var(--color-line) 72%, white 28%);
           flex: 1;
-          justify-content: center;
+          max-width: 34rem;
         }
 
         .nav-link {
+          flex: 1;
           display: flex;
-          align-items: center;
-          gap: var(--space-2);
-          padding: var(--space-2) var(--space-4);
+          flex-direction: column;
+          gap: 0.1rem;
+          padding: 0.8rem 1rem;
+          border-radius: var(--radius-full);
           color: var(--color-gray-600);
-          text-decoration: none;
-          font-weight: var(--font-medium);
-          border-radius: var(--radius-md);
-          transition: all var(--transition-fast);
+          transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
         }
 
         .nav-link:hover {
-          color: var(--color-primary-600);
-          background: var(--color-primary-50);
+          color: var(--color-gray-900);
+          background: color-mix(in oklab, var(--color-primary-50) 38%, transparent);
         }
 
         .nav-link-active {
-          color: var(--color-primary-600);
-          background: var(--color-primary-50);
+          color: var(--color-primary-800);
+          background: color-mix(in oklab, var(--color-white) 74%, var(--color-primary-50) 26%);
+          box-shadow: var(--shadow-sm);
         }
 
-        .nav-icon {
-          font-size: var(--text-lg);
+        .nav-link-title {
+          font-size: var(--text-sm);
+          font-weight: var(--font-bold);
+        }
+
+        .nav-link-meta {
+          font-size: 0.68rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--color-gray-500);
         }
 
         .navbar-right {
           display: flex;
           align-items: center;
-          gap: var(--space-4);
+          gap: var(--space-3);
           flex-shrink: 0;
         }
 
         .locale-toggle {
-          padding: var(--space-2) var(--space-3);
-          background: var(--color-gray-100);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-md);
-          font-size: var(--text-sm);
-          font-weight: var(--font-medium);
+          min-width: 3rem;
+          min-height: 3rem;
+          display: grid;
+          place-items: center;
+          border-radius: var(--radius-full);
+          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
           color: var(--color-gray-700);
-          cursor: pointer;
-          transition: all var(--transition-fast);
-        }
-
-        .locale-toggle:hover {
-          background: var(--color-gray-200);
-          border-color: var(--color-gray-300);
+          font-size: var(--text-xs);
+          font-weight: var(--font-bold);
+          letter-spacing: 0.1em;
+          text-transform: uppercase;
         }
 
         .user-menu {
@@ -242,174 +254,102 @@ export default function NavBar() {
         .user-button {
           display: flex;
           align-items: center;
-          gap: var(--space-2);
-          padding: var(--space-2) var(--space-3);
-          background: var(--gradient-primary);
-          color: var(--color-white);
-          border: none;
-          border-radius: var(--radius-md);
-          cursor: pointer;
-          font-weight: var(--font-medium);
-          font-size: var(--text-sm);
-          transition: all var(--transition-fast);
-        }
-
-        .user-button:hover {
-          transform: translateY(-1px);
-          box-shadow: var(--shadow-md);
+          gap: var(--space-3);
+          padding: 0.45rem var(--space-3) 0.45rem 0.45rem;
+          background: color-mix(in oklab, var(--color-surface) 76%, white 24%);
+          color: var(--color-gray-800);
+          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+          border-radius: var(--radius-full);
         }
 
         .user-avatar {
-          width: 28px;
-          height: 28px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: var(--radius-full);
-          font-weight: var(--font-bold);
-          font-size: var(--text-sm);
+          width: 2.4rem;
+          height: 2.4rem;
+          display: grid;
+          place-items: center;
+          border-radius: 999px;
+          background: var(--gradient-primary);
+          color: var(--color-white);
+          font-size: 0.72rem;
+          font-weight: var(--font-extrabold);
+          letter-spacing: 0.08em;
         }
 
-        .user-name {
-          max-width: 100px;
+        .user-meta {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          min-width: 0;
+        }
+
+        .user-meta strong {
+          max-width: 10rem;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+          font-size: var(--text-sm);
         }
 
-        .admin-badge {
-          font-size: var(--text-xs);
-          background: rgba(255, 255, 255, 0.2);
-          padding: 2px 6px;
-          border-radius: var(--radius-sm);
-        }
-
-        .dropdown-arrow {
-          font-size: var(--text-xs);
-          opacity: 0.8;
-        }
-
-        .dropdown-menu {
-          position: absolute;
-          top: calc(100% + var(--space-2));
-          right: 0;
-          min-width: 200px;
-          background: var(--color-white);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-lg);
-          box-shadow: var(--shadow-lg);
-          overflow: hidden;
-          animation: dropdown-fade-in var(--transition-fast);
-        }
-
-        @keyframes dropdown-fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(-8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+        .user-meta span {
+          font-size: 0.68rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--color-gray-500);
         }
 
         .dropdown-header {
-          padding: var(--space-3) var(--space-4);
-          background: var(--color-gray-50);
-          border-bottom: 1px solid var(--border-color);
+          display: flex;
+          flex-direction: column;
+          gap: 0.2rem;
+          padding: var(--space-4);
+          border-bottom: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+          background: color-mix(in oklab, var(--color-surface) 80%, white 20%);
         }
 
         .dropdown-user-name {
-          display: block;
-          font-weight: var(--font-semibold);
+          font-weight: var(--font-bold);
           color: var(--color-gray-900);
         }
 
         .dropdown-user-role {
-          display: block;
-          font-size: var(--text-xs);
+          font-size: 0.72rem;
           color: var(--color-gray-500);
-          text-transform: capitalize;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
         }
 
-        .dropdown-item {
-          display: flex;
-          align-items: center;
-          gap: var(--space-3);
-          width: 100%;
-          padding: var(--space-3) var(--space-4);
-          background: none;
-          border: none;
-          color: var(--color-gray-700);
-          font-size: var(--text-sm);
-          text-align: left;
-          text-decoration: none;
-          cursor: pointer;
-          transition: background var(--transition-fast);
-        }
-
-        .dropdown-item:hover {
-          background: var(--color-gray-100);
-          color: var(--color-primary-600);
-        }
-
-        .dropdown-item-danger {
-          color: var(--color-error-600);
-          border-top: 1px solid var(--border-color);
-        }
-
-        .dropdown-item-danger:hover {
-          background: var(--color-error-50);
-          color: var(--color-error-700);
-        }
-
-        .dropdown-icon {
-          font-size: var(--text-base);
-        }
-
-        /* Mobile menu button */
         .mobile-menu-btn {
           display: none;
-          flex-direction: column;
-          justify-content: center;
-          gap: 4px;
-          padding: var(--space-2);
-          background: none;
-          border: none;
-          cursor: pointer;
+          min-height: 2.8rem;
+          padding: 0.65rem 1rem;
+          border-radius: var(--radius-full);
+          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+          background: color-mix(in oklab, var(--color-surface) 82%, white 18%);
+          color: var(--color-gray-800);
+          font-size: var(--text-sm);
+          font-weight: var(--font-bold);
         }
 
-        .hamburger-line {
-          width: 24px;
-          height: 2px;
-          background: var(--color-gray-700);
-          border-radius: 2px;
-          transition: all var(--transition-fast);
-        }
-
-        /* Mobile styles */
-        @media (max-width: 768px) {
+        @media (max-width: 960px) {
           .navbar-container {
-            padding: 0 var(--space-3);
+            flex-wrap: wrap;
           }
 
           .mobile-menu-btn {
-            display: flex;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            order: 2;
+            margin-left: auto;
           }
 
           .navbar-links {
             display: none;
-            position: absolute;
-            top: var(--navbar-height);
-            left: 0;
-            right: 0;
+            order: 4;
+            width: 100%;
+            max-width: none;
             flex-direction: column;
-            gap: 0;
-            background: var(--color-white);
-            border-bottom: 1px solid var(--border-color);
-            box-shadow: var(--shadow-lg);
-            padding: var(--space-2);
+            border-radius: var(--radius-xl);
           }
 
           .navbar-links-open {
@@ -417,24 +357,28 @@ export default function NavBar() {
           }
 
           .nav-link {
-            padding: var(--space-3) var(--space-4);
-            border-radius: var(--radius-md);
+            border-radius: var(--radius-lg);
           }
 
-          .locale-toggle {
+          .navbar-right {
+            order: 3;
+            width: 100%;
+            justify-content: space-between;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .navbar {
+            padding: var(--space-3) var(--space-3) 0;
+          }
+
+          .brand-copy span,
+          .user-meta span {
             display: none;
           }
 
-          .user-name {
-            display: none;
-          }
-
-          .admin-badge {
-            display: none;
-          }
-
-          .dropdown-arrow {
-            display: none;
+          .user-meta strong {
+            max-width: 7rem;
           }
         }
       `}</style>

@@ -1,18 +1,7 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchVoices, deleteVoice } from '../api'
-import {
-  Button,
-  Card,
-  CardBody,
-  Input,
-  Select,
-  Badge,
-  Alert,
-  ConfirmModal,
-  EmptyState,
-  Skeleton,
-} from '../components/ui'
+import { deleteVoice, fetchVoices } from '../api'
+import { Alert, Badge, Button, Card, CardBody, ConfirmModal, EmptyState, Input, Select, Skeleton } from '../components/ui'
 import { useToast } from '../components/ui/Toast'
 import { t } from '../i18n'
 import type { CloneVoiceProfileResponse } from '../types'
@@ -22,23 +11,16 @@ type ViewMode = 'grid' | 'list'
 
 export default function VoicesPage() {
   const { success, error: showError } = useToast()
-
   const [voices, setVoices] = useState<CloneVoiceProfileResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-
-  // Filters
   const [searchQuery, setSearchQuery] = useState('')
   const [languageFilter, setLanguageFilter] = useState<string>('all')
   const [sortBy, setSortBy] = useState<SortOption>('newest')
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
-
-  // Delete modal
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [voiceToDelete, setVoiceToDelete] = useState<CloneVoiceProfileResponse | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
-
-  // Copy feedback
   const [copiedId, setCopiedId] = useState('')
 
   useEffect(() => {
@@ -49,8 +31,7 @@ export default function VoicesPage() {
     try {
       setLoading(true)
       setError('')
-      const data = await fetchVoices()
-      setVoices(data)
+      setVoices(await fetchVoices())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load voices')
     } finally {
@@ -58,33 +39,20 @@ export default function VoicesPage() {
     }
   }
 
-  // Get unique languages for filter
-  const languages = useMemo(() => {
-    const uniqueLangs = [...new Set(voices.map((v) => v.language))]
-    return uniqueLangs.sort()
-  }, [voices])
+  const languages = useMemo(() => [...new Set(voices.map((voice) => voice.language))].sort(), [voices])
 
-  // Filter and sort voices
   const filteredVoices = useMemo(() => {
     let result = [...voices]
 
-    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
-      result = result.filter(
-        (v) =>
-          v.label.toLowerCase().includes(query) ||
-          v.reference_text.toLowerCase().includes(query) ||
-          v.id.toLowerCase().includes(query)
-      )
+      result = result.filter((voice) => voice.label.toLowerCase().includes(query) || voice.reference_text.toLowerCase().includes(query) || voice.id.toLowerCase().includes(query))
     }
 
-    // Language filter
     if (languageFilter !== 'all') {
-      result = result.filter((v) => v.language === languageFilter)
+      result = result.filter((voice) => voice.language === languageFilter)
     }
 
-    // Sort
     result.sort((a, b) => {
       switch (sortBy) {
         case 'newest':
@@ -110,18 +78,13 @@ export default function VoicesPage() {
     setTimeout(() => setCopiedId(''), 2000)
   }
 
-  const handleDeleteClick = (voice: CloneVoiceProfileResponse) => {
-    setVoiceToDelete(voice)
-    setDeleteModalOpen(true)
-  }
-
   const handleDeleteConfirm = async () => {
     if (!voiceToDelete) return
 
     try {
       setIsDeleting(true)
       await deleteVoice(voiceToDelete.id)
-      setVoices(voices.filter((v) => v.id !== voiceToDelete.id))
+      setVoices((prev) => prev.filter((voice) => voice.id !== voiceToDelete.id))
       success(`Voice "${voiceToDelete.label}" deleted successfully`)
       setDeleteModalOpen(false)
       setVoiceToDelete(null)
@@ -132,12 +95,6 @@ export default function VoicesPage() {
     }
   }
 
-  const handleClearFilters = () => {
-    setSearchQuery('')
-    setLanguageFilter('all')
-    setSortBy('newest')
-  }
-
   const hasActiveFilters = searchQuery || languageFilter !== 'all' || sortBy !== 'newest'
 
   return (
@@ -145,47 +102,28 @@ export default function VoicesPage() {
       <div className="page-container">
         <div className="page-header">
           <div className="header-content">
-            <h1>🎵 {t('voices.title') || 'Voice Library'}</h1>
-            <p className="page-description">
-              Your custom and cloned voice profiles. Use Voice IDs to integrate with the on-prem TTS API.
-            </p>
+            <p className="voices-kicker">Asset Library</p>
+            <h1>{t('voices.title') || 'Voice Library'}</h1>
+            <p className="page-description">Your custom and cloned voice profiles. Use voice IDs to integrate with the on-prem TTS API.</p>
           </div>
           <Link to="/tts" className="btn btn-primary">
-            + Create New Voice
+            Create New Voice
           </Link>
         </div>
 
-        {error && (
-          <Alert variant="error" onDismiss={() => setError('')}>
-            {error}
-          </Alert>
-        )}
+        {error && <Alert variant="error" onDismiss={() => setError('')}>{error}</Alert>}
 
-        {/* Filters */}
         <Card className="filters-card">
           <CardBody>
             <div className="filters-row">
               <div className="search-field">
-                <Input
-                  placeholder="Search voices..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  leftIcon="🔍"
-                />
+                <Input placeholder="Search voices..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon="ID" />
               </div>
-
               <Select
                 value={languageFilter}
                 onChange={(e) => setLanguageFilter(e.target.value)}
-                options={[
-                  { value: 'all', label: 'All Languages' },
-                  ...languages.map((l) => ({
-                    value: l,
-                    label: l === 'en' ? 'English' : l === 'ko' ? 'Korean' : l,
-                  })),
-                ]}
+                options={[{ value: 'all', label: 'All Languages' }, ...languages.map((entry) => ({ value: entry, label: entry === 'en' ? 'English' : entry === 'ko' ? 'Korean' : entry }))]}
               />
-
               <Select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
@@ -196,49 +134,31 @@ export default function VoicesPage() {
                   { value: 'name-desc', label: 'Name (Z-A)' },
                 ]}
               />
-
               <div className="view-toggle">
-                <button
-                  className={`view-btn ${viewMode === 'grid' ? 'view-btn-active' : ''}`}
-                  onClick={() => setViewMode('grid')}
-                  aria-label="Grid view"
-                >
-                  ▦
+                <button className={`view-btn ${viewMode === 'grid' ? 'view-btn-active' : ''}`} onClick={() => setViewMode('grid')} aria-label="Grid view">
+                  Cards
                 </button>
-                <button
-                  className={`view-btn ${viewMode === 'list' ? 'view-btn-active' : ''}`}
-                  onClick={() => setViewMode('list')}
-                  aria-label="List view"
-                >
-                  ☰
+                <button className={`view-btn ${viewMode === 'list' ? 'view-btn-active' : ''}`} onClick={() => setViewMode('list')} aria-label="List view">
+                  List
                 </button>
               </div>
-
               {hasActiveFilters && (
-                <Button variant="ghost" size="sm" onClick={handleClearFilters}>
+                <Button variant="ghost" size="sm" onClick={() => { setSearchQuery(''); setLanguageFilter('all'); setSortBy('newest') }}>
                   Clear Filters
                 </Button>
               )}
             </div>
 
             <div className="results-count">
-              {loading ? (
-                <Skeleton width={120} height={16} />
-              ) : (
-                <span>
-                  {filteredVoices.length} of {voices.length} voices
-                  {hasActiveFilters && ' (filtered)'}
-                </span>
-              )}
+              {loading ? <Skeleton width={120} height={16} /> : <span>{filteredVoices.length} of {voices.length} voices{hasActiveFilters && ' (filtered)'}</span>}
             </div>
           </CardBody>
         </Card>
 
-        {/* Voices Grid/List */}
         {loading ? (
           <div className={`voices-${viewMode}`}>
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Card key={i}>
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Card key={index}>
                 <CardBody>
                   <Skeleton height={200} />
                 </CardBody>
@@ -249,44 +169,23 @@ export default function VoicesPage() {
           <Card>
             <CardBody>
               {voices.length === 0 ? (
-                <EmptyState
-                  icon="🎵"
-                  title={t('voices.empty') || 'No voices yet'}
-                  description="Create your first voice by going to the TTS Studio and cloning a voice."
-                  action={{ label: 'Go to TTS Studio', href: '/tts' }}
-                />
+                <EmptyState icon="LIB" title={t('voices.empty') || 'No voices yet'} description="Create your first voice by going to the TTS Studio and cloning a voice." action={{ label: 'Go to TTS Studio', href: '/tts' }} />
               ) : (
-                <EmptyState
-                  icon="🔍"
-                  title="No results found"
-                  description={`No voices match "${searchQuery}". Try adjusting your search or filters.`}
-                  action={{ label: 'Clear Filters', onClick: handleClearFilters }}
-                />
+                <EmptyState icon="?" title="No results found" description={`No voices match "${searchQuery}". Try adjusting your search or filters.`} action={{ label: 'Clear Filters', onClick: () => { setSearchQuery(''); setLanguageFilter('all'); setSortBy('newest') } }} />
               )}
             </CardBody>
           </Card>
         ) : (
           <div className={`voices-${viewMode}`}>
             {filteredVoices.map((voice) => (
-              <VoiceCard
-                key={voice.id}
-                voice={voice}
-                viewMode={viewMode}
-                copiedId={copiedId}
-                onCopyId={handleCopyId}
-                onDelete={handleDeleteClick}
-              />
+              <VoiceCard key={voice.id} voice={voice} viewMode={viewMode} copiedId={copiedId} onCopyId={handleCopyId} onDelete={(selectedVoice) => { setVoiceToDelete(selectedVoice); setDeleteModalOpen(true) }} />
             ))}
           </div>
         )}
 
-        {/* Delete Confirmation Modal */}
         <ConfirmModal
           isOpen={deleteModalOpen}
-          onClose={() => {
-            setDeleteModalOpen(false)
-            setVoiceToDelete(null)
-          }}
+          onClose={() => { setDeleteModalOpen(false); setVoiceToDelete(null) }}
           onConfirm={handleDeleteConfirm}
           title="Delete Voice Profile"
           message={`Are you sure you want to delete "${voiceToDelete?.label}"? This action cannot be undone.`}
@@ -298,109 +197,50 @@ export default function VoicesPage() {
       </div>
 
       <style>{`
-        .voices-page .page-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          flex-wrap: wrap;
-          gap: var(--space-4);
+        .voices-kicker {
+          color: var(--color-primary-700);
+          font-size: var(--text-xs);
+          font-weight: var(--font-bold);
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          margin-bottom: var(--space-2);
         }
-
-        .header-content {
-          flex: 1;
-        }
-
-        .filters-card {
-          margin-bottom: var(--space-6);
-        }
-
-        .filters-row {
-          display: flex;
-          gap: var(--space-3);
-          flex-wrap: wrap;
-          align-items: flex-end;
-        }
-
-        .search-field {
-          flex: 1;
-          min-width: 200px;
-        }
-
-        .filters-row .form-group {
-          margin: 0;
-        }
-
+        .voices-page .page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-4); }
+        .header-content { flex: 1; }
+        .filters-card { margin-bottom: var(--space-6); }
+        .filters-row { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: flex-end; }
+        .search-field { flex: 1; min-width: 220px; }
+        .filters-row .form-group { margin: 0; }
         .view-toggle {
           display: flex;
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-md);
-          overflow: hidden;
+          padding: 0.25rem;
+          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
+          border-radius: var(--radius-full);
+          background: color-mix(in oklab, var(--color-surface) 82%, white 18%);
         }
-
         .view-btn {
-          padding: var(--space-2) var(--space-3);
-          background: var(--color-white);
+          min-width: 4.8rem;
+          padding: var(--space-2) var(--space-4);
+          background: transparent;
           border: none;
-          cursor: pointer;
-          font-size: var(--text-lg);
+          border-radius: var(--radius-full);
           color: var(--color-gray-500);
-          transition: all var(--transition-fast);
-        }
-
-        .view-btn:first-child {
-          border-right: 1px solid var(--border-color);
-        }
-
-        .view-btn:hover {
-          background: var(--color-gray-100);
-        }
-
-        .view-btn-active {
-          background: var(--color-primary-50);
-          color: var(--color-primary-600);
-        }
-
-        .results-count {
-          margin-top: var(--space-3);
           font-size: var(--text-sm);
-          color: var(--color-gray-500);
+          font-weight: var(--font-bold);
         }
-
-        .voices-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-          gap: var(--space-4);
-        }
-
-        .voices-list {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-3);
-        }
-
+        .view-btn-active { background: var(--color-white); color: var(--color-primary-700); box-shadow: var(--shadow-sm); }
+        .results-count { margin-top: var(--space-3); font-size: var(--text-sm); color: var(--color-gray-500); }
+        .voices-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: var(--space-4); }
+        .voices-list { display: flex; flex-direction: column; gap: var(--space-3); }
         @media (max-width: 768px) {
-          .voices-page .page-header {
-            flex-direction: column;
-          }
-
-          .filters-row {
-            flex-direction: column;
-          }
-
-          .search-field {
-            width: 100%;
-          }
-
-          .voices-grid {
-            grid-template-columns: 1fr;
-          }
+          .voices-page .page-header, .filters-row { flex-direction: column; }
+          .search-field { width: 100%; }
+          .voices-grid { grid-template-columns: 1fr; }
         }
       `}</style>
     </div>
   )
 }
-
-// ============ Voice Card Component ============
 
 interface VoiceCardProps {
   voice: CloneVoiceProfileResponse
@@ -425,28 +265,17 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete }: VoiceCardP
             <span className="voice-date">{new Date(voice.created_at).toLocaleDateString()}</span>
           </div>
 
-          {isGrid && (
-            <p className="voice-text">
-              {voice.reference_text.substring(0, 120)}
-              {voice.reference_text.length > 120 ? '...' : ''}
-            </p>
-          )}
+          {isGrid && <p className="voice-text">{voice.reference_text.substring(0, 120)}{voice.reference_text.length > 120 ? '...' : ''}</p>}
 
           <div className="voice-id-section">
-            <span className="voice-id-label">Voice ID:</span>
+            <span className="voice-id-label">Voice ID</span>
             <div className="voice-id-row">
               <code className="voice-id-value">{voice.id}</code>
-              <Button
-                variant={copiedId === voice.id ? 'primary' : 'secondary'}
-                size="sm"
-                onClick={() => onCopyId(voice.id)}
-              >
-                {copiedId === voice.id ? '✓ Copied' : 'Copy'}
+              <Button variant={copiedId === voice.id ? 'primary' : 'secondary'} size="sm" onClick={() => onCopyId(voice.id)}>
+                {copiedId === voice.id ? 'Copied' : 'Copy'}
               </Button>
             </div>
-            <p className="voice-id-hint">
-              {t('voices.usageHint') || 'Use this Voice ID in the voice field when calling the TTS API'}
-            </p>
+            <p className="voice-id-hint">{t('voices.usageHint') || 'Use this Voice ID in the voice field when calling the TTS API'}</p>
           </div>
 
           {isGrid && voice.audio_path && (
@@ -456,94 +285,45 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete }: VoiceCardP
           )}
 
           <div className="voice-actions">
-            <Button variant="danger" size="sm" onClick={() => onDelete(voice)}>
-              Delete
-            </Button>
+            <Button variant="danger" size="sm" onClick={() => onDelete(voice)}>Delete</Button>
           </div>
         </div>
       </CardBody>
 
       <style>{`
-        .voice-card {
-          transition: all var(--transition-fast);
-        }
-
-        .voice-card-grid .voice-card-content {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-4);
-        }
-
-        .voice-card-list .voice-card-content {
-          display: flex;
-          align-items: center;
-          gap: var(--space-6);
-        }
-
-        .voice-card-list .voice-info {
-          min-width: 150px;
-        }
-
-        .voice-card-list .voice-id-section {
-          flex: 1;
-        }
-
-        .voice-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: var(--space-3);
-        }
-
-        .voice-info {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-2);
-        }
-
-        .voice-name {
-          margin: 0;
-          font-size: var(--text-lg);
-          font-weight: var(--font-semibold);
-        }
-
-        .voice-date {
-          font-size: var(--text-sm);
-          color: var(--color-gray-400);
-          white-space: nowrap;
-        }
-
+        .voice-card-grid .voice-card-content { display: flex; flex-direction: column; gap: var(--space-4); }
+        .voice-card-list .voice-card-content { display: flex; align-items: center; gap: var(--space-6); }
+        .voice-card-list .voice-info { min-width: 150px; }
+        .voice-card-list .voice-id-section { flex: 1; }
+        .voice-header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
+        .voice-info { display: flex; flex-direction: column; gap: var(--space-2); }
+        .voice-name { margin: 0; font-size: var(--text-lg); font-weight: var(--font-semibold); }
+        .voice-date { font-size: var(--text-sm); color: var(--color-gray-400); white-space: nowrap; }
         .voice-text {
           margin: 0;
           font-size: var(--text-sm);
           color: var(--color-gray-600);
           line-height: var(--leading-relaxed);
-          background: var(--color-gray-50);
+          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
           padding: var(--space-3);
           border-radius: var(--radius-md);
         }
-
         .voice-id-section {
           padding: var(--space-3);
-          background: var(--color-gray-50);
-          border: 1px solid var(--border-color);
+          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
+          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
           border-radius: var(--radius-md);
         }
-
         .voice-id-label {
           display: block;
-          font-size: var(--text-sm);
-          font-weight: var(--font-semibold);
-          color: var(--color-gray-600);
+          font-size: var(--text-xs);
+          font-weight: var(--font-bold);
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          color: var(--color-gray-500);
           margin-bottom: var(--space-2);
         }
-
-        .voice-id-row {
-          display: flex;
-          gap: var(--space-2);
-          align-items: center;
-        }
-
+        .voice-id-row { display: flex; gap: var(--space-2); align-items: center; }
         .voice-id-value {
           flex: 1;
           padding: var(--space-2);
@@ -555,28 +335,10 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete }: VoiceCardP
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-
-        .voice-id-hint {
-          margin: var(--space-2) 0 0;
-          font-size: var(--text-xs);
-          color: var(--color-gray-500);
-          font-style: italic;
-        }
-
-        .voice-audio {
-          width: 100%;
-          height: 36px;
-        }
-
-        .voice-actions {
-          display: flex;
-          justify-content: flex-end;
-          gap: var(--space-2);
-        }
-
-        .voice-card-list .voice-actions {
-          flex-shrink: 0;
-        }
+        .voice-id-hint { margin: var(--space-2) 0 0; font-size: var(--text-xs); color: var(--color-gray-500); }
+        .voice-audio { width: 100%; height: 36px; }
+        .voice-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+        .voice-card-list .voice-actions { flex-shrink: 0; }
       `}</style>
     </Card>
   )

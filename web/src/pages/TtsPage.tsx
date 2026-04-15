@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Button, Card, CardBody, CardHeader, Input, Select, Textarea, Alert, Badge } from '../components/ui'
+import { useEffect, useState } from 'react'
+import { createReplyVoiceCloneProfile, fetchCapabilities, generateRun } from '../api'
+import { Alert, Badge, Button, Card, CardBody, CardHeader, Input, Select, Textarea } from '../components/ui'
 import { useToast } from '../components/ui/Toast'
-import { fetchCapabilities, generateRun, createReplyVoiceCloneProfile } from '../api'
 import { t } from '../i18n'
-import type { Mode, CapabilitiesResponse, GenerationRun, AudioClip } from '../types'
+import type { AudioClip, CapabilitiesResponse, GenerationRun, Mode } from '../types'
 
 type GenerationSettings = {
   temperature: number
@@ -17,55 +17,39 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   max_new_tokens: 2048,
 }
 
+const MODE_META: Record<Mode, { mark: string; title: string; summary: string }> = {
+  custom: { mark: 'BASE', title: 'Preset Speaker', summary: 'Use an available speaker profile for direct synthesis.' },
+  design: { mark: 'STYLE', title: 'Voice Design', summary: 'Describe tone and character to shape the voice dynamically.' },
+  clone: { mark: 'CLONE', title: 'Reference Clone', summary: 'Upload a short sample and build a reusable operator voice.' },
+}
+
 export default function TtsPage() {
   const { success, error: showError } = useToast()
-
-  // Capabilities
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null)
   const [isLoadingCaps, setIsLoadingCaps] = useState(true)
-
-  // Mode and form state
   const [mode, setMode] = useState<Mode>('custom')
   const [segments, setSegments] = useState<string[]>([''])
   const [language, setLanguage] = useState('en')
   const [speaker, setSpeaker] = useState('')
   const [voicePersona, setVoicePersona] = useState('')
-
-  // Clone mode state
   const [referenceFile, setReferenceFile] = useState<File | null>(null)
   const [referenceText, setReferenceText] = useState('')
   const [cloneLabel, setCloneLabel] = useState('')
-
-  // Generation state
   const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [generationError, setGenerationError] = useState('')
-
-  // Results
   const [runs, setRuns] = useState<GenerationRun[]>([])
   const [selectedRun, setSelectedRun] = useState<GenerationRun | null>(null)
 
-  // File input ref
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Load capabilities on mount
   useEffect(() => {
     async function loadCapabilities() {
       try {
         const caps = await fetchCapabilities()
         setCapabilities(caps)
-
-        // Set default speaker if available
-        if (caps.speakers.length > 0) {
-          setSpeaker(caps.speakers[0].id)
-        }
-
-        // Set default language
-        if (caps.languages.length > 0) {
-          setLanguage(caps.languages[0])
-        }
-      } catch (err) {
+        if (caps.speakers.length > 0) setSpeaker(caps.speakers[0].id)
+        if (caps.languages.length > 0) setLanguage(caps.languages[0])
+      } catch {
         showError('Failed to load capabilities')
       } finally {
         setIsLoadingCaps(false)
@@ -73,33 +57,20 @@ export default function TtsPage() {
     }
 
     loadCapabilities()
-  }, [])
+  }, [showError])
 
-  const handleAddSegment = () => {
-    setSegments([...segments, ''])
-  }
-
-  const handleRemoveSegment = (index: number) => {
-    if (segments.length > 1) {
-      setSegments(segments.filter((_, i) => i !== index))
-    }
-  }
+  const languageOptions =
+    capabilities?.languages.map((entry) => ({
+      value: entry,
+      label: entry === 'en' ? 'English' : entry === 'ko' ? 'Korean' : entry === 'auto' ? 'Auto' : entry,
+    })) || []
 
   const handleSegmentChange = (index: number, value: string) => {
-    const newSegments = [...segments]
-    newSegments[index] = value
-    setSegments(newSegments)
-  }
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setReferenceFile(file)
-    }
+    setSegments((prev) => prev.map((segment, currentIndex) => (currentIndex === index ? value : segment)))
   }
 
   const handleGenerate = async () => {
-    const validSegments = segments.filter(s => s.trim())
+    const validSegments = segments.filter((segment) => segment.trim())
     if (validSegments.length === 0) {
       showError('Please enter at least one text segment')
       return
@@ -115,33 +86,27 @@ export default function TtsPage() {
 
     try {
       let result: GenerationRun
-
       if (mode === 'clone') {
-        // For clone mode, use FormData
         const formData = new FormData()
         formData.append('audio', referenceFile!)
         formData.append('language', language)
         formData.append('segments', JSON.stringify(validSegments))
         formData.append('reference_text', referenceText)
         formData.append('generation', JSON.stringify(settings))
-
         result = await generateRun(mode, formData)
       } else {
-        // For custom and design modes
-        const payload = {
+        result = await generateRun(mode, {
           segments: validSegments,
           language,
           speaker: mode === 'custom' ? speaker : undefined,
           instruct: mode === 'design' ? voicePersona : undefined,
           generation: settings,
-        }
-
-        result = await generateRun(mode, payload)
+        })
       }
 
-      setRuns(prev => [result, ...prev])
+      setRuns((prev) => [result, ...prev])
       setSelectedRun(result)
-      success('Audio generated successfully!')
+      success('Audio generated successfully')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Generation failed'
       setGenerationError(message)
@@ -162,18 +127,15 @@ export default function TtsPage() {
         file: referenceFile,
         language,
         label: cloneLabel,
-        referenceText: referenceText,
+        referenceText,
       })
-      success(`Voice profile "${profile.label}" saved successfully!`)
+      success(`Voice profile "${profile.label}" saved successfully`)
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Failed to save voice profile')
     }
   }
 
-  const getModeDescription = (m: Mode) => {
-    const mode = capabilities?.modes.find(cm => cm.id === m)
-    return mode?.description || ''
-  }
+  const getModeDescription = (value: Mode) => capabilities?.modes.find((entry) => entry.id === value)?.description || MODE_META[value].summary
 
   if (isLoadingCaps) {
     return (
@@ -192,32 +154,38 @@ export default function TtsPage() {
     <div className="page tts-page">
       <div className="page-container">
         <div className="page-header">
-          <h1>🎤 {t('workspace.tts') || 'TTS Studio'}</h1>
-          <p className="page-description">
-            {t('tts.lead') || 'Generate speech from text using custom voices, voice design, or voice cloning.'}
-          </p>
+          <div className="tts-header">
+            <div>
+              <p className="tts-kicker">Synthesis Workspace</p>
+              <h1>{t('workspace.tts') || 'TTS Studio'}</h1>
+              <p className="page-description">
+                {t('tts.lead') || 'Generate speech from text using custom voices, voice design, or voice cloning.'}
+              </p>
+            </div>
+            <div className="tts-header-pills">
+              <span>{capabilities?.selected_device ?? 'Device unavailable'}</span>
+              <span>{capabilities?.runtime_backend ?? 'Unknown backend'}</span>
+            </div>
+          </div>
         </div>
 
         <div className="tts-layout">
-          {/* Left Panel - Controls */}
           <div className="tts-controls">
-            {/* Mode Selection */}
             <Card>
               <CardBody>
-                <h3 className="section-title">Voice Mode</h3>
+                <div className="section-head">
+                  <div>
+                    <p className="panel-kicker">Voice Mode</p>
+                    <h2>{MODE_META[mode].title}</h2>
+                  </div>
+                  <span className="mode-mark">{MODE_META[mode].mark}</span>
+                </div>
                 <div className="mode-tabs">
-                  {(['custom', 'design', 'clone'] as Mode[]).map((m) => (
-                    <button
-                      key={m}
-                      className={`mode-tab ${mode === m ? 'mode-tab-active' : ''}`}
-                      onClick={() => setMode(m)}
-                    >
-                      <span className="mode-icon">
-                        {m === 'custom' ? '🎭' : m === 'design' ? '✨' : '🔊'}
-                      </span>
-                      <span className="mode-name">
-                        {t(`mode.${m}`) || m.charAt(0).toUpperCase() + m.slice(1)}
-                      </span>
+                  {(Object.keys(MODE_META) as Mode[]).map((value) => (
+                    <button key={value} className={`mode-tab ${mode === value ? 'mode-tab-active' : ''}`} onClick={() => setMode(value)}>
+                      <span className="mode-tab-mark">{MODE_META[value].mark}</span>
+                      <strong>{t(`mode.${value}`) || MODE_META[value].title}</strong>
+                      <span>{MODE_META[value].summary}</span>
                     </button>
                   ))}
                 </div>
@@ -225,55 +193,30 @@ export default function TtsPage() {
               </CardBody>
             </Card>
 
-            {/* Mode-specific controls */}
             <Card>
+              <CardHeader><h3>Voice Controls</h3></CardHeader>
               <CardBody>
                 {mode === 'custom' && (
                   <div className="form-stack">
-                    <Select
-                      label={t('field.language') || 'Language'}
-                      value={language}
-                      onChange={(e) => setLanguage(e.target.value)}
-                      options={
-                        capabilities?.languages.map(l => ({
-                          value: l,
-                          label: l === 'en' ? 'English' : l === 'ko' ? 'Korean' : l === 'auto' ? 'Auto' : l
-                        })) || []
-                      }
-                    />
+                    <Select label={t('field.language') || 'Language'} value={language} onChange={(e) => setLanguage(e.target.value)} options={languageOptions} />
                     <Select
                       label={t('field.speaker') || 'Speaker'}
                       value={speaker}
                       onChange={(e) => setSpeaker(e.target.value)}
-                      options={
-                        capabilities?.speakers.map(s => ({
-                          value: s.id,
-                          label: `${s.name} - ${s.description}`
-                        })) || []
-                      }
+                      options={capabilities?.speakers.map((entry) => ({ value: entry.id, label: `${entry.name} - ${entry.description}` })) || []}
                     />
                   </div>
                 )}
 
                 {mode === 'design' && (
                   <div className="form-stack">
-                    <Select
-                      label={t('field.language') || 'Language'}
-                      value={language}
-                      onChange={(e) => setLanguage(e.target.value)}
-                      options={
-                        capabilities?.languages.map(l => ({
-                          value: l,
-                          label: l === 'en' ? 'English' : l === 'ko' ? 'Korean' : l === 'auto' ? 'Auto' : l
-                        })) || []
-                      }
-                    />
+                    <Select label={t('field.language') || 'Language'} value={language} onChange={(e) => setLanguage(e.target.value)} options={languageOptions} />
                     <Textarea
                       label={t('field.voicePersona') || 'Voice Persona'}
                       value={voicePersona}
                       onChange={(e) => setVoicePersona(e.target.value)}
-                      placeholder="Describe the voice you want: e.g., 'A warm, friendly female voice with a slight British accent'"
-                      hint="Describe the voice characteristics you want to generate"
+                      placeholder="Example: calm, reassuring female voice with steady pace for appointment reminders"
+                      hint="Use concise operator-facing guidance rather than long prose."
                     />
                   </div>
                 )}
@@ -284,45 +227,29 @@ export default function TtsPage() {
                       label={t('field.language') || 'Language'}
                       value={language}
                       onChange={(e) => setLanguage(e.target.value)}
-                      options={
-                        capabilities?.languages.map(l => ({
-                          value: l,
-                          label: l === 'en' ? 'English' : l === 'ko' ? 'Korean' : l === 'auto' ? 'Auto (Recommended)' : l
-                        })) || []
-                      }
+                      options={languageOptions.map((entry) => ({ ...entry, label: entry.value === 'auto' ? 'Auto (recommended)' : entry.label }))}
                       hint={t('hint.cloneLanguageAuto')}
                     />
-
                     <div className="form-group">
                       <label className="form-label">{t('field.referenceAudio') || 'Reference Audio'}</label>
                       <div className="file-upload-area">
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="audio/*"
-                          onChange={handleFileChange}
-                          className="file-input"
-                        />
+                        <input type="file" accept="audio/*" onChange={(e) => setReferenceFile(e.target.files?.[0] || null)} className="file-input" />
                         {referenceFile ? (
                           <div className="file-selected">
-                            <span>📁 {referenceFile.name}</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setReferenceFile(null)
-                                if (fileInputRef.current) fileInputRef.current.value = ''
-                              }}
-                            >
-                              Remove
-                            </Button>
+                            <div>
+                              <strong>{referenceFile.name}</strong>
+                              <p>Reference clip loaded</p>
+                            </div>
+                            <Button variant="ghost" size="sm" onClick={() => setReferenceFile(null)}>Remove</Button>
                           </div>
                         ) : (
-                          <p className="file-hint">Upload a 3-8 second audio clip for best results</p>
+                          <div className="file-placeholder">
+                            <strong>Upload a clean 3-8 second sample</strong>
+                            <p>Use a single speaker and minimal background noise.</p>
+                          </div>
                         )}
                       </div>
                     </div>
-
                     <Textarea
                       label={t('field.referenceTranscript') || 'Reference Transcript'}
                       value={referenceText}
@@ -330,36 +257,23 @@ export default function TtsPage() {
                       placeholder={t('placeholder.referenceTranscript')}
                       hint={t('hint.cloneTranscriptBlank')}
                     />
-
-                    <Input
-                      label="Voice Label (for saving)"
-                      value={cloneLabel}
-                      onChange={(e) => setCloneLabel(e.target.value)}
-                      placeholder={t('placeholder.voiceLabel')}
-                    />
-
-                    <Button
-                      variant="secondary"
-                      onClick={handleSaveCloneProfile}
-                      disabled={!referenceFile || !cloneLabel.trim()}
-                    >
-                      Save as Voice Profile
+                    <Input label="Voice Label" value={cloneLabel} onChange={(e) => setCloneLabel(e.target.value)} placeholder={t('placeholder.voiceLabel') || 'Korean outbound female v1'} />
+                    <Button variant="secondary" onClick={handleSaveCloneProfile} disabled={!referenceFile || !cloneLabel.trim()}>
+                      Save voice profile
                     </Button>
                   </div>
                 )}
               </CardBody>
             </Card>
 
-            {/* Text Segments */}
             <Card>
-              <CardBody>
-                <div className="section-header">
-                  <h3 className="section-title">Text to Synthesize</h3>
-                  <Button variant="ghost" size="sm" onClick={handleAddSegment}>
-                    + Add Segment
-                  </Button>
+              <CardHeader>
+                <div className="section-head-inline">
+                  <h3>Text Segments</h3>
+                  <Button variant="ghost" size="sm" onClick={() => setSegments((prev) => [...prev, ''])}>Add segment</Button>
                 </div>
-
+              </CardHeader>
+              <CardBody>
                 <div className="segments-list">
                   {segments.map((segment, index) => (
                     <div key={index} className="segment-item">
@@ -370,12 +284,7 @@ export default function TtsPage() {
                         placeholder={t('placeholder.pasteText') || 'Enter text to synthesize...'}
                       />
                       {segments.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveSegment(index)}
-                          className="remove-segment-btn"
-                        >
+                        <Button variant="ghost" size="sm" onClick={() => setSegments((prev) => prev.filter((_, currentIndex) => currentIndex !== index))} className="remove-segment-btn">
                           Remove
                         </Button>
                       )}
@@ -385,126 +294,73 @@ export default function TtsPage() {
               </CardBody>
             </Card>
 
-            {/* Advanced Settings */}
             <Card>
               <CardBody>
-                <button
-                  className="advanced-toggle"
-                  onClick={() => setShowAdvanced(!showAdvanced)}
-                >
-                  <h3 className="section-title">Advanced Settings</h3>
-                  <span className="toggle-icon">{showAdvanced ? '▼' : '▶'}</span>
+                <button className="advanced-toggle" onClick={() => setShowAdvanced((value) => !value)}>
+                  <div>
+                    <p className="panel-kicker">Generation Controls</p>
+                    <h3>Advanced settings</h3>
+                  </div>
+                  <span className="toggle-icon">{showAdvanced ? 'Hide' : 'Show'}</span>
                 </button>
-
                 {showAdvanced && (
                   <div className="advanced-settings">
-                    <Input
-                      label="Temperature"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="2"
-                      value={settings.temperature}
-                      onChange={(e) => setSettings({ ...settings, temperature: parseFloat(e.target.value) })}
-                      hint="Controls randomness (0 = deterministic, 2 = very random)"
-                    />
-                    <Input
-                      label="Top P"
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="1"
-                      value={settings.top_p}
-                      onChange={(e) => setSettings({ ...settings, top_p: parseFloat(e.target.value) })}
-                      hint="Nucleus sampling threshold"
-                    />
-                    <Input
-                      label="Max New Tokens"
-                      type="number"
-                      min="256"
-                      max="8192"
-                      value={settings.max_new_tokens}
-                      onChange={(e) => setSettings({ ...settings, max_new_tokens: parseInt(e.target.value) })}
-                      hint="Maximum length of generated audio"
-                    />
+                    <Input label="Temperature" type="number" step="0.1" min="0" max="2" value={settings.temperature} onChange={(e) => setSettings((prev) => ({ ...prev, temperature: Number.parseFloat(e.target.value) || 0 }))} />
+                    <Input label="Top P" type="number" step="0.1" min="0" max="1" value={settings.top_p} onChange={(e) => setSettings((prev) => ({ ...prev, top_p: Number.parseFloat(e.target.value) || 0 }))} />
+                    <Input label="Max New Tokens" type="number" min="256" max="8192" value={settings.max_new_tokens} onChange={(e) => setSettings((prev) => ({ ...prev, max_new_tokens: Number.parseInt(e.target.value, 10) || 0 }))} />
                   </div>
                 )}
               </CardBody>
             </Card>
 
-            {/* Generate Button */}
-            {generationError && (
-              <Alert variant="error" onDismiss={() => setGenerationError('')}>
-                {generationError}
-              </Alert>
-            )}
+            {generationError && <Alert variant="error" onDismiss={() => setGenerationError('')}>{generationError}</Alert>}
 
-            <Button
-              variant="primary"
-              size="lg"
-              fullWidth
-              onClick={handleGenerate}
-              isLoading={isGenerating}
-              disabled={isGenerating || segments.every(s => !s.trim())}
-            >
-              {isGenerating ? t('button.generating') : t('button.generateAudio') || 'Generate Audio'}
+            <Button variant="primary" size="lg" fullWidth onClick={handleGenerate} isLoading={isGenerating} disabled={isGenerating || segments.every((segment) => !segment.trim())}>
+              {isGenerating ? t('button.generating') || 'Generating...' : t('button.generateAudio') || 'Generate Audio'}
             </Button>
           </div>
 
-          {/* Right Panel - Results */}
           <div className="tts-results">
             <Card>
-              <CardHeader>
-                <h3>Results</h3>
-                {runs.length > 0 && (
-                  <Badge variant="primary">{runs.length} generations</Badge>
-                )}
+              <CardHeader className="results-header">
+                <div>
+                  <p className="panel-kicker">Output Review</p>
+                  <h3>Generated results</h3>
+                </div>
+                {runs.length > 0 && <Badge variant="primary">{runs.length} runs</Badge>}
               </CardHeader>
               <CardBody>
                 {runs.length === 0 ? (
                   <div className="empty-results">
-                    <span className="empty-icon">🎵</span>
-                    <p>No generations yet</p>
-                    <p className="empty-hint">Use the controls on the left to generate your first audio clip</p>
+                    <span className="empty-mark">AUDIO</span>
+                    <h3>No generations yet</h3>
+                    <p>Use the controls on the left to create your first synthesis run.</p>
                   </div>
                 ) : (
                   <>
-                    {/* Run History */}
                     {runs.length > 1 && (
                       <div className="run-history">
-                        <label className="form-label">History</label>
+                        <label className="form-label">Run History</label>
                         <div className="history-list">
                           {runs.map((run) => (
-                            <button
-                              key={run.run_id}
-                              className={`history-item ${selectedRun?.run_id === run.run_id ? 'history-item-active' : ''}`}
-                              onClick={() => setSelectedRun(run)}
-                            >
-                              <span className="history-mode">{run.mode}</span>
-                              <span className="history-date">
-                                {new Date(run.created_at).toLocaleTimeString()}
-                              </span>
+                            <button key={run.run_id} className={`history-item ${selectedRun?.run_id === run.run_id ? 'history-item-active' : ''}`} onClick={() => setSelectedRun(run)}>
+                              <strong>{run.mode}</strong>
+                              <span>{new Date(run.created_at).toLocaleTimeString()}</span>
                             </button>
                           ))}
                         </div>
                       </div>
                     )}
 
-                    {/* Selected Run Details */}
                     {selectedRun && (
                       <div className="run-details">
                         <div className="run-meta">
                           <Badge variant="primary">{selectedRun.mode}</Badge>
-                          <span className="run-device">{selectedRun.device}</span>
-                          <span className="run-date">
-                            {new Date(selectedRun.created_at).toLocaleString()}
-                          </span>
+                          <span>{selectedRun.device}</span>
+                          <span>{new Date(selectedRun.created_at).toLocaleString()}</span>
                         </div>
-
                         <div className="clips-list">
-                          {selectedRun.clips.map((clip, index) => (
-                            <ClipCard key={clip.id} clip={clip} index={index} />
-                          ))}
+                          {selectedRun.clips.map((clip, index) => <ClipCard key={clip.id} clip={clip} index={index} />)}
                         </div>
                       </div>
                     )}
@@ -517,248 +373,88 @@ export default function TtsPage() {
       </div>
 
       <style>{`
-        .tts-page .page-container {
-          max-width: 1400px;
-        }
-
-        .tts-layout {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: var(--space-6);
-          align-items: start;
-        }
-
-        .tts-controls {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-4);
-        }
-
-        .tts-results .card {
-          position: sticky;
-          top: calc(var(--navbar-height) + var(--space-4));
-        }
-
-        .section-title {
-          margin: 0;
-          font-size: var(--text-lg);
-          font-weight: var(--font-semibold);
-        }
-
-        .section-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: var(--space-4);
-        }
-
-        .form-stack {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-4);
-        }
-
-        /* Mode Tabs */
-        .mode-tabs {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: var(--space-2);
-          margin: var(--space-4) 0;
-        }
-
-        .mode-tab {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: var(--space-2);
-          padding: var(--space-4);
-          background: var(--color-gray-50);
-          border: 2px solid var(--border-color);
-          border-radius: var(--radius-lg);
-          cursor: pointer;
-          transition: all var(--transition-fast);
-        }
-
-        .mode-tab:hover {
-          border-color: var(--color-primary-300);
-          background: var(--color-primary-50);
-        }
-
-        .mode-tab-active {
-          border-color: var(--color-primary-500);
-          background: var(--color-primary-50);
-        }
-
-        .mode-icon {
-          font-size: var(--text-2xl);
-        }
-
-        .mode-name {
-          font-weight: var(--font-medium);
-          font-size: var(--text-sm);
-        }
-
-        .mode-description {
-          margin: 0;
-          color: var(--color-gray-600);
-          font-size: var(--text-sm);
-        }
-
-        /* File Upload */
-        .file-upload-area {
-          border: 2px dashed var(--border-color);
-          border-radius: var(--radius-md);
-          padding: var(--space-4);
-          text-align: center;
-        }
-
-        .file-input {
-          width: 100%;
-        }
-
-        .file-selected {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: var(--space-4);
-        }
-
-        .file-hint {
-          margin: var(--space-2) 0 0;
-          color: var(--color-gray-500);
-          font-size: var(--text-sm);
-        }
-
-        /* Segments */
-        .segments-list {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-4);
-        }
-
-        .segment-item {
-          position: relative;
-        }
-
-        .remove-segment-btn {
-          position: absolute;
-          top: 0;
-          right: 0;
-        }
-
-        /* Advanced Settings */
-        .advanced-toggle {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          width: 100%;
-          padding: 0;
-          background: none;
-          border: none;
-          cursor: pointer;
-          text-align: left;
-        }
-
-        .toggle-icon {
-          color: var(--color-gray-500);
-          font-size: var(--text-sm);
-        }
-
-        .advanced-settings {
-          margin-top: var(--space-4);
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-4);
-          padding-top: var(--space-4);
-          border-top: 1px solid var(--border-color);
-        }
-
-        /* Results */
-        .empty-results {
-          text-align: center;
-          padding: var(--space-8);
-          color: var(--color-gray-500);
-        }
-
-        .empty-icon {
-          font-size: 3rem;
-          display: block;
-          margin-bottom: var(--space-4);
-        }
-
-        .empty-hint {
-          font-size: var(--text-sm);
-          margin-top: var(--space-2);
-        }
-
-        .run-history {
-          margin-bottom: var(--space-6);
-        }
-
-        .history-list {
-          display: flex;
-          flex-wrap: wrap;
-          gap: var(--space-2);
-          margin-top: var(--space-2);
-        }
-
-        .history-item {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-1);
-          padding: var(--space-2) var(--space-3);
-          background: var(--color-gray-50);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-md);
-          cursor: pointer;
-          transition: all var(--transition-fast);
-          text-align: left;
-        }
-
-        .history-item:hover {
-          border-color: var(--color-primary-300);
-        }
-
-        .history-item-active {
-          border-color: var(--color-primary-500);
-          background: var(--color-primary-50);
-        }
-
-        .history-mode {
-          font-weight: var(--font-medium);
-          font-size: var(--text-sm);
-          text-transform: capitalize;
-        }
-
-        .history-date {
+        .tts-page .page-container { max-width: 1400px; }
+        .tts-header { display: flex; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
+        .tts-kicker, .panel-kicker {
+          color: var(--color-primary-700);
           font-size: var(--text-xs);
-          color: var(--color-gray-500);
+          font-weight: var(--font-bold);
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          margin-bottom: var(--space-2);
         }
-
-        .run-details {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-4);
-        }
-
-        .run-meta {
-          display: flex;
-          align-items: center;
-          gap: var(--space-3);
-          flex-wrap: wrap;
-        }
-
-        .run-device, .run-date {
+        .tts-header-pills { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: start; }
+        .tts-header-pills span {
+          display: inline-flex;
+          padding: 0.55rem 0.85rem;
+          border-radius: var(--radius-full);
+          background: color-mix(in oklab, var(--color-surface-elevated) 78%, white 22%);
+          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+          color: var(--color-gray-700);
           font-size: var(--text-sm);
-          color: var(--color-gray-500);
+          font-weight: var(--font-medium);
         }
-
-        .clips-list {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-4);
+        .tts-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(22rem, 0.9fr); gap: var(--space-6); align-items: start; }
+        .tts-controls { display: grid; gap: var(--space-4); }
+        .tts-results .card { position: sticky; top: calc(var(--navbar-height) + var(--space-4)); }
+        .section-head, .section-head-inline, .results-header { display: flex; justify-content: space-between; align-items: start; gap: var(--space-3); }
+        .mode-mark, .mode-tab-mark, .empty-mark {
+          display: inline-grid;
+          place-items: center;
+          width: fit-content;
+          padding: 0.4rem 0.7rem;
+          border-radius: var(--radius-full);
+          background: color-mix(in oklab, var(--color-primary-100) 70%, white 30%);
+          color: var(--color-primary-800);
+          font-size: 0.7rem;
+          font-weight: var(--font-extrabold);
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
         }
-
+        .mode-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-5) 0 var(--space-4); }
+        .mode-tab {
+          display: grid;
+          gap: var(--space-2);
+          padding: var(--space-4);
+          text-align: left;
+          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
+          border-radius: var(--radius-xl);
+          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
+        }
+        .mode-tab strong { font-family: var(--font-family-display); font-size: var(--text-base); color: var(--color-gray-900); }
+        .mode-tab span:last-child, .mode-description, .file-placeholder p, .empty-results p { color: var(--color-gray-600); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
+        .mode-tab-active { border-color: var(--color-primary-400); background: color-mix(in oklab, var(--color-primary-50) 44%, white 56%); box-shadow: var(--shadow-sm); }
+        .form-stack, .segments-list, .run-details, .clips-list { display: grid; gap: var(--space-4); }
+        .file-upload-area {
+          display: grid;
+          gap: var(--space-3);
+          padding: var(--space-4);
+          border-radius: var(--radius-xl);
+          border: 1px dashed color-mix(in oklab, var(--color-primary-300) 56%, var(--color-line) 44%);
+          background: color-mix(in oklab, var(--color-primary-50) 26%, white 74%);
+        }
+        .file-selected, .file-placeholder { display: flex; justify-content: space-between; gap: var(--space-3); align-items: center; }
+        .segment-item { position: relative; }
+        .remove-segment-btn { position: absolute; top: 0; right: 0; }
+        .advanced-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; text-align: left; border: none; background: none; padding: 0; }
+        .toggle-icon { color: var(--color-primary-700); font-size: var(--text-sm); font-weight: var(--font-bold); }
+        .advanced-settings { display: grid; gap: var(--space-4); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%); }
+        .empty-results { display: grid; justify-items: start; gap: var(--space-3); padding: var(--space-4) 0; }
+        .run-history { margin-bottom: var(--space-5); }
+        .history-list { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+        .history-item {
+          display: grid;
+          gap: 0.15rem;
+          padding: var(--space-3);
+          border-radius: var(--radius-lg);
+          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
+          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
+          text-align: left;
+        }
+        .history-item strong { text-transform: capitalize; }
+        .history-item span, .run-meta span { color: var(--color-gray-500); font-size: var(--text-sm); }
+        .history-item-active { border-color: var(--color-primary-400); background: color-mix(in oklab, var(--color-primary-50) 42%, white 58%); }
+        .run-meta { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
         .loading-state {
           display: flex;
           flex-direction: column;
@@ -768,32 +464,19 @@ export default function TtsPage() {
           gap: var(--space-4);
           color: var(--color-gray-500);
         }
-
-        @media (max-width: 1024px) {
-          .tts-layout {
-            grid-template-columns: 1fr;
-          }
-
-          .tts-results .card {
-            position: static;
-          }
+        @media (max-width: 1100px) {
+          .tts-layout { grid-template-columns: 1fr; }
+          .tts-results .card { position: static; }
         }
-
-        @media (max-width: 640px) {
-          .mode-tabs {
-            grid-template-columns: 1fr;
-          }
+        @media (max-width: 780px) {
+          .mode-tabs { grid-template-columns: 1fr; }
         }
       `}</style>
     </div>
   )
 }
 
-// ============ Clip Card Component ============
-
 function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
-  const audioRef = useRef<HTMLAudioElement>(null)
-
   const handleDownload = () => {
     const link = document.createElement('a')
     link.href = clip.audio_url
@@ -810,84 +493,50 @@ function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
   return (
     <div className="clip-card">
       <div className="clip-header">
-        <span className="clip-index">Segment {index + 1}</span>
-        <div className="clip-badges">
-          <Badge variant="info">{clip.language}</Badge>
-          <span className="clip-duration">{formatDuration(clip.duration_seconds)}</span>
+        <div>
+          <p className="clip-kicker">Segment {index + 1}</p>
+          <strong>{formatDuration(clip.duration_seconds)}</strong>
         </div>
+        <Badge variant="info">{clip.language}</Badge>
       </div>
-
       <p className="clip-text">{clip.text}</p>
-
-      <audio
-        ref={audioRef}
-        src={clip.audio_url}
-        controls
-        className="clip-audio"
-      />
-
+      <audio src={clip.audio_url} controls className="clip-audio" />
       <div className="clip-meta">
-        <span>Sample Rate: {clip.sample_rate} Hz</span>
-        {clip.speaker && <span>Speaker: {clip.speaker}</span>}
+        <span>Sample rate {clip.sample_rate} Hz</span>
+        {clip.speaker && <span>Speaker {clip.speaker}</span>}
       </div>
-
       <Button variant="secondary" size="sm" onClick={handleDownload}>
-        Download
+        Download clip
       </Button>
-
       <style>{`
         .clip-card {
-          padding: var(--space-4);
-          background: var(--color-gray-50);
-          border: 1px solid var(--border-color);
-          border-radius: var(--radius-lg);
-          display: flex;
-          flex-direction: column;
+          display: grid;
           gap: var(--space-3);
+          padding: var(--space-4);
+          border-radius: var(--radius-xl);
+          background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
+          border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
         }
-
-        .clip-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .clip-index {
-          font-weight: var(--font-semibold);
-        }
-
-        .clip-badges {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-        }
-
-        .clip-duration {
-          font-size: var(--text-sm);
+        .clip-header { display: flex; justify-content: space-between; gap: var(--space-3); align-items: start; }
+        .clip-kicker {
           color: var(--color-gray-500);
+          font-size: var(--text-xs);
+          font-weight: var(--font-bold);
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          margin-bottom: 0.25rem;
         }
-
+        .clip-header strong { font-family: var(--font-family-display); font-size: var(--text-lg); color: var(--color-gray-900); }
         .clip-text {
-          margin: 0;
           padding: var(--space-3);
+          border-radius: var(--radius-lg);
           background: var(--color-white);
-          border-radius: var(--radius-md);
-          font-size: var(--text-sm);
+          border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
           color: var(--color-gray-700);
           line-height: var(--leading-relaxed);
         }
-
-        .clip-audio {
-          width: 100%;
-          height: 40px;
-        }
-
-        .clip-meta {
-          display: flex;
-          gap: var(--space-4);
-          font-size: var(--text-xs);
-          color: var(--color-gray-500);
-        }
+        .clip-audio { width: 100%; height: 40px; }
+        .clip-meta { display: flex; gap: var(--space-3); flex-wrap: wrap; color: var(--color-gray-500); font-size: var(--text-xs); }
       `}</style>
     </div>
   )

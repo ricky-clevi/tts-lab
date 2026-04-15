@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info'
@@ -21,6 +21,13 @@ interface ToastContextValue {
 }
 
 const ToastContext = createContext<ToastContextValue | undefined>(undefined)
+
+const ICON_LABELS: Record<ToastType, string> = {
+  success: 'OK',
+  error: 'ERR',
+  warning: 'WARN',
+  info: 'INFO',
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -66,8 +73,6 @@ export function useToast() {
   return context
 }
 
-// ============ Toast Container ============
-
 interface ToastContainerProps {
   toasts: Toast[]
   onDismiss: (id: string) => void
@@ -87,46 +92,45 @@ function ToastContainer({ toasts, onDismiss }: ToastContainerProps) {
   return createPortal(container, document.body)
 }
 
-// ============ Toast Item ============
-
 interface ToastItemProps {
   toast: Toast
   onDismiss: (id: string) => void
 }
 
 function ToastItem({ toast, onDismiss }: ToastItemProps) {
-  const icons = {
-    success: '✓',
-    error: '✕',
-    warning: '⚠',
-    info: 'ℹ',
-  }
+  const toneColor =
+    toast.type === 'success'
+      ? 'var(--color-success-600)'
+      : toast.type === 'error'
+        ? 'var(--color-error-600)'
+        : toast.type === 'warning'
+          ? 'var(--color-warning-600)'
+          : 'var(--color-info-600)'
 
   return (
     <div className={`toast toast-${toast.type}`} role="alert">
       <span
         className="toast-icon"
         style={{
-          fontSize: 'var(--text-lg)',
-          color:
-            toast.type === 'success'
-              ? 'var(--color-success-600)'
-              : toast.type === 'error'
-                ? 'var(--color-error-600)'
-                : toast.type === 'warning'
-                  ? 'var(--color-warning-600)'
-                  : 'var(--color-info-600)',
+          minWidth: '3rem',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '0.3rem 0.45rem',
+          borderRadius: '9999px',
+          fontSize: '0.68rem',
+          fontWeight: '700',
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          background: 'color-mix(in oklab, currentColor 10%, white)',
+          color: toneColor,
         }}
       >
-        {icons[toast.type]}
+        {ICON_LABELS[toast.type]}
       </span>
       <p className="toast-message">{toast.message}</p>
-      <button
-        className="toast-dismiss"
-        onClick={() => onDismiss(toast.id)}
-        aria-label="Dismiss notification"
-      >
-        ×
+      <button className="toast-dismiss" onClick={() => onDismiss(toast.id)} aria-label="Dismiss notification">
+        x
       </button>
     </div>
   )
