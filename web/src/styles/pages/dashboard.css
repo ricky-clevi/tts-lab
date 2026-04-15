@@ -7,12 +7,13 @@
   grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 22rem);
   gap: var(--space-6);
   margin-bottom: var(--space-8);
-  padding: clamp(1.7rem, 4vw, 2.6rem);
+  padding: clamp(2rem, 4vw, 3rem);
   border-radius: var(--radius-2xl);
-  border: 1px solid color-mix(in oklab, var(--color-primary-200) 38%, var(--color-line) 62%);
+  border: 1px solid color-mix(in oklab, var(--color-primary-400) 22%, var(--color-command-800) 78%);
   background:
-    radial-gradient(circle at top right, color-mix(in oklab, var(--color-primary-100) 48%, transparent), transparent 36%),
-    linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 95%, white 5%), color-mix(in oklab, var(--color-surface) 88%, var(--color-primary-50) 12%));
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-secondary-300) 42%, transparent), transparent 24%),
+    repeating-linear-gradient(90deg, transparent 0 90px, color-mix(in oklab, white 9%, transparent) 90px 91px),
+    linear-gradient(135deg, color-mix(in oklab, var(--color-command-800) 94%, var(--color-primary-700) 6%), color-mix(in oklab, var(--color-command-900) 92%, var(--color-primary-800) 8%));
   box-shadow: var(--shadow-xl);
 }
 
@@ -23,16 +24,16 @@
 
 .hero-kicker,
 .section-kicker {
-  color: var(--color-primary-700);
+  color: color-mix(in oklab, var(--color-secondary-300) 86%, white 14%);
   font-size: var(--text-xs);
   font-weight: var(--font-bold);
-  letter-spacing: 0.16em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
 .hero-description {
   max-width: 56ch;
-  color: var(--color-gray-600);
+  color: color-mix(in oklab, var(--color-white) 78%, var(--color-primary-100) 22%);
   font-size: var(--text-lg);
   line-height: var(--leading-relaxed);
 }
@@ -50,11 +51,13 @@
   align-items: center;
   padding: 0.5rem 0.8rem;
   border-radius: var(--radius-full);
-  background: color-mix(in oklab, var(--color-surface-elevated) 76%, white 24%);
-  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
-  color: var(--color-gray-700);
+  background: color-mix(in oklab, var(--color-command-900) 38%, white 62%);
+  border: 1px solid color-mix(in oklab, var(--color-secondary-300) 18%, white 82%);
+  color: var(--color-command-900);
   font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .hero-side {
@@ -68,20 +71,20 @@
   gap: var(--space-2);
   padding: var(--space-5);
   border-radius: var(--radius-xl);
-  background: color-mix(in oklab, var(--color-surface-elevated) 78%, white 22%);
-  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-secondary-100) 78%, white 22%), color-mix(in oklab, var(--color-secondary-200) 56%, var(--color-primary-50) 44%));
+  border: 1px solid color-mix(in oklab, var(--color-secondary-400) 28%, var(--color-command-900) 72%);
 }
 
 .hero-status-card p,
 .hero-status-card span {
-  color: var(--color-gray-500);
+  color: var(--color-command-700);
 }
 
 .hero-status-card strong {
   font-family: var(--font-family-display);
-  font-size: clamp(1.6rem, 4vw, 2.2rem);
-  letter-spacing: -0.04em;
-  color: var(--color-gray-900);
+  font-size: clamp(2.3rem, 6vw, 3.4rem);
+  letter-spacing: 0.02em;
+  color: var(--color-command-900);
 }
 
 .hero-admin-link {
@@ -91,9 +94,10 @@
   width: fit-content;
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-full);
-  background: color-mix(in oklab, var(--color-surface-elevated) 78%, white 22%);
-  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
-  color: var(--color-gray-800);
+  background: color-mix(in oklab, var(--color-command-900) 44%, white 56%);
+  border: 1px solid color-mix(in oklab, var(--color-secondary-300) 18%, white 82%);
+  color: var(--color-command-900);
+  font-weight: var(--font-bold);
 }
 
 .dashboard-section {
@@ -115,9 +119,11 @@
 
 .section-link,
 .stat-link {
-  color: var(--color-primary-700);
+  color: var(--color-secondary-600);
   font-size: var(--text-sm);
   font-weight: var(--font-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .quick-actions-grid,
@@ -156,12 +162,12 @@
   place-items: center;
   padding: 0.55rem 0.8rem;
   border-radius: 0.95rem;
-  background: color-mix(in oklab, var(--color-primary-100) 70%, white 30%);
-  color: var(--color-primary-800);
+  background: linear-gradient(135deg, color-mix(in oklab, var(--color-secondary-200) 80%, white 20%), color-mix(in oklab, var(--color-secondary-400) 66%, white 34%));
+  color: var(--color-command-900);
   font-family: var(--font-family-display);
-  font-size: 0.72rem;
+  font-size: 0.82rem;
   font-weight: var(--font-extrabold);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -185,11 +191,11 @@
 }
 
 .action-arrow {
-  color: var(--color-primary-700);
+  color: var(--color-secondary-600);
   font-size: var(--text-sm);
   font-weight: var(--font-bold);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
 }
 
 .stat-loading,
@@ -226,9 +232,9 @@
 
 .stat-value {
   font-family: var(--font-family-display);
-  font-size: clamp(2.6rem, 6vw, 4rem);
+  font-size: clamp(3rem, 7vw, 4.8rem);
   font-weight: var(--font-extrabold);
-  letter-spacing: -0.07em;
+  letter-spacing: 0.02em;
   color: var(--color-gray-900);
 }
 

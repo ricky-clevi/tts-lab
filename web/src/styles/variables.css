@@ -7,7 +7,7 @@
   color-scheme: light;
 
   /* Typography */
-  --font-family-display: 'Manrope', 'Noto Sans KR', 'Segoe UI', sans-serif;
+  --font-family-display: 'Barlow Condensed', 'Noto Sans KR', 'Segoe UI', sans-serif;
   --font-family-sans: 'Noto Sans KR', 'Segoe UI', sans-serif;
   --font-family-mono: 'Chivo Mono', 'Cascadia Mono', Consolas, monospace;
 
@@ -26,6 +26,7 @@
   --font-semibold: 600;
   --font-bold: 700;
   --font-extrabold: 800;
+  --font-black: 900;
 
   --leading-none: 1;
   --leading-tight: 1.2;
@@ -48,49 +49,57 @@
   --space-20: 5rem;
 
   /* Radius */
-  --radius-sm: 0.4rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.4rem;
-  --radius-2xl: 1.8rem;
+  --radius-sm: 0.3rem;
+  --radius-md: 0.65rem;
+  --radius-lg: 0.95rem;
+  --radius-xl: 1.15rem;
+  --radius-2xl: 1.45rem;
   --radius-full: 9999px;
 
   /* Core palette */
-  --color-paper: oklch(0.985 0.004 200);
-  --color-surface: oklch(0.975 0.006 200);
-  --color-surface-strong: oklch(0.952 0.009 205);
-  --color-surface-elevated: oklch(0.993 0.004 195);
-  --color-panel: oklch(0.938 0.012 210);
-  --color-line: oklch(0.88 0.012 210);
-  --color-line-strong: oklch(0.78 0.02 210);
+  --color-paper: oklch(0.984 0.006 225);
+  --color-surface: oklch(0.971 0.008 225);
+  --color-surface-strong: oklch(0.946 0.012 226);
+  --color-surface-elevated: oklch(0.992 0.004 220);
+  --color-panel: oklch(0.932 0.015 224);
+  --color-line: oklch(0.852 0.019 224);
+  --color-line-strong: oklch(0.72 0.03 224);
+  --color-command-700: oklch(0.38 0.04 236);
+  --color-command-800: oklch(0.28 0.033 238);
+  --color-command-900: oklch(0.21 0.028 240);
 
   --color-gray-50: var(--color-paper);
   --color-gray-100: var(--color-surface);
   --color-gray-200: var(--color-surface-strong);
   --color-gray-300: var(--color-panel);
-  --color-gray-400: oklch(0.73 0.015 220);
-  --color-gray-500: oklch(0.56 0.02 225);
-  --color-gray-600: oklch(0.46 0.021 228);
-  --color-gray-700: oklch(0.36 0.024 230);
-  --color-gray-800: oklch(0.28 0.02 232);
-  --color-gray-900: oklch(0.22 0.018 235);
-  --color-black: oklch(0.2 0.018 235);
+  --color-gray-400: oklch(0.72 0.018 224);
+  --color-gray-500: oklch(0.54 0.022 228);
+  --color-gray-600: oklch(0.43 0.025 231);
+  --color-gray-700: oklch(0.33 0.028 234);
+  --color-gray-800: oklch(0.25 0.024 236);
+  --color-gray-900: oklch(0.19 0.02 240);
+  --color-black: oklch(0.17 0.018 242);
   --color-white: oklch(0.997 0.003 190);
 
-  --color-primary-50: oklch(0.97 0.018 202);
-  --color-primary-100: oklch(0.94 0.03 202);
-  --color-primary-200: oklch(0.88 0.05 202);
-  --color-primary-300: oklch(0.8 0.075 201);
-  --color-primary-400: oklch(0.72 0.095 199);
-  --color-primary-500: oklch(0.63 0.102 197);
-  --color-primary-600: oklch(0.54 0.09 198);
-  --color-primary-700: oklch(0.45 0.073 201);
-  --color-primary-800: oklch(0.36 0.055 205);
-  --color-primary-900: oklch(0.29 0.04 212);
+  --color-primary-50: oklch(0.968 0.02 220);
+  --color-primary-100: oklch(0.938 0.035 220);
+  --color-primary-200: oklch(0.874 0.056 221);
+  --color-primary-300: oklch(0.792 0.08 221);
+  --color-primary-400: oklch(0.69 0.102 223);
+  --color-primary-500: oklch(0.58 0.112 224);
+  --color-primary-600: oklch(0.49 0.094 225);
+  --color-primary-700: oklch(0.39 0.075 226);
+  --color-primary-800: oklch(0.3 0.056 228);
+  --color-primary-900: oklch(0.23 0.04 232);
 
-  --color-secondary-500: oklch(0.56 0.038 240);
-  --color-secondary-600: oklch(0.46 0.032 240);
-  --color-secondary-700: oklch(0.35 0.028 240);
+  --color-secondary-50: oklch(0.978 0.022 72);
+  --color-secondary-100: oklch(0.948 0.05 72);
+  --color-secondary-200: oklch(0.892 0.09 72);
+  --color-secondary-300: oklch(0.82 0.13 72);
+  --color-secondary-400: oklch(0.748 0.16 70);
+  --color-secondary-500: oklch(0.688 0.17 68);
+  --color-secondary-600: oklch(0.61 0.152 66);
+  --color-secondary-700: oklch(0.5 0.12 64);
 
   --color-success-50: oklch(0.97 0.025 155);
   --color-success-100: oklch(0.93 0.04 155);
@@ -117,33 +126,31 @@
   --color-info-700: oklch(0.48 0.09 240);
 
   --gradient-primary: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--color-primary-600) 90%, white 10%),
-    color-mix(in oklab, var(--color-secondary-600) 70%, var(--color-primary-600) 30%)
+    120deg,
+    color-mix(in oklab, var(--color-secondary-500) 88%, white 12%),
+    color-mix(in oklab, var(--color-secondary-600) 66%, var(--color-primary-700) 34%)
   );
   --gradient-panel: linear-gradient(
     180deg,
-    color-mix(in oklab, var(--color-surface-elevated) 94%, var(--color-primary-50) 6%),
-    color-mix(in oklab, var(--color-surface) 94%, var(--color-primary-50) 6%)
+    color-mix(in oklab, var(--color-surface-elevated) 95%, white 5%),
+    color-mix(in oklab, var(--color-surface) 90%, var(--color-primary-50) 10%)
   );
   --gradient-shell: radial-gradient(
-      circle at top left,
-      color-mix(in oklab, var(--color-primary-100) 45%, transparent),
-      transparent 42%
+      circle at top right,
+      color-mix(in oklab, var(--color-secondary-200) 42%, transparent),
+      transparent 22%
     ),
-    radial-gradient(
-      circle at right 12% top 10%,
-      color-mix(in oklab, var(--color-secondary-500) 14%, transparent),
-      transparent 24%
-    ),
-    linear-gradient(180deg, var(--color-paper), var(--color-surface));
+    radial-gradient(circle at left -10% top 0%, color-mix(in oklab, var(--color-primary-100) 62%, transparent), transparent 34%),
+    repeating-linear-gradient(90deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 4%, transparent) 119px 120px),
+    repeating-linear-gradient(180deg, transparent 0 119px, color-mix(in oklab, var(--color-command-900) 3%, transparent) 119px 120px),
+    linear-gradient(180deg, var(--color-paper), color-mix(in oklab, var(--color-surface) 97%, var(--color-primary-50) 3%));
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px color-mix(in oklab, var(--color-gray-900) 7%, transparent);
-  --shadow-md: 0 10px 30px color-mix(in oklab, var(--color-primary-900) 8%, transparent);
-  --shadow-lg: 0 20px 55px color-mix(in oklab, var(--color-primary-900) 12%, transparent);
-  --shadow-xl: 0 28px 72px color-mix(in oklab, var(--color-primary-900) 14%, transparent);
-  --shadow-2xl: 0 38px 88px color-mix(in oklab, var(--color-primary-900) 16%, transparent);
+  --shadow-sm: 0 1px 2px color-mix(in oklab, var(--color-command-900) 7%, transparent);
+  --shadow-md: 0 14px 34px color-mix(in oklab, var(--color-command-900) 10%, transparent);
+  --shadow-lg: 0 22px 60px color-mix(in oklab, var(--color-command-900) 14%, transparent);
+  --shadow-xl: 0 34px 82px color-mix(in oklab, var(--color-command-900) 18%, transparent);
+  --shadow-2xl: 0 42px 104px color-mix(in oklab, var(--color-command-900) 20%, transparent);
 
   --shadow-focus: 0 0 0 4px color-mix(in oklab, var(--color-primary-300) 28%, transparent);
   --shadow-focus-error: 0 0 0 4px color-mix(in oklab, var(--color-error-300, var(--color-error-500)) 22%, transparent);

@@ -21,10 +21,11 @@
   gap: var(--space-5);
   padding: clamp(2rem, 4vw, 3.5rem);
   border-radius: var(--radius-2xl);
-  border: 1px solid color-mix(in oklab, var(--color-primary-200) 34%, var(--color-line) 66%);
+  border: 1px solid color-mix(in oklab, var(--color-primary-400) 22%, var(--color-command-800) 78%);
   background:
-    radial-gradient(circle at top right, color-mix(in oklab, var(--color-primary-100) 48%, transparent), transparent 36%),
-    linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 95%, white 5%), color-mix(in oklab, var(--color-surface) 90%, var(--color-primary-50) 10%));
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-secondary-300) 46%, transparent), transparent 24%),
+    repeating-linear-gradient(90deg, transparent 0 88px, color-mix(in oklab, white 10%, transparent) 88px 89px),
+    linear-gradient(135deg, color-mix(in oklab, var(--color-command-800) 94%, var(--color-primary-700) 6%), color-mix(in oklab, var(--color-command-900) 92%, var(--color-primary-800) 8%));
   box-shadow: var(--shadow-xl);
   overflow: hidden;
 }
@@ -35,23 +36,24 @@
   width: fit-content;
   padding: 0.45rem 0.75rem;
   border-radius: var(--radius-full);
-  background: color-mix(in oklab, var(--color-primary-100) 68%, white 32%);
-  color: var(--color-primary-800);
+  background: color-mix(in oklab, var(--color-secondary-100) 82%, white 18%);
+  color: var(--color-command-900);
   font-size: 0.72rem;
   font-weight: var(--font-bold);
-  letter-spacing: 0.12em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 .login-branding h1 {
-  font-size: clamp(3rem, 8vw, 5.4rem);
-  letter-spacing: -0.07em;
-  line-height: 0.95;
+  font-size: clamp(4.4rem, 12vw, 8rem);
+  letter-spacing: 0.02em;
+  line-height: 0.86;
+  color: var(--color-white);
 }
 
 .login-lead {
   max-width: 36ch;
-  color: var(--color-gray-600);
+  color: color-mix(in oklab, var(--color-white) 78%, var(--color-primary-100) 22%);
   font-size: clamp(1.05rem, 2vw, 1.3rem);
   line-height: var(--leading-relaxed);
 }
@@ -68,14 +70,15 @@
   gap: var(--space-2);
   padding: var(--space-4);
   border-radius: var(--radius-xl);
-  background: color-mix(in oklab, var(--color-surface-elevated) 76%, white 24%);
-  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+  background: color-mix(in oklab, var(--color-command-900) 38%, white 62%);
+  border: 1px solid color-mix(in oklab, var(--color-secondary-300) 16%, white 84%);
 }
 
 .login-points strong {
   font-family: var(--font-family-display);
-  font-size: var(--text-base);
-  color: var(--color-gray-900);
+  font-size: 1.3rem;
+  letter-spacing: 0.04em;
+  color: var(--color-command-900);
 }
 
 .login-points span {
@@ -100,17 +103,17 @@
   height: 3.5rem;
   display: grid;
   place-items: center;
-  border-radius: 1rem;
+  border-radius: 0.9rem;
   background: var(--gradient-primary);
-  color: var(--color-white);
+  color: var(--color-command-900);
   font-family: var(--font-family-display);
   font-weight: var(--font-extrabold);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
 }
 
 .login-card-head h2 {
-  font-size: clamp(1.6rem, 4vw, 2.1rem);
-  letter-spacing: -0.04em;
+  font-size: clamp(2rem, 5vw, 3rem);
+  letter-spacing: 0.02em;
 }
 
 .login-form {

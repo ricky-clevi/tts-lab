@@ -40,10 +40,10 @@
 }
 
 .chat-main {
-  background: color-mix(in oklab, var(--color-surface-elevated) 88%, white 12%);
-  border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 90%, white 10%), color-mix(in oklab, var(--color-surface) 84%, var(--color-primary-50) 16%));
+  border: 1px solid color-mix(in oklab, var(--color-primary-300) 20%, var(--color-command-900) 80%);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -55,8 +55,9 @@
   justify-content: space-between;
   align-items: center;
   padding: var(--space-3) var(--space-4);
-  background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
-  border-bottom: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--color-command-800) 92%, var(--color-primary-700) 8%), color-mix(in oklab, var(--color-command-900) 92%, var(--color-primary-800) 8%));
+  border-bottom: 1px solid color-mix(in oklab, var(--color-primary-300) 18%, var(--color-command-900) 82%);
 }
 
 .status-indicator {
@@ -84,8 +85,10 @@
 }
 
 .status-text {
-  font-weight: var(--font-medium);
-  color: var(--color-gray-700);
+  font-weight: var(--font-bold);
+  color: var(--color-white);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .messages-container {
@@ -110,11 +113,11 @@
   min-width: 4.5rem;
   min-height: 4.5rem;
   border-radius: 1.2rem;
-  background: color-mix(in oklab, var(--color-primary-100) 70%, white 30%);
-  color: var(--color-primary-800);
+  background: linear-gradient(135deg, color-mix(in oklab, var(--color-secondary-200) 82%, white 18%), color-mix(in oklab, var(--color-secondary-400) 68%, white 32%));
+  color: var(--color-command-900);
   font-size: var(--text-sm);
   font-weight: var(--font-extrabold);
-  letter-spacing: 0.12em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   margin-bottom: var(--space-4);
 }
@@ -160,7 +163,7 @@
 }
 
 .message-user .message-content {
-  background: color-mix(in oklab, var(--color-primary-50) 54%, white 46%);
+  background: color-mix(in oklab, var(--color-secondary-100) 72%, white 28%);
 }
 
 .message-draft .message-content {
@@ -187,7 +190,7 @@
   gap: var(--space-3);
   padding: var(--space-4);
   border-top: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
-  background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
+  background: color-mix(in oklab, var(--color-command-900) 5%, white 95%);
 }
 
 .mic-button {
@@ -196,11 +199,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in oklab, var(--color-primary-50) 52%, white 48%);
-  border: 1px solid color-mix(in oklab, var(--color-primary-200) 56%, var(--color-line) 44%);
+  background: linear-gradient(135deg, color-mix(in oklab, var(--color-secondary-200) 82%, white 18%), color-mix(in oklab, var(--color-secondary-400) 66%, white 34%));
+  border: 1px solid color-mix(in oklab, var(--color-secondary-500) 28%, var(--color-command-900) 72%);
   border-radius: var(--radius-full);
   font-size: var(--text-sm);
   font-weight: var(--font-bold);
+  color: var(--color-command-900);
 }
 
 .mic-button:disabled {

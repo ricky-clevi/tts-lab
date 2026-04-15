@@ -30,11 +30,13 @@
   display: inline-flex;
   padding: 0.55rem 0.85rem;
   border-radius: var(--radius-full);
-  background: color-mix(in oklab, var(--color-surface-elevated) 78%, white 22%);
-  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
-  color: var(--color-gray-700);
+  background: color-mix(in oklab, var(--color-command-900) 44%, white 56%);
+  border: 1px solid color-mix(in oklab, var(--color-secondary-300) 16%, white 84%);
+  color: var(--color-command-900);
   font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+  font-weight: var(--font-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .tts-layout {
@@ -75,11 +77,11 @@
   width: fit-content;
   padding: 0.4rem 0.7rem;
   border-radius: var(--radius-full);
-  background: color-mix(in oklab, var(--color-primary-100) 70%, white 30%);
-  color: var(--color-primary-800);
+  background: linear-gradient(135deg, color-mix(in oklab, var(--color-secondary-200) 82%, white 18%), color-mix(in oklab, var(--color-secondary-400) 66%, white 34%));
+  color: var(--color-command-900);
   font-size: 0.7rem;
   font-weight: var(--font-extrabold);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -97,12 +99,13 @@
   text-align: left;
   border: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
   border-radius: var(--radius-xl);
-  background: color-mix(in oklab, var(--color-surface) 84%, white 16%);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 92%, white 8%), color-mix(in oklab, var(--color-surface) 84%, var(--color-primary-50) 16%));
 }
 
 .mode-tab strong {
   font-family: var(--font-family-display);
-  font-size: var(--text-base);
+  font-size: 1.45rem;
+  letter-spacing: 0.03em;
   color: var(--color-gray-900);
 }
 
@@ -116,9 +119,15 @@
 }
 
 .mode-tab-active {
-  border-color: var(--color-primary-400);
-  background: color-mix(in oklab, var(--color-primary-50) 44%, white 56%);
-  box-shadow: var(--shadow-sm);
+  border-color: color-mix(in oklab, var(--color-secondary-400) 34%, var(--color-primary-400) 66%);
+  background: linear-gradient(135deg, color-mix(in oklab, var(--color-command-800) 88%, var(--color-primary-700) 12%), color-mix(in oklab, var(--color-command-900) 88%, var(--color-secondary-700) 12%));
+  box-shadow: var(--shadow-lg);
+  color: var(--color-white);
+}
+
+.mode-tab-active strong,
+.mode-tab-active span:last-child {
+  color: var(--color-white);
 }
 
 .file-upload-area {
@@ -212,8 +221,8 @@
 }
 
 .history-item-active {
-  border-color: var(--color-primary-400);
-  background: color-mix(in oklab, var(--color-primary-50) 42%, white 58%);
+  border-color: color-mix(in oklab, var(--color-secondary-400) 34%, var(--color-primary-400) 66%);
+  background: color-mix(in oklab, var(--color-secondary-100) 72%, white 28%);
 }
 
 .run-meta {
