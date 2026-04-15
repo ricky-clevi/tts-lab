@@ -4,13 +4,6 @@ import { t } from '../../i18n'
 import { createClientId } from '../../lib/clientIds'
 import { ToastContext, type Toast, type ToastType } from './toast-context'
 
-const ICON_LABEL_KEYS: Record<ToastType, string> = {
-  success: 'toast.label.success',
-  error: 'toast.label.error',
-  warning: 'toast.label.warning',
-  info: 'toast.label.info',
-}
-
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
@@ -71,40 +64,51 @@ interface ToastItemProps {
   onDismiss: (id: string) => void
 }
 
+const TOAST_ICONS: Record<ToastType, string> = {
+  success: '\u2713',
+  error: '!',
+  warning: '!',
+  info: 'i',
+}
+
 function ToastItem({ toast, onDismiss }: ToastItemProps) {
   const toneColor =
     toast.type === 'success'
-      ? 'var(--color-success-600)'
+      ? 'var(--color-success-500)'
       : toast.type === 'error'
-        ? 'var(--color-error-600)'
+        ? 'var(--color-error-500)'
         : toast.type === 'warning'
-          ? 'var(--color-warning-600)'
-          : 'var(--color-info-600)'
+          ? 'var(--color-warning-500)'
+          : 'var(--color-info-500)'
 
   return (
     <div className={`toast toast-${toast.type}`} role="alert">
       <span
         className="toast-icon"
         style={{
-          minWidth: '3rem',
+          minWidth: '1.5rem',
+          height: '1.5rem',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '0.3rem 0.45rem',
           borderRadius: '9999px',
-          fontSize: '0.68rem',
+          fontSize: '0.75rem',
           fontWeight: '700',
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          background: 'color-mix(in oklab, currentColor 10%, white)',
+          background: `color-mix(in oklab, ${toneColor} 18%, transparent)`,
           color: toneColor,
         }}
+        aria-hidden="true"
       >
-        {t(ICON_LABEL_KEYS[toast.type])}
+        {TOAST_ICONS[toast.type]}
       </span>
       <p className="toast-message">{toast.message}</p>
-      <button className="toast-dismiss" onClick={() => onDismiss(toast.id)} aria-label={t('toast.dismiss')}>
-        x
+      <button
+        className="toast-dismiss"
+        onClick={() => onDismiss(toast.id)}
+        type="button"
+        aria-label={t('toast.dismiss')}
+      >
+        <span aria-hidden="true">{'\u00D7'}</span>
       </button>
     </div>
   )

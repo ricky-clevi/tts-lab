@@ -19,7 +19,7 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
   listening: 'var(--color-success-500)',
   transcribing: 'var(--color-info-500)',
   thinking: 'var(--color-warning-500)',
-  speaking: 'var(--color-primary-500)',
+  speaking: 'var(--color-primary-400)',
 }
 
 export default function ChatPage() {
@@ -195,6 +195,8 @@ export default function ChatPage() {
     }
   }
 
+  const currentStatusKey = isConnected ? status : 'disconnected'
+
   if (isLoadingSettings) {
     return (
       <div className="page">
@@ -215,21 +217,36 @@ export default function ChatPage() {
             <p className="page-description">{t('voiceChat.lead')}</p>
           </div>
           <div className="header-actions">
-            <Button variant="secondary" onClick={() => setShowSettings((value) => !value)}>{t('chat.settings.toggle')}</Button>
+            <Button
+              variant="secondary"
+              onClick={() => setShowSettings((value) => !value)}
+              aria-expanded={showSettings}
+              aria-controls="chat-settings-panel"
+            >
+              {t('chat.settings.toggle')}
+            </Button>
           </div>
         </div>
 
         <div className="chat-layout">
           {showSettings && (
-            <div className="settings-panel">
+            <div className="settings-panel" id="chat-settings-panel">
               <Card>
-                <CardHeader><h3>{t('chat.settings.title')}</h3></CardHeader>
+                <CardHeader>
+                  <h3>{t('chat.settings.title')}</h3>
+                </CardHeader>
                 <CardBody>
                   <div className="settings-grid">
                     <Select
                       label={t('chat.settings.provider')}
                       value={settings?.defaults.active_provider || 'openai_compatible'}
-                      onChange={(e) => settings && setSettings({ ...settings, defaults: { ...settings.defaults, active_provider: e.target.value as ProviderId } })}
+                      onChange={(e) =>
+                        settings &&
+                        setSettings({
+                          ...settings,
+                          defaults: { ...settings.defaults, active_provider: e.target.value as ProviderId },
+                        })
+                      }
                       options={[
                         { value: 'openai_compatible', label: t('provider.openai_compatible') },
                         { value: 'gemini', label: t('provider.gemini') },
@@ -243,12 +260,24 @@ export default function ChatPage() {
                       max="2"
                       step="0.1"
                       value={settings?.defaults.temperature || 0.7}
-                      onChange={(e) => settings && setSettings({ ...settings, defaults: { ...settings.defaults, temperature: parseFloat(e.target.value) } })}
+                      onChange={(e) =>
+                        settings &&
+                        setSettings({
+                          ...settings,
+                          defaults: { ...settings.defaults, temperature: parseFloat(e.target.value) },
+                        })
+                      }
                     />
                     <Textarea
                       label={t('field.systemPrompt')}
                       value={settings?.defaults.system_prompt || ''}
-                      onChange={(e) => settings && setSettings({ ...settings, defaults: { ...settings.defaults, system_prompt: e.target.value } })}
+                      onChange={(e) =>
+                        settings &&
+                        setSettings({
+                          ...settings,
+                          defaults: { ...settings.defaults, system_prompt: e.target.value },
+                        })
+                      }
                       className="settings-full-width"
                     />
                   </div>
@@ -257,41 +286,82 @@ export default function ChatPage() {
             </div>
           )}
 
-            <div className="chat-main">
-              <div className="status-bar">
-                <div className="status-indicator">
-                  <span className="status-dot" style={{ backgroundColor: isConnected ? STATUS_COLORS[status] : 'var(--color-gray-400)' }} />
-                  <span className="status-text">{isConnected ? t(STATUS_LABELS[status]) : t('chat.status.disconnected')}</span>
+          <div className="chat-main">
+            {/* Status Bar - Professional Control Panel */}
+            <div className="status-bar" role="status" aria-live="polite">
+              <div className="status-indicator">
+                <span
+                  className="status-dot"
+                  data-status={currentStatusKey}
+                  style={{ backgroundColor: isConnected ? STATUS_COLORS[status] : 'var(--color-gray-500)' }}
+                  aria-hidden="true"
+                />
+                <div className="status-label">
+                  <span className="status-badge">{t('chat.status.label')}</span>
+                  <span className="status-text" data-status={currentStatusKey}>
+                    {isConnected ? t(STATUS_LABELS[status]) : t('chat.status.disconnected')}
+                  </span>
                 </div>
-              {!isConnected ? (
-                <Button variant="primary" onClick={connectSocket} isLoading={isConnecting}>{t('chat.connect')}</Button>
-              ) : (
-                <Button variant="secondary" onClick={disconnectSocket}>{t('chat.disconnect')}</Button>
-              )}
               </div>
+              <div className="status-bar-actions">
+                {!isConnected ? (
+                  <Button variant="primary" onClick={connectSocket} isLoading={isConnecting}>
+                    {t('chat.connect')}
+                  </Button>
+                ) : (
+                  <Button variant="secondary" onClick={disconnectSocket}>
+                    {t('chat.disconnect')}
+                  </Button>
+                )}
+              </div>
+            </div>
 
-            <div className="messages-container">
+            {/* Messages Container */}
+            <div className="messages-container" role="log" aria-label={t('chat.messagesLabel')}>
               {messages.length === 0 && !currentTranscript && !currentAssistantText ? (
                 <div className="empty-chat">
-                  <span className="empty-icon">LIVE</span>
+                  <span className="empty-icon" aria-hidden="true">
+                    {t('chat.empty.badge')}
+                  </span>
                   <h3>{t('chat.empty.title')}</h3>
                   <p>{t('chat.empty.description')}</p>
+                  <div className="empty-instructions">
+                    <div className="empty-step">
+                      <span className="empty-step-number" aria-hidden="true">1</span>
+                      <span>{t('chat.empty.step1')}</span>
+                    </div>
+                    <div className="empty-step">
+                      <span className="empty-step-number" aria-hidden="true">2</span>
+                      <span>{t('chat.empty.step2')}</span>
+                    </div>
+                    <div className="empty-step">
+                      <span className="empty-step-number" aria-hidden="true">3</span>
+                      <span>{t('chat.empty.step3')}</span>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="messages-list">
                   {messages.map((message) => (
                     <div key={message.id} className={`message message-${message.role}`}>
-                      <div className="message-avatar">{message.role === 'user' ? t('chat.avatar.user') : t('chat.avatar.ai')}</div>
+                      <div className="message-avatar" aria-hidden="true">
+                        {message.role === 'user' ? t('chat.avatar.user') : t('chat.avatar.ai')}
+                      </div>
                       <div className="message-content">
-                        <span className="message-role">{message.role === 'user' ? t('chatRole.user') : t('chatRole.assistant')}</span>
+                        <span className="message-role">
+                          {message.role === 'user' ? t('chatRole.user') : t('chatRole.assistant')}
+                        </span>
                         <p className="message-text">{message.text}</p>
                       </div>
                     </div>
                   ))}
 
+                  {/* Partial Transcript - User is speaking */}
                   {currentTranscript && (
-                    <div className="message message-user message-draft">
-                      <div className="message-avatar">{t('chat.avatar.user')}</div>
+                    <div className="message message-user message-draft" aria-label={t('chat.transcribing')}>
+                      <div className="message-avatar" aria-hidden="true">
+                        {t('chat.avatar.user')}
+                      </div>
                       <div className="message-content">
                         <span className="message-role">{t('chatRole.user')}</span>
                         <p className="message-text">{currentTranscript}</p>
@@ -299,9 +369,12 @@ export default function ChatPage() {
                     </div>
                   )}
 
+                  {/* Streaming Response - Assistant is responding */}
                   {currentAssistantText && (
-                    <div className="message message-assistant message-draft">
-                      <div className="message-avatar">{t('chat.avatar.ai')}</div>
+                    <div className="message message-assistant message-draft" aria-label={t('chat.responding')}>
+                      <div className="message-avatar" aria-hidden="true">
+                        {t('chat.avatar.ai')}
+                      </div>
                       <div className="message-content">
                         <span className="message-role">{t('chatRole.assistant')}</span>
                         <p className="message-text">{currentAssistantText}</p>
@@ -314,15 +387,54 @@ export default function ChatPage() {
               )}
             </div>
 
+            {/* Input Area - Professional Control Strip */}
             <div className="input-area">
-              <button className={`mic-button ${status === 'listening' ? 'mic-button-active' : ''}`} onClick={handleToggleRecording} disabled={!isConnected || (status !== 'idle' && status !== 'listening')} aria-label={status === 'listening' ? t('chat.record.stopAria') : t('chat.record.startAria')}>
+              <button
+                type="button"
+                className={`mic-button ${status === 'listening' ? 'mic-button-active' : ''}`}
+                onClick={handleToggleRecording}
+                disabled={!isConnected || (status !== 'idle' && status !== 'listening')}
+                aria-label={status === 'listening' ? t('chat.record.stopAria') : t('chat.record.startAria')}
+                aria-pressed={status === 'listening'}
+              >
                 {status === 'listening' ? t('chat.record.stop') : t('chat.record.talk')}
               </button>
+
               <div className="text-input-wrapper">
-                <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendText() } }} placeholder={t('placeholder.typedMessage')} disabled={!isConnected} className="form-input" />
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSendText()
+                    }
+                  }}
+                  placeholder={t('placeholder.typedMessage')}
+                  disabled={!isConnected}
+                  className="form-input"
+                  aria-label={t('placeholder.typedMessage')}
+                />
               </div>
-              <Button variant="primary" onClick={handleSendText} disabled={!isConnected || !inputText.trim()}>{t('chat.send')}</Button>
-              {messages.length > 0 && <Button variant="ghost" onClick={() => { setMessages([]); setCurrentTranscript(''); setCurrentAssistantText('') }}>{t('chat.clear')}</Button>}
+
+              <div className="input-actions">
+                <Button variant="primary" onClick={handleSendText} disabled={!isConnected || !inputText.trim()}>
+                  {t('chat.send')}
+                </Button>
+                {messages.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setMessages([])
+                      setCurrentTranscript('')
+                      setCurrentAssistantText('')
+                    }}
+                  >
+                    {t('chat.clear')}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>

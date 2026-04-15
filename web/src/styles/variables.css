@@ -152,16 +152,23 @@
   --shadow-xl: 0 34px 82px color-mix(in oklab, var(--color-command-900) 18%, transparent);
   --shadow-2xl: 0 42px 104px color-mix(in oklab, var(--color-command-900) 20%, transparent);
 
-  --shadow-focus: 0 0 0 4px color-mix(in oklab, var(--color-primary-300) 28%, transparent);
-  --shadow-focus-error: 0 0 0 4px color-mix(in oklab, var(--color-error-300, var(--color-error-500)) 22%, transparent);
+  --shadow-focus: 0 0 0 3px color-mix(in oklab, var(--color-primary-400) 32%, transparent);
+  --shadow-focus-error: 0 0 0 3px color-mix(in oklab, var(--color-error-500) 26%, transparent);
+  --shadow-focus-success: 0 0 0 3px color-mix(in oklab, var(--color-success-500) 26%, transparent);
+
+  /* Interactive state colors */
+  --color-interactive-hover: color-mix(in oklab, var(--color-primary-50) 45%, transparent);
+  --color-interactive-active: color-mix(in oklab, var(--color-primary-100) 55%, transparent);
 
   /* Motion */
   --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --transition-fast: 140ms var(--ease-out);
-  --transition-base: 220ms var(--ease-out-quart);
-  --transition-slow: 360ms var(--ease-out-expo);
+  --transition-base: 200ms var(--ease-out-quart);
+  --transition-slow: 320ms var(--ease-out-expo);
+  --transition-micro: 100ms var(--ease-out);
 
   /* Borders and layout */
   --border-width: 1px;

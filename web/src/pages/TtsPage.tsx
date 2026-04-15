@@ -175,9 +175,16 @@ export default function TtsPage() {
                   </div>
                   <span className="mode-mark">{MODE_META[mode].mark}</span>
                 </div>
-                <div className="mode-tabs">
+                <div className="mode-tabs" role="tablist" aria-label={t('tts.voiceMode')}>
                   {(Object.keys(MODE_META) as Mode[]).map((value) => (
-                    <button key={value} className={`mode-tab ${mode === value ? 'mode-tab-active' : ''}`} onClick={() => setMode(value)}>
+                    <button
+                      key={value}
+                      type="button"
+                      role="tab"
+                      aria-selected={mode === value}
+                      className={`mode-tab ${mode === value ? 'mode-tab-active' : ''}`}
+                      onClick={() => setMode(value)}
+                    >
                       <span className="mode-tab-mark">{MODE_META[value].mark}</span>
                       <strong>{t(`mode.${value}`)}</strong>
                       <span>{t(MODE_META[value].summaryKey)}</span>
@@ -263,54 +270,77 @@ export default function TtsPage() {
 
             <Card>
               <CardHeader>
-                <div className="section-head-inline">
-                  <h3>{t('tts.textSegments')}</h3>
-                  <Button variant="ghost" size="sm" onClick={() => setSegments((prev) => [...prev, ''])}>{t('button.addSegment')}</Button>
-                </div>
+                <h3>{t('tts.textSegments')}</h3>
               </CardHeader>
               <CardBody>
                 <div className="segments-list">
                   {segments.map((segment, index) => (
                     <div key={index} className="segment-item">
+                      {segments.length > 1 && (
+                        <div className="segment-header">
+                          <span className="segment-number">{index + 1}</span>
+                          <Button variant="ghost" size="sm" onClick={() => setSegments((prev) => prev.filter((_, currentIndex) => currentIndex !== index))} className="remove-segment-btn">
+                            {t('button.removeSegment')}
+                          </Button>
+                        </div>
+                      )}
                       <Textarea
-                        label={segments.length > 1 ? t('field.textSegment', { index: index + 1 }) : undefined}
                         value={segment}
                         onChange={(e) => handleSegmentChange(index, e.target.value)}
                         placeholder={t('placeholder.pasteText')}
                       />
-                      {segments.length > 1 && (
-                        <Button variant="ghost" size="sm" onClick={() => setSegments((prev) => prev.filter((_, currentIndex) => currentIndex !== index))} className="remove-segment-btn">
-                          {t('button.removeSegment')}
-                        </Button>
-                      )}
                     </div>
                   ))}
+                  <button type="button" className="add-segment-btn" onClick={() => setSegments((prev) => [...prev, ''])}>
+                    + {t('button.addSegment')}
+                  </button>
                 </div>
               </CardBody>
             </Card>
 
             <Card>
               <CardBody>
-                <button className="advanced-toggle" onClick={() => setShowAdvanced((value) => !value)}>
+                <button
+                  type="button"
+                  className="advanced-toggle"
+                  onClick={() => setShowAdvanced((value) => !value)}
+                  aria-expanded={showAdvanced}
+                  aria-controls="advanced-settings-panel"
+                >
                   <div>
                     <p className="panel-kicker">{t('tts.generationControls')}</p>
                     <h3>{t('tts.advancedSettings')}</h3>
                   </div>
                   <span className="toggle-icon">{showAdvanced ? t('common.hide') : t('common.show')}</span>
                 </button>
-                {showAdvanced && (
-                  <div className="advanced-settings">
-                    <Input label={t('field.temperature')} type="number" step="0.1" min="0" max="2" value={settings.temperature} onChange={(e) => setSettings((prev) => ({ ...prev, temperature: Number.parseFloat(e.target.value) || 0 }))} />
-                    <Input label={t('generation.topP')} type="number" step="0.1" min="0" max="1" value={settings.top_p} onChange={(e) => setSettings((prev) => ({ ...prev, top_p: Number.parseFloat(e.target.value) || 0 }))} />
-                    <Input label={t('generation.maxNewTokens')} type="number" min="256" max="8192" value={settings.max_new_tokens} onChange={(e) => setSettings((prev) => ({ ...prev, max_new_tokens: Number.parseInt(e.target.value, 10) || 0 }))} />
+                <div
+                  id="advanced-settings-panel"
+                  className="advanced-settings-wrapper"
+                  data-expanded={showAdvanced}
+                >
+                  <div className="advanced-settings-inner">
+                    <div className="advanced-settings">
+                      <Input label={t('field.temperature')} type="number" step="0.1" min="0" max="2" value={settings.temperature} onChange={(e) => setSettings((prev) => ({ ...prev, temperature: Number.parseFloat(e.target.value) || 0 }))} />
+                      <Input label={t('generation.topP')} type="number" step="0.1" min="0" max="1" value={settings.top_p} onChange={(e) => setSettings((prev) => ({ ...prev, top_p: Number.parseFloat(e.target.value) || 0 }))} />
+                      <Input label={t('generation.maxNewTokens')} type="number" min="256" max="8192" value={settings.max_new_tokens} onChange={(e) => setSettings((prev) => ({ ...prev, max_new_tokens: Number.parseInt(e.target.value, 10) || 0 }))} />
+                    </div>
                   </div>
-                )}
+                </div>
               </CardBody>
             </Card>
 
             {generationError && <Alert variant="error" onDismiss={() => setGenerationError('')}>{generationError}</Alert>}
 
-            <Button variant="primary" size="lg" fullWidth onClick={handleGenerate} isLoading={isGenerating} disabled={isGenerating || segments.every((segment) => !segment.trim())}>
+            <Button
+              variant="primary"
+              size="lg"
+              fullWidth
+              onClick={handleGenerate}
+              isLoading={isGenerating}
+              disabled={isGenerating || segments.every((segment) => !segment.trim())}
+              className="generate-btn"
+              data-loading={isGenerating}
+            >
               {isGenerating ? t('button.generating') : t('button.generateAudio')}
             </Button>
           </div>
@@ -394,14 +424,18 @@ function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
         <Badge variant="info">{clip.language === 'en' ? t('language.english') : clip.language === 'ko' ? t('language.korean') : clip.language === 'auto' ? t('language.auto') : clip.language}</Badge>
       </div>
       <p className="clip-text">{clip.text}</p>
-      <audio src={clip.audio_url} controls className="clip-audio" />
+      <div className="clip-audio-wrapper">
+        <audio src={clip.audio_url} controls className="clip-audio" />
+      </div>
       <div className="clip-meta">
         <span>{t('tts.sampleRateMeta', { sampleRate: clip.sample_rate })}</span>
         {clip.speaker && <span>{t('tts.speakerMeta', { speaker: clip.speaker })}</span>}
       </div>
-      <Button variant="secondary" size="sm" onClick={handleDownload}>
-        {t('tts.downloadClip')}
-      </Button>
+      <div className="clip-actions">
+        <Button variant="secondary" size="sm" onClick={handleDownload}>
+          {t('tts.downloadClip')}
+        </Button>
+      </div>
     </div>
   )
 }

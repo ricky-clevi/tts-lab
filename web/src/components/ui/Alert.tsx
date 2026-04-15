@@ -5,55 +5,38 @@ export type AlertVariant = 'error' | 'success' | 'warning' | 'info'
 
 export interface AlertProps extends HTMLAttributes<HTMLDivElement> {
   variant?: AlertVariant
+  title?: string
   children: ReactNode
   onDismiss?: () => void
 }
 
-const LABEL_KEYS: Record<AlertVariant, string> = {
-  error: 'alert.error',
-  success: 'alert.success',
-  warning: 'alert.warning',
-  info: 'alert.info',
+const ICON_CHARS: Record<AlertVariant, string> = {
+  error: '!',
+  success: '\u2713',
+  warning: '!',
+  info: 'i',
 }
 
-export function Alert({ variant = 'info', children, onDismiss, className = '', ...props }: AlertProps) {
+export function Alert({ variant = 'info', title, children, onDismiss, className = '', ...props }: AlertProps) {
   const classes = ['alert', `alert-${variant}`, className].filter(Boolean).join(' ')
 
   return (
     <div className={classes} role="alert" {...props}>
-      <span
-        aria-hidden="true"
-        style={{
-          display: 'inline-flex',
-          minWidth: '3.25rem',
-          justifyContent: 'center',
-          padding: '0.35rem 0.55rem',
-          borderRadius: '9999px',
-          background: 'color-mix(in oklab, currentColor 8%, white)',
-          fontSize: '0.7rem',
-          fontWeight: '700',
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-        }}
-      >
-        {t(LABEL_KEYS[variant])}
+      <span className="alert-icon" aria-hidden="true">
+        {ICON_CHARS[variant]}
       </span>
-      <div style={{ flex: 1 }}>{children}</div>
+      <div className="alert-content">
+        {title && <p className="alert-title">{title}</p>}
+        <div>{children}</div>
+      </div>
       {onDismiss && (
         <button
           onClick={onDismiss}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: '0 0 0 var(--space-4)',
-            fontSize: 'var(--text-lg)',
-            color: 'inherit',
-            opacity: 0.7,
-          }}
+          className="alert-dismiss"
+          type="button"
           aria-label={t('button.dismissMessage')}
         >
-          x
+          <span aria-hidden="true">{'\u00D7'}</span>
         </button>
       )}
     </div>

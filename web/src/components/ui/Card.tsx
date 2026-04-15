@@ -3,10 +3,16 @@ import type { ReactNode, HTMLAttributes } from 'react'
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode
   hoverable?: boolean
+  selected?: boolean
 }
 
-export function Card({ children, hoverable = false, className = '', ...props }: CardProps) {
-  const classes = ['card', hoverable ? 'card-hoverable' : '', className].filter(Boolean).join(' ')
+export function Card({ children, hoverable = false, selected = false, className = '', ...props }: CardProps) {
+  const classes = [
+    'card',
+    hoverable ? 'card-hoverable' : '',
+    selected ? 'card-selected' : '',
+    className,
+  ].filter(Boolean).join(' ')
 
   return (
     <div className={classes} {...props}>

@@ -84,20 +84,40 @@
   gap: 0.1rem;
   padding: 0.8rem 1rem;
   border-radius: var(--radius-full);
-  color: color-mix(in oklab, var(--color-white) 62%, var(--color-primary-100) 38%);
-  transition: background-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
+  color: color-mix(in oklab, var(--color-white) 65%, var(--color-primary-100) 35%);
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
-.nav-link:hover {
+.nav-link:hover:not(.nav-link-active) {
   color: var(--color-white);
-  background: color-mix(in oklab, var(--color-primary-700) 52%, transparent);
+  background: color-mix(in oklab, var(--color-primary-700) 45%, transparent);
+}
+
+.nav-link:active:not(.nav-link-active) {
+  background: color-mix(in oklab, var(--color-primary-800) 55%, transparent);
+}
+
+.nav-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-primary-400) 55%, transparent);
 }
 
 .nav-link-active {
   color: var(--color-command-900);
   background:
     linear-gradient(135deg, color-mix(in oklab, var(--color-secondary-300) 88%, white 12%), color-mix(in oklab, var(--color-secondary-500) 88%, var(--color-primary-700) 12%));
-  box-shadow: 0 10px 24px color-mix(in oklab, var(--color-secondary-700) 24%, transparent);
+  box-shadow:
+    0 2px 4px color-mix(in oklab, var(--color-secondary-700) 15%, transparent),
+    0 6px 16px color-mix(in oklab, var(--color-secondary-700) 18%, transparent);
+}
+
+.nav-link-active:focus-visible {
+  box-shadow:
+    0 0 0 2px color-mix(in oklab, var(--color-secondary-400) 65%, transparent),
+    0 2px 4px color-mix(in oklab, var(--color-secondary-700) 15%, transparent);
 }
 
 .nav-link-title {
@@ -134,6 +154,22 @@
   font-weight: var(--font-bold);
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.locale-toggle:hover {
+  background: color-mix(in oklab, var(--color-command-800) 75%, var(--color-primary-700) 25%);
+  border-color: color-mix(in oklab, var(--color-primary-400) 35%, var(--color-command-900) 65%);
+  color: var(--color-white);
+}
+
+.locale-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-primary-400) 55%, transparent);
 }
 
 .user-menu {
@@ -149,6 +185,20 @@
   color: var(--color-white);
   border: 1px solid color-mix(in oklab, var(--color-primary-300) 18%, var(--color-command-900) 82%);
   border-radius: var(--radius-full);
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.user-button:hover {
+  background: color-mix(in oklab, var(--color-command-800) 78%, var(--color-primary-700) 22%);
+  border-color: color-mix(in oklab, var(--color-primary-400) 32%, var(--color-command-900) 68%);
+}
+
+.user-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-primary-400) 55%, transparent);
 }
 
 .user-avatar {

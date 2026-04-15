@@ -12,6 +12,7 @@ export interface ModalProps {
   size?: 'sm' | 'md' | 'lg'
   closeOnBackdrop?: boolean
   closeOnEscape?: boolean
+  showCloseButton?: boolean
 }
 
 export function Modal({
@@ -23,6 +24,7 @@ export function Modal({
   size = 'md',
   closeOnBackdrop = true,
   closeOnEscape = true,
+  showCloseButton = true,
 }: ModalProps) {
   const handleEscape = useCallback(
     (e: KeyboardEvent) => {
@@ -73,6 +75,16 @@ export function Modal({
             <h2 id="modal-title" className="modal-title">
               {title}
             </h2>
+            {showCloseButton && (
+              <button
+                type="button"
+                className="modal-close"
+                onClick={onClose}
+                aria-label={t('modal.close')}
+              >
+                <span aria-hidden="true">{'\u00D7'}</span>
+              </button>
+            )}
           </div>
         )}
         <div className="modal-body">{children}</div>
@@ -130,7 +142,7 @@ export function ConfirmModal({
         </>
       }
     >
-      <p style={{ color: 'var(--color-gray-600)', lineHeight: 'var(--leading-relaxed)' }}>{message}</p>
+      <p style={{ margin: 0 }}>{message}</p>
     </Modal>
   )
 }
