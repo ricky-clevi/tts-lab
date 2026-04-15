@@ -253,5 +253,21 @@
   "metric.perf.tts_segment_total_ms": "TTS 세그먼트 전체",
   "unit.secondsShort": "{{value}}초",
   "unit.seconds": "{{value}}초",
-  "unit.hertz": "{{value}} Hz"
+  "unit.hertz": "{{value}} Hz",
+  "login.username": "사용자명",
+  "login.password": "비밀번호",
+  "login.submit": "로그인",
+  "login.error": "사용자명 또는 비밀번호가 올바르지 않습니다",
+  "nav.tts": "음성 합성",
+  "nav.voices": "음성 라이브러리",
+  "nav.chat": "음성 채팅",
+  "nav.logout": "로그아웃",
+  "dashboard.welcome": "환영합니다",
+  "voices.title": "음성 라이브러리",
+  "voices.voiceId": "음성 ID",
+  "voices.copyId": "복사",
+  "voices.copied": "복사됨!",
+  "voices.deleteConfirm": "이 음성을 삭제하시겠습니까?",
+  "voices.empty": "음성이 없습니다",
+  "voices.usageHint": "TTS API를 호출할 때 음성 필드에서 이 음성 ID를 사용하세요"
 }

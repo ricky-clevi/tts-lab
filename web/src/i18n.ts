@@ -13,6 +13,9 @@ const dictionaries: Record<Locale, TranslationDictionary> = {
   ko,
 }
 
+// Current locale state
+let currentLocale: Locale = 'en'
+
 function isLocale(value: string | null): value is Locale {
   return value === 'en' || value === 'ko'
 }
@@ -50,4 +53,36 @@ export function translate(locale: Locale, key: string, variables?: TranslationVa
     const value = variables[variableName]
     return value === undefined ? '' : String(value)
   })
+}
+
+// Initialize locale on module load
+if (typeof window !== 'undefined') {
+  currentLocale = detectLocale()
+  document.documentElement.lang = currentLocale
+}
+
+/**
+ * Get the current locale
+ */
+export function getCurrentLocale(): Locale {
+  return currentLocale
+}
+
+/**
+ * Set the locale and persist it
+ */
+export function setLocale(locale: Locale): void {
+  currentLocale = locale
+  persistLocale(locale)
+  // Trigger a re-render by dispatching a custom event
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('locale-change', { detail: locale }))
+  }
+}
+
+/**
+ * Translate a key using the current locale
+ */
+export function t(key: string, variables?: TranslationVariables): string {
+  return translate(currentLocale, key, variables)
 }

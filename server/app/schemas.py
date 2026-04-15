@@ -309,6 +309,7 @@ class CloneVoiceProfileResponse(BaseModel):
     audio_path: str
     speaker_embedding_path: str | None = None
     created_at: datetime
+    user_id: str | None = None
 
 
 class GenerationRunResponse(BaseModel):
@@ -318,3 +319,31 @@ class GenerationRunResponse(BaseModel):
     device: str
     created_at: datetime
     clips: list[AudioClipResponse]
+
+
+# Auth schemas
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    username: str
+    role: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    username: str
+    role: str
+    created_at: str
+    is_active: bool
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "user"

@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -14,11 +15,24 @@ from uuid import uuid4
 
 import numpy as np
 import soundfile as sf
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Depends, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import ValidationError
 
+# Load .env file for local development
+load_dotenv()
+
+from .auth import (
+    get_current_user,
+    require_admin,
+    hash_password,
+    verify_password,
+    create_access_token,
+    decode_token,
+    validate_jwt_secret,
+)
 from .branding import (
     brand_asr_transcription_response,
     brand_capabilities_response,
@@ -32,6 +46,7 @@ from .branding import (
 from .chat_store import ChatSettingsStore
 from .constants import ASR_MODEL_IDS
 from .conversation import ConversationSession
+from .database import Database
 from .llm import ProviderService
 from .model_manager import AsrModelManager, TtsModelManager
 from .schemas import (
@@ -39,13 +54,17 @@ from .schemas import (
     ChatSettingsInput,
     ChatSettingsResponse,
     CloneVoiceProfileResponse,
+    CreateUserRequest,
     CustomGenerationRequest,
     DesignGenerationRequest,
     GenerationRunResponse,
     HealthResponse,
+    LoginRequest,
     MetricsResponse,
     ProviderTestRequest,
     ProviderTestResponse,
+    TokenResponse,
+    UserResponse,
 )
 from .storage import AudioStorage, VoiceProfileStorage
 
@@ -334,6 +353,9 @@ def create_app(
     provider_service: ProviderService | None = None,
     model_manager: TtsModelManager | None = None,
 ) -> FastAPI:
+    # Validate JWT secret before starting
+    validate_jwt_secret()
+
     root = Path(__file__).resolve().parent.parent
     frontend_dist = root.parent / "web" / "dist"
     storage = audio_storage or AudioStorage(root / "generated" / "audio")
@@ -343,6 +365,27 @@ def create_app(
     settings = settings_store or ChatSettingsStore(root / "generated" / "settings" / "chat.json")
     providers = provider_service or ProviderService()
 
+    # Initialize database
+    db_path = root / "generated" / "tts_lab.db"
+    db = Database(db_path)
+
+    # Seed admin user if no admin exists
+    admin_username = os.getenv("ADMIN_USERNAME", "admin")
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
+    if not admin_password:
+        raise RuntimeError(
+            "ADMIN_PASSWORD environment variable is required on first deployment. "
+            "Please set it in your .env file."
+        )
+    admin_password_hashed = hash_password(admin_password)
+    db.seed_admin(admin_username, admin_password_hashed)
+
+    # Migrate orphaned voice profiles (from disk to DB)
+    db.migrate_orphaned_profiles(
+        admin_user_id=db.get_user_by_username(admin_username)["id"],
+        voice_profiles_dir=root / "generated" / "voice_profiles"
+    )
+
     app = FastAPI(title="Ivy3 Local Voice Lab", version="0.2.0")
     app.state.tts_manager = tts
     app.state.asr_manager = asr
@@ -350,14 +393,205 @@ def create_app(
     app.state.voice_profile_storage = voice_profiles
     app.state.settings_store = settings
     app.state.provider_service = providers
+    app.state.db = db
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # Configure CORS
+    allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
+    allowed_origins = [origin.strip() for origin in allowed_origins if origin.strip()]
+
+    if allowed_origins:
+        # Use configured origins if provided
+        cors_config = {
+            "allow_origins": allowed_origins,
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+        }
+    else:
+        # Fall back to localhost regex for local development
+        cors_config = {
+            "allow_origin_regex": r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+        }
+
+    app.add_middleware(CORSMiddleware, **cors_config)
+
+    # ============ Auth Endpoints ============
+
+    @app.post("/api/auth/login", response_model=TokenResponse)
+    def login(request: LoginRequest) -> TokenResponse:
+        """Authenticate a user and return a JWT token."""
+        user = db.get_user_by_username(request.username)
+        if not user or not verify_password(request.password, user["hashed_password"]):
+            # Use same message for both user-not-found and wrong-password to avoid enumeration
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password",
+            )
+        if not user["is_active"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User account is disabled",
+            )
+
+        token = create_access_token(
+            user_id=user["id"],
+            username=user["username"],
+            role=user["role"],
+        )
+        return TokenResponse(
+            access_token=token,
+            token_type="bearer",
+            user_id=user["id"],
+            username=user["username"],
+            role=user["role"],
+        )
+
+    @app.get("/api/auth/me", response_model=UserResponse)
+    def get_current_user_info(current_user: dict = Depends(get_current_user)) -> UserResponse:
+        """Get the current authenticated user's information."""
+        user = db.get_user_by_id(current_user["sub"])
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+        return UserResponse(
+            id=user["id"],
+            username=user["username"],
+            role=user["role"],
+            created_at=user["created_at"],
+            is_active=bool(user["is_active"]),
+        )
+
+    # ============ Admin User Management Endpoints ============
+
+    @app.get("/api/admin/users", response_model=list[UserResponse])
+    def list_all_users(current_user: dict = Depends(require_admin)) -> list[UserResponse]:
+        """List all users (admin only)."""
+        users = db.list_users()
+        return [
+            UserResponse(
+                id=u["id"],
+                username=u["username"],
+                role=u["role"],
+                created_at=u["created_at"],
+                is_active=bool(u["is_active"]),
+            )
+            for u in users
+        ]
+
+    @app.post("/api/admin/users", response_model=dict)
+    def create_new_user(
+        request: CreateUserRequest,
+        current_user: dict = Depends(require_admin),
+    ) -> dict:
+        """Create a new user (admin only). Returns the user and generated password."""
+        try:
+            user = db.create_user(
+                username=request.username,
+                hashed_password=hash_password(request.password),
+                role=request.role,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(e),
+            )
+
+        return {
+            "user": UserResponse(
+                id=user["id"],
+                username=user["username"],
+                role=user["role"],
+                created_at=user["created_at"],
+                is_active=user["is_active"],
+            ),
+            "password": request.password,  # One-time visible, must be copied by admin
+        }
+
+    @app.delete("/api/admin/users/{user_id}")
+    def delete_existing_user(
+        user_id: str,
+        current_user: dict = Depends(require_admin),
+    ) -> dict:
+        """Delete a user (admin only)."""
+        # Prevent deleting yourself
+        if user_id == current_user["sub"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete your own account",
+            )
+
+        # Prevent deleting the last admin
+        users = db.list_users()
+        admin_count = sum(1 for u in users if u["role"] == "admin")
+        if admin_count <= 1:
+            user_to_delete = db.get_user_by_id(user_id)
+            if user_to_delete and user_to_delete["role"] == "admin":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot delete the last admin user",
+                )
+
+        db.delete_user(user_id)
+        return {"status": "deleted"}
+
+    # ============ Voice Management Endpoints ============
+
+    @app.get("/api/voices", response_model=list[CloneVoiceProfileResponse])
+    def list_user_voices(current_user: dict = Depends(get_current_user)) -> list[CloneVoiceProfileResponse]:
+        """List all voice profiles for the current user."""
+        profiles = db.list_profiles_for_user(current_user["sub"])
+        return [
+            CloneVoiceProfileResponse(
+                id=p["id"],
+                label=p["label"],
+                language=p["language"],
+                reference_text=p["reference_text"],
+                audio_file_name=p["audio_file_name"],
+                audio_path=p["audio_path"],
+                speaker_embedding_path=p["speaker_embedding_path"],
+                created_at=datetime.fromisoformat(p["created_at"]),
+                user_id=p["user_id"],
+            )
+            for p in profiles
+        ]
+
+    @app.delete("/api/voices/{profile_id}")
+    def delete_user_voice(
+        profile_id: str,
+        current_user: dict = Depends(get_current_user),
+    ) -> dict:
+        """Delete a voice profile (must be owned by current user)."""
+        profile = db.get_profile_by_id(profile_id)
+        if not profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Voice profile not found",
+            )
+
+        # Check ownership
+        if profile["user_id"] != current_user["sub"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only delete your own voice profiles",
+            )
+
+        # Delete the profile and associated files
+        db.delete_profile(profile_id)
+        voice_profiles_dir = root / "generated" / "voice_profiles"
+        for suffix in [".json", ".wav", ".speaker.npz"]:
+            file_path = voice_profiles_dir / f"{profile_id}{suffix}"
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to delete {file_path}: {e}")
+
+        return {"status": "deleted"}
 
     @app.get("/api/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -981,6 +1215,17 @@ def create_app(
 
     @app.websocket("/api/conversation/ws")
     async def conversation_ws(websocket: WebSocket) -> None:
+        # Extract and validate JWT token from query parameter
+        token = websocket.query_params.get("token", "")
+        try:
+            if not token:
+                await websocket.close(code=4001, reason="Missing authentication token")
+                return
+            current_user = decode_token(token)
+        except HTTPException as e:
+            await websocket.close(code=4001, reason="Invalid authentication token")
+            return
+
         await websocket.accept()
         session = ConversationSession(
             websocket=websocket,
@@ -990,6 +1235,9 @@ def create_app(
             settings_store=settings,
             provider_service=providers,
         )
+        # Store the authenticated user in session state
+        session.user_id = current_user["sub"]
+        session.username = current_user["username"]
         await session.on_connect()
 
         try:

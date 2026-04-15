@@ -12,11 +12,26 @@ import type {
   ProviderSettingsDraft,
   ProviderTestResponse,
   StreamRunEvent,
+  TokenResponse,
+  UserResponse,
 } from './types'
 
 const API_ROOT = '/api'
 
+// Helper to get auth headers
+function authHeaders(): HeadersInit {
+  const token = localStorage.getItem('tts-lab-token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 async function parseJson<T>(response: Response): Promise<T> {
+  // Handle unauthorized - redirect to login
+  if (response.status === 401) {
+    localStorage.removeItem('tts-lab-token')
+    window.location.href = '/login'
+    throw new Error('Session expired. Please log in again.')
+  }
+
   if (!response.ok) {
     let detail = response.statusText
     try {
@@ -31,8 +46,86 @@ async function parseJson<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>
 }
 
+// ============ Auth APIs ============
+
+export async function loginApi(username: string, password: string): Promise<TokenResponse> {
+  return parseJson<TokenResponse>(
+    await fetch(`${API_ROOT}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    }),
+  )
+}
+
+export async function fetchCurrentUser(): Promise<UserResponse> {
+  return parseJson<UserResponse>(
+    await fetch(`${API_ROOT}/auth/me`, {
+      headers: authHeaders(),
+    }),
+  )
+}
+
+// ============ Admin User Management APIs ============
+
+export async function fetchUsers(): Promise<UserResponse[]> {
+  return parseJson<UserResponse[]>(
+    await fetch(`${API_ROOT}/admin/users`, {
+      headers: authHeaders(),
+    }),
+  )
+}
+
+export async function createUser(
+  username: string,
+  password: string,
+  role: 'admin' | 'user' = 'user',
+): Promise<{ user: UserResponse; password: string }> {
+  return parseJson<{ user: UserResponse; password: string }>(
+    await fetch(`${API_ROOT}/admin/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ username, password, role }),
+    }),
+  )
+}
+
+export async function deleteUser(userId: string): Promise<{ status: string }> {
+  return parseJson<{ status: string }>(
+    await fetch(`${API_ROOT}/admin/users/${userId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }),
+  )
+}
+
+// ============ Voice Management APIs ============
+
+export async function fetchVoices(): Promise<CloneVoiceProfileResponse[]> {
+  return parseJson<CloneVoiceProfileResponse[]>(
+    await fetch(`${API_ROOT}/voices`, {
+      headers: authHeaders(),
+    }),
+  )
+}
+
+export async function deleteVoice(profileId: string): Promise<{ status: string }> {
+  return parseJson<{ status: string }>(
+    await fetch(`${API_ROOT}/voices/${profileId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }),
+  )
+}
+
+// ============ Existing APIs (updated with auth headers) ============
+
 export async function fetchHealth() {
-  return parseJson<HealthResponse>(await fetch(`${API_ROOT}/health`))
+  return parseJson<HealthResponse>(
+    await fetch(`${API_ROOT}/health`, {
+      headers: authHeaders(),
+    }),
+  )
 }
 
 export async function fetchMetrics() {
@@ -212,5 +305,8 @@ export async function* generateRunStream(
 
 export function createConversationSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return new WebSocket(`${protocol}//${window.location.host}${API_ROOT}/conversation/ws`)
+  const token = localStorage.getItem('tts-lab-token') ?? ''
+  return new WebSocket(
+    `${protocol}//${window.location.host}${API_ROOT}/conversation/ws?token=${encodeURIComponent(token)}`,
+  )
 }

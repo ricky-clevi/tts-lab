@@ -6,4 +6,7 @@ python-multipart>=0.0.20,<0.0.21
 soundfile>=0.13,<0.14
 psutil>=6.1,<7
 uvicorn[standard]>=0.35,<0.36
+python-jose[cryptography]>=3.3,<4
+passlib[bcrypt]>=1.7,<2
+python-dotenv>=1.0,<2
 

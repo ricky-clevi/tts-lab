@@ -253,5 +253,21 @@
   "metric.perf.tts_segment_total_ms": "TTS segment total",
   "unit.secondsShort": "{{value}}s",
   "unit.seconds": "{{value}} sec",
-  "unit.hertz": "{{value}} Hz"
+  "unit.hertz": "{{value}} Hz",
+  "login.username": "Username",
+  "login.password": "Password",
+  "login.submit": "Login",
+  "login.error": "Invalid username or password",
+  "nav.tts": "TTS",
+  "nav.voices": "Voices",
+  "nav.chat": "Chat",
+  "nav.logout": "Logout",
+  "dashboard.welcome": "Welcome",
+  "voices.title": "Voice Library",
+  "voices.voiceId": "Voice ID",
+  "voices.copyId": "Copy",
+  "voices.copied": "Copied!",
+  "voices.deleteConfirm": "Are you sure you want to delete this voice?",
+  "voices.empty": "No voices yet",
+  "voices.usageHint": "Use this Voice ID in the voice field when calling the TTS API"
 }

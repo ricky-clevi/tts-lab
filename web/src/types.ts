@@ -263,6 +263,27 @@ export type CloneVoiceProfileResponse = {
   audio_path: string
   speaker_embedding_path: string | null
   created_at: string
+  user_id?: string
+}
+
+// ============ Auth Types ============
+
+export type UserRole = 'admin' | 'user'
+
+export type TokenResponse = {
+  access_token: string
+  token_type: string
+  user_id: string
+  username: string
+  role: UserRole
+}
+
+export type UserResponse = {
+  id: string
+  username: string
+  role: UserRole
+  created_at: string
+  is_active: boolean
 }
 
 export type ConversationStatus = 'idle' | 'listening' | 'transcribing' | 'thinking' | 'speaking'
