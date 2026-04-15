@@ -171,7 +171,7 @@ export default function ChatPage() {
       mediaRecorderRef.current = mediaRecorder
       setStatus('listening')
     } catch {
-      showError(t('error.startMicrophoneFailed') || 'Failed to start microphone')
+      showError(t('error.startMicrophoneFailed'))
     }
   }
 

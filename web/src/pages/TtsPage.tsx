@@ -350,7 +350,7 @@ export default function TtsPage() {
                     {selectedRun && (
                       <div className="run-details">
                         <div className="run-meta">
-                          <Badge variant="primary">{selectedRun.mode}</Badge>
+                          <Badge variant="primary">{t(`mode.${selectedRun.mode}`)}</Badge>
                           <span>{selectedRun.device}</span>
                           <span>{new Date(selectedRun.created_at).toLocaleString()}</span>
                         </div>
@@ -391,7 +391,7 @@ function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
           <p className="clip-kicker">{t('results.segment', { index: index + 1 })}</p>
           <strong>{formatDuration(clip.duration_seconds)}</strong>
         </div>
-        <Badge variant="info">{clip.language}</Badge>
+        <Badge variant="info">{clip.language === 'en' ? t('language.english') : clip.language === 'ko' ? t('language.korean') : clip.language === 'auto' ? t('language.auto') : clip.language}</Badge>
       </div>
       <p className="clip-text">{clip.text}</p>
       <audio src={clip.audio_url} controls className="clip-audio" />

@@ -42,7 +42,7 @@ export default function NavBar() {
   const navLinkClass = ({ isActive }: { isActive: boolean }) => `nav-link ${isActive ? 'nav-link-active' : ''}`
 
   return (
-    <nav className="navbar" role="navigation" aria-label="Main navigation">
+    <nav className="navbar" role="navigation" aria-label={t('nav.mainNavigation')}>
       <div className="navbar-container">
         <Link to="/" className="brand-lockup">
           <span className="brand-mark">VL</span>

@@ -71,7 +71,7 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit} className="login-form">
               <Input
-                label={t('login.username') || 'Username'}
+                label={t('login.username')}
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -84,7 +84,7 @@ export default function LoginPage() {
 
               <div className="password-field">
                 <Input
-                  label={t('login.password') || 'Password'}
+                  label={t('login.password')}
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
