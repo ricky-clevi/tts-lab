@@ -171,18 +171,26 @@ export default function LoginPage() {
         .password-toggle {
           position: absolute;
           right: var(--space-3);
-          top: 38px;
+          bottom: var(--space-3);
           background: none;
           border: none;
+          border-radius: var(--radius-sm);
           cursor: pointer;
           font-size: var(--text-lg);
           padding: var(--space-1);
           opacity: 0.6;
           transition: opacity var(--transition-fast);
+          line-height: 1;
         }
 
         .password-toggle:hover {
           opacity: 1;
+        }
+
+        .password-toggle:focus-visible {
+          opacity: 1;
+          outline: none;
+          box-shadow: var(--shadow-focus);
         }
 
         .login-hint {

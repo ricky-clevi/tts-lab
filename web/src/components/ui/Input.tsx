@@ -23,23 +23,22 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             {label}
           </label>
         )}
-        <div className="input-wrapper" style={{ position: 'relative' }}>
+        <div className={`input-wrapper ${leftIcon ? 'input-wrapper--with-left-icon' : ''} ${rightIcon ? 'input-wrapper--with-right-icon' : ''}`}>
           {leftIcon && (
-            <span className="input-icon-left" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-gray-400)' }}>
+            <span className="input-icon input-icon--left" aria-hidden="true">
               {leftIcon}
             </span>
           )}
           <input
             ref={ref}
             id={inputId}
-            className={inputClass}
+            className={`${inputClass} ${leftIcon ? 'form-input--with-left-icon' : ''}`}
             aria-invalid={!!error}
             aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
-            style={leftIcon ? { paddingLeft: '40px' } : undefined}
             {...props}
           />
           {rightIcon && (
-            <span className="input-icon-right" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-gray-400)' }}>
+            <span className="input-icon input-icon--right" aria-hidden="true">
               {rightIcon}
             </span>
           )}

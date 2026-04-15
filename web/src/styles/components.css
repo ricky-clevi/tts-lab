@@ -239,6 +239,35 @@
   min-height: 100px;
 }
 
+/* Input wrapper with icons */
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-gray-400);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.input-icon--left {
+  left: var(--space-3);
+}
+
+.input-icon--right {
+  right: var(--space-3);
+}
+
+.form-input--with-left-icon {
+  padding-left: var(--space-10);
+}
+
 .form-hint {
   font-size: var(--text-sm);
   color: var(--color-gray-500);
@@ -653,11 +682,11 @@
 @keyframes modal-slide-in {
   from {
     opacity: 0;
-    transform: translateY(-20px) scale(0.95);
+    transform: translateY(-16px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -769,5 +798,31 @@
 
   .card-body {
     padding: var(--space-4);
+  }
+}
+
+/* ============ Reduced Motion ============ */
+
+@media (prefers-reduced-motion: reduce) {
+  .card-hoverable:hover {
+    transform: none;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    transform: none;
+  }
+
+  .skeleton {
+    animation: none;
+  }
+
+  .spinner {
+    animation: none;
+  }
+
+  .modal-backdrop,
+  .modal,
+  .toast {
+    animation: none;
   }
 }
