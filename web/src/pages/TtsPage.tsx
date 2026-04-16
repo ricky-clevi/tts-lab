@@ -3,7 +3,7 @@ import { createReplyVoiceCloneProfile, fetchCapabilities, generateRun } from '..
 import '../styles/pages/tts.css'
 import { Alert, Badge, Button, Card, CardBody, CardHeader, Input, LoadingState, Select, Textarea, useToast } from '../components/ui'
 import { t } from '../i18n'
-import { formatAppDateTime, formatAppTime, formatLanguageLabel, normalizeLanguageValue } from '../lib/formatters'
+import { formatAppDateTime, formatAppTime, formatBuiltInSpeakerLabel, formatLanguageLabel, normalizeLanguageValue } from '../lib/formatters'
 import type { AudioClip, CapabilitiesResponse, GenerationRun, Mode } from '../types'
 
 type GenerationSettings = {
@@ -206,7 +206,10 @@ export default function TtsPage() {
                       label={t('field.speaker')}
                       value={speaker}
                       onChange={(e) => setSpeaker(e.target.value)}
-                      options={capabilities?.speakers.map((entry) => ({ value: entry.id, label: `${entry.name} - ${entry.description}` })) || []}
+                      options={capabilities?.speakers.map((entry) => ({
+                        value: entry.id,
+                        label: formatBuiltInSpeakerLabel(entry.id, entry.name, entry.description),
+                      })) || []}
                     />
                   </div>
                 )}

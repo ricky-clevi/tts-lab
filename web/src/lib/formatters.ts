@@ -23,6 +23,18 @@ const KNOWN_REFERENCE_TEXTS = new Set(
   ['Uploaded sample transcript.', ...LOCALES.map((locale) => translate(locale, 'voices.defaultReferenceText.uploadedSample'))].map((value) => value.trim().toLowerCase()),
 )
 
+const BUILT_IN_SPEAKER_DESCRIPTION_KEYS: Record<string, string> = {
+  Vivian: 'speaker.builtin.Vivian.description',
+  Serena: 'speaker.builtin.Serena.description',
+  Uncle_Fu: 'speaker.builtin.Uncle_Fu.description',
+  Dylan: 'speaker.builtin.Dylan.description',
+  Eric: 'speaker.builtin.Eric.description',
+  Ryan: 'speaker.builtin.Ryan.description',
+  Aiden: 'speaker.builtin.Aiden.description',
+  Ono_Anna: 'speaker.builtin.Ono_Anna.description',
+  Sohee: 'speaker.builtin.Sohee.description',
+}
+
 const LANGUAGE_ALIASES = new Map<string, SupportedLanguage>()
 
 for (const locale of LOCALES) {
@@ -122,6 +134,26 @@ export function localizeKnownReferenceText(value: string | null | undefined): st
   }
 
   return shouldLocalizeKnownValue(trimmed, KNOWN_REFERENCE_TEXTS) ? t('voices.defaultReferenceText.uploadedSample') : trimmed
+}
+
+export function formatBuiltInSpeakerDescription(id: string | null | undefined, description: string | null | undefined): string {
+  const key = id ? BUILT_IN_SPEAKER_DESCRIPTION_KEYS[id] : undefined
+  return key ? t(key) : description?.trim() ?? ''
+}
+
+export function formatBuiltInSpeakerLabel(
+  id: string | null | undefined,
+  name: string | null | undefined,
+  description: string | null | undefined,
+): string {
+  const trimmedName = name?.trim() ?? ''
+  const localizedDescription = formatBuiltInSpeakerDescription(id, description)
+
+  if (!trimmedName) {
+    return localizedDescription
+  }
+
+  return localizedDescription ? `${trimmedName} - ${localizedDescription}` : trimmedName
 }
 
 export function localizeChatSettings(settings: ChatSettingsResponse): ChatSettingsResponse {
