@@ -105,16 +105,68 @@ class VoiceProfileStorage:
         )
         return response
 
+    def _candidate_path(self, raw_path: str | None) -> Path | None:
+        if not raw_path:
+            return None
+        return Path(raw_path)
+
+    def _candidate_file_name(self, raw_path: str | None) -> str | None:
+        if not raw_path:
+            return None
+        normalized = raw_path.replace("\\", "/")
+        name = Path(normalized).name
+        return name or None
+
+    def resolve_audio_path(self, profile_id: str, audio_file_name: str | None, audio_path: str | None) -> Path | None:
+        candidates: list[Path] = []
+        if path := self._candidate_path(audio_path):
+            candidates.append(path)
+        if audio_file_name:
+            candidates.append(self.root / audio_file_name)
+        candidates.append(self.root / f"{profile_id}.wav")
+
+        seen: set[Path] = set()
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            if candidate.exists():
+                return candidate
+        return None
+
+    def resolve_embedding_path(self, profile_id: str, speaker_embedding_path: str | None) -> Path | None:
+        candidates: list[Path] = []
+        if path := self._candidate_path(speaker_embedding_path):
+            candidates.append(path)
+        if file_name := self._candidate_file_name(speaker_embedding_path):
+            candidates.append(self.root / file_name)
+        candidates.append(self.root / f"{profile_id}.speaker.npz")
+
+        seen: set[Path] = set()
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            if candidate.exists():
+                return candidate
+        return None
+
     def get_profile(self, profile_id: str) -> CloneVoiceProfileResponse:
         metadata_path = self.root / f"{profile_id}.json"
         if not metadata_path.exists():
             raise FileNotFoundError(profile_id)
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
         response = CloneVoiceProfileResponse.model_validate(payload)
-        if not Path(response.audio_path).exists():
+        audio_path = self.resolve_audio_path(response.id, response.audio_file_name, response.audio_path)
+        if audio_path is None:
             raise FileNotFoundError(profile_id)
-        if response.speaker_embedding_path and not Path(response.speaker_embedding_path).exists():
+        response.audio_path = str(audio_path)
+
+        embedding_path = self.resolve_embedding_path(response.id, response.speaker_embedding_path)
+        if embedding_path is None:
             response.speaker_embedding_path = None
+        else:
+            response.speaker_embedding_path = str(embedding_path)
         return response
 
     def get_path(self, profile_id: str) -> Path:

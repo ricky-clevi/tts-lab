@@ -617,18 +617,27 @@ def create_app(
     def list_exportable_voices(current_user: dict = Depends(require_admin)) -> list[dict[str, object]]:
         """List all voice profiles that can be exported to Onprem."""
         profiles = db.list_all_profiles()
-        return [
-            {
-                "id": profile["id"],
-                "label": profile["label"],
-                "language": profile["language"],
-                "reference_text": profile["reference_text"],
-                "audio_file_name": profile["audio_file_name"],
-                "user_id": profile["user_id"],
-                "created_at": profile["created_at"],
-            }
-            for profile in profiles
-        ]
+        exportable_profiles: list[dict[str, object]] = []
+        for profile in profiles:
+            audio_path = voice_profiles.resolve_audio_path(
+                profile["id"],
+                profile.get("audio_file_name"),
+                profile.get("audio_path"),
+            )
+            if audio_path is None:
+                continue
+            exportable_profiles.append(
+                {
+                    "id": profile["id"],
+                    "label": profile["label"],
+                    "language": profile["language"],
+                    "reference_text": profile["reference_text"],
+                    "audio_file_name": profile["audio_file_name"],
+                    "user_id": profile["user_id"],
+                    "created_at": profile["created_at"],
+                }
+            )
+        return exportable_profiles
 
     @app.get("/api/admin/voices/export/{voice_id}")
     def export_voice_profile(
@@ -643,15 +652,21 @@ def create_app(
                 detail="Voice profile not found",
             )
 
-        audio_path = Path(profile["audio_path"])
-        if not audio_path.exists():
+        audio_path = voice_profiles.resolve_audio_path(
+            profile["id"],
+            profile.get("audio_file_name"),
+            profile.get("audio_path"),
+        )
+        if audio_path is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Voice audio file is missing",
             )
 
-        embedding_path_value = profile.get("speaker_embedding_path")
-        embedding_path = Path(embedding_path_value) if embedding_path_value else None
+        embedding_path = voice_profiles.resolve_embedding_path(
+            profile["id"],
+            profile.get("speaker_embedding_path"),
+        )
 
         metadata = {
             "id": profile["id"],
@@ -661,7 +676,7 @@ def create_app(
             "audio_file_name": profile["audio_file_name"],
             "user_id": profile["user_id"],
             "created_at": profile["created_at"],
-            "speaker_embedding_file_name": embedding_path.name if embedding_path and embedding_path.exists() else None,
+            "speaker_embedding_file_name": embedding_path.name if embedding_path else None,
         }
 
         archive = io.BytesIO()
@@ -671,7 +686,7 @@ def create_app(
                 json.dumps(metadata, ensure_ascii=False, indent=2),
             )
             bundle.write(audio_path, arcname=profile["audio_file_name"])
-            if embedding_path and embedding_path.exists():
+            if embedding_path:
                 bundle.write(embedding_path, arcname=embedding_path.name)
 
         archive.seek(0)
@@ -778,20 +793,28 @@ def create_app(
                 )
                 profile_reference_text = str(profile.get("reference_text") or "").strip() or None
                 speaker_embedding_path = str(profile.get("speaker_embedding_path") or "").strip()
+                resolved_embedding_path = voice_profiles.resolve_embedding_path(
+                    profile["id"],
+                    speaker_embedding_path,
+                )
 
-                if speaker_embedding_path and Path(speaker_embedding_path).exists() and tts.runtime_backend == "mlx":
+                if resolved_embedding_path and tts.runtime_backend == "mlx":
                     wavs, sample_rate = tts.generate_clone_cached(
                         payload=clone_payload,
-                        speaker_embedding_path=speaker_embedding_path,
+                        speaker_embedding_path=str(resolved_embedding_path),
                         ref_text=profile_reference_text,
                     )
                 else:
-                    audio_path = str(profile.get("audio_path") or "").strip()
-                    if not audio_path or not Path(audio_path).exists():
+                    resolved_audio_path = voice_profiles.resolve_audio_path(
+                        profile["id"],
+                        profile.get("audio_file_name"),
+                        profile.get("audio_path"),
+                    )
+                    if resolved_audio_path is None:
                         raise HTTPException(status_code=404, detail=f"Voice '{voice}' audio is missing.")
                     wavs, sample_rate = tts.generate_clone(
                         payload=clone_payload,
-                        ref_audio_path=audio_path,
+                        ref_audio_path=str(resolved_audio_path),
                         ref_text=profile_reference_text,
                         x_vector_only_mode=not bool(profile_reference_text),
                     )
