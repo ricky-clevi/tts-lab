@@ -651,7 +651,7 @@
 }
 
 .voice-row-cell--id {
-  overflow: hidden;
+  min-width: 0;
 }
 
 .id-cell {
