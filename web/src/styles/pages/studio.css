@@ -1,6 +1,6 @@
 .studio-kicker,
 .studio-section-kicker {
-  color: color-mix(in oklab, var(--color-secondary-300) 88%, white 12%);
+  color: color-mix(in oklab, var(--color-primary-700) 74%, var(--color-gray-600) 26%);
   font-size: var(--text-xs);
   font-weight: var(--font-bold);
   letter-spacing: 0.2em;
@@ -65,7 +65,7 @@
   margin-bottom: var(--space-5);
   padding: var(--space-4);
   border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 92%, white 8%), color-mix(in oklab, var(--color-surface) 84%, var(--color-primary-50) 16%));
+  background: color-mix(in oklab, var(--color-surface-elevated) 94%, white 6%);
   border: 1px solid color-mix(in oklab, var(--color-line) 68%, var(--color-primary-100) 32%);
   box-shadow: var(--shadow-sm);
 }
@@ -103,21 +103,19 @@
   margin-top: var(--space-4);
   padding: var(--space-4);
   background:
-    radial-gradient(circle at top right, color-mix(in oklab, var(--color-secondary-300) 24%, transparent), transparent 26%),
-    linear-gradient(135deg, color-mix(in oklab, var(--color-command-800) 90%, var(--color-primary-700) 10%), color-mix(in oklab, var(--color-command-900) 92%, var(--color-primary-800) 8%));
-  border: 1px solid color-mix(in oklab, var(--color-primary-400) 18%, var(--color-command-900) 82%);
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-secondary-100) 36%, transparent), transparent 30%),
+    linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 96%, white 4%), color-mix(in oklab, var(--color-surface) 92%, var(--color-primary-50) 8%));
+  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
 }
 
 .credentials-box::before {
   content: '';
   position: absolute;
   inset: 0;
-  background:
-    repeating-linear-gradient(90deg, transparent 0 88px, color-mix(in oklab, white 8%, transparent) 88px 89px),
-    repeating-linear-gradient(180deg, transparent 0 88px, color-mix(in oklab, white 6%, transparent) 88px 89px);
-  opacity: 0.14;
+  background: linear-gradient(180deg, color-mix(in oklab, white 32%, transparent), transparent 42%);
+  opacity: 0.5;
   pointer-events: none;
 }
 
@@ -134,23 +132,23 @@
 }
 
 .credential-row:first-child {
-  border-bottom: 1px solid color-mix(in oklab, var(--color-primary-300) 14%, var(--color-command-900) 86%);
+  border-bottom: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
 }
 
 .credential-label {
   font-weight: var(--font-bold);
-  color: color-mix(in oklab, var(--color-white) 74%, var(--color-primary-100) 26%);
+  color: var(--color-gray-600);
   min-width: 80px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .credential-value {
-  background: color-mix(in oklab, var(--color-white) 94%, var(--color-primary-50) 6%);
+  background: color-mix(in oklab, var(--color-surface) 88%, white 12%);
   padding: var(--space-2) var(--space-2);
   border-radius: var(--radius-sm);
   word-break: break-all;
-  color: var(--color-command-900);
+  color: var(--color-gray-900);
   font-family: var(--font-family-mono);
 }
 

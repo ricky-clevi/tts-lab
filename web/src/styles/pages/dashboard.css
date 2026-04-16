@@ -14,10 +14,8 @@
   padding: clamp(1.75rem, 3.5vw, 2.5rem);
   border-radius: var(--radius-2xl);
   border: 1px solid color-mix(in oklab, var(--color-line) 72%, white 28%);
-  background:
-    radial-gradient(circle at top right, color-mix(in oklab, var(--color-primary-100) 26%, transparent), transparent 26%),
-    linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 96%, white 4%), color-mix(in oklab, var(--color-surface) 92%, var(--color-primary-50) 8%));
-  box-shadow: var(--shadow-md);
+  background: color-mix(in oklab, var(--color-surface-elevated) 97%, white 3%);
+  box-shadow: var(--shadow-sm);
 }
 
 .hero-copy {
@@ -108,7 +106,7 @@
   gap: var(--space-3);
   padding: var(--space-5);
   border-radius: var(--radius-xl);
-  background: linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 96%, white 4%), color-mix(in oklab, var(--color-surface) 92%, var(--color-primary-50) 8%));
+  background: color-mix(in oklab, var(--color-surface-elevated) 98%, white 2%);
   border: 1px solid color-mix(in oklab, var(--color-line) 72%, white 28%);
   transition: border-color var(--transition-base), box-shadow var(--transition-base);
 }
@@ -193,7 +191,7 @@
 
 .indicator-active {
   background: color-mix(in oklab, var(--color-success-500) 85%, white 15%);
-  box-shadow: 0 0 4px color-mix(in oklab, var(--color-success-500) 28%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-success-500) 10%, transparent);
 }
 
 /* Status Pip */
@@ -647,14 +645,14 @@
   gap: 2px;
   height: 32px;
   padding: var(--space-2) var(--space-3);
-  background: color-mix(in oklab, var(--color-surface-elevated) 88%, white 12%);
+  background: color-mix(in oklab, var(--color-surface) 86%, white 14%);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
 
 .waveform-bar {
   width: 3px;
-  background: linear-gradient(180deg, var(--color-gray-400), var(--color-gray-500));
+  background: color-mix(in oklab, var(--color-gray-500) 82%, white 18%);
   border-radius: var(--radius-full);
   height: calc(20% + 60% * var(--bar-height, 0.5));
   opacity: 0.7;
@@ -682,7 +680,7 @@
 
 .voice-preview-link:hover .waveform-bar {
   opacity: 1;
-  animation: waveform-dance 0.8s ease-in-out infinite;
+  animation: waveform-dance 1.2s ease-in-out infinite;
   animation-delay: calc(var(--bar-index, 0) * 0.05s);
 }
 
@@ -691,7 +689,7 @@
     transform: scaleY(1);
   }
   50% {
-    transform: scaleY(1.3);
+    transform: scaleY(1.12);
   }
 }
 

@@ -23,7 +23,6 @@ body {
   margin: 0;
   font-family: var(--font-family-sans);
   background: var(--gradient-shell);
-  background-attachment: fixed;
   color: var(--color-black);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -44,10 +43,9 @@ h5,
 h6 {
   margin: 0;
   font-family: var(--font-family-display);
-  font-weight: var(--font-extrabold);
+  font-weight: var(--font-bold);
   line-height: var(--leading-tight);
   color: var(--color-gray-900);
-  text-transform: uppercase;
 }
 
 h1 {
@@ -62,7 +60,7 @@ h2 {
 
 h3 {
   font-size: 1.35rem;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 p {
