@@ -9,7 +9,7 @@
 @media (min-width: 961px) {
   .navbar {
     height: 100vh;
-    padding: var(--space-4) 0 var(--space-4) var(--space-4);
+    padding: 0;
   }
 }
 @media (max-width: 960px) {
@@ -46,6 +46,11 @@
     flex-direction: column;
     align-items: stretch;
     justify-content: flex-start;
+    border-radius: 0;
+    border: none;
+    border-right: 1px solid color-mix(in oklab, var(--color-line) 78%, white 22%);
+    box-shadow: none;
+    padding: var(--space-6) var(--space-4);
   }
 }
 
