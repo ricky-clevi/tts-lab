@@ -161,6 +161,16 @@ class Database:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
 
+    def list_all_profiles(self) -> List[Dict[str, Any]]:
+        """List all voice profiles across all users (admin only)."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                SELECT * FROM voice_profiles
+                ORDER BY created_at DESC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+
     def get_profile_by_id(self, profile_id: str) -> Optional[Dict[str, Any]]:
         """Get a voice profile by ID."""
         with self._get_cursor() as cursor:

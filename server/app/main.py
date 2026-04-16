@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import zipfile
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -612,6 +613,73 @@ def create_app(
             for p in profiles
         ]
 
+    @app.get("/api/admin/voices/exportable")
+    def list_exportable_voices(current_user: dict = Depends(require_admin)) -> list[dict[str, object]]:
+        """List all voice profiles that can be exported to Onprem."""
+        profiles = db.list_all_profiles()
+        return [
+            {
+                "id": profile["id"],
+                "label": profile["label"],
+                "language": profile["language"],
+                "reference_text": profile["reference_text"],
+                "audio_file_name": profile["audio_file_name"],
+                "user_id": profile["user_id"],
+                "created_at": profile["created_at"],
+            }
+            for profile in profiles
+        ]
+
+    @app.get("/api/admin/voices/export/{voice_id}")
+    def export_voice_profile(
+        voice_id: str,
+        current_user: dict = Depends(require_admin),
+    ) -> StreamingResponse:
+        """Export a saved voice profile and its associated assets as a zip archive."""
+        profile = db.get_profile_by_id(voice_id)
+        if not profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Voice profile not found",
+            )
+
+        audio_path = Path(profile["audio_path"])
+        if not audio_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Voice audio file is missing",
+            )
+
+        embedding_path_value = profile.get("speaker_embedding_path")
+        embedding_path = Path(embedding_path_value) if embedding_path_value else None
+
+        metadata = {
+            "id": profile["id"],
+            "label": profile["label"],
+            "language": profile["language"],
+            "reference_text": profile["reference_text"],
+            "audio_file_name": profile["audio_file_name"],
+            "user_id": profile["user_id"],
+            "created_at": profile["created_at"],
+            "speaker_embedding_file_name": embedding_path.name if embedding_path and embedding_path.exists() else None,
+        }
+
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, mode="w", compression=zipfile.ZIP_DEFLATED) as bundle:
+            bundle.writestr(
+                "metadata.json",
+                json.dumps(metadata, ensure_ascii=False, indent=2),
+            )
+            bundle.write(audio_path, arcname=profile["audio_file_name"])
+            if embedding_path and embedding_path.exists():
+                bundle.write(embedding_path, arcname=embedding_path.name)
+
+        archive.seek(0)
+        headers = {
+            "Content-Disposition": f'attachment; filename="{voice_id}.zip"',
+        }
+        return StreamingResponse(archive, media_type="application/zip", headers=headers)
+
     @app.delete("/api/voices/{profile_id}")
     def delete_user_voice(
         profile_id: str,
@@ -700,15 +768,42 @@ def create_app(
                 detail="Unsupported response_format. Use 'wav' or 'pcm'.",
             )
 
+        profile = db.get_profile_by_id(voice)
         try:
-            wavs, sample_rate = tts.generate_custom(
-                CustomGenerationRequest(
+            if profile:
+                clone_payload = BaseGenerationRequest(
                     segments=[text],
                     language="Auto",
-                    speaker=voice,
-                    instruct=instructions,
+                    generation={},
                 )
-            )
+                profile_reference_text = str(profile.get("reference_text") or "").strip() or None
+                speaker_embedding_path = str(profile.get("speaker_embedding_path") or "").strip()
+
+                if speaker_embedding_path and Path(speaker_embedding_path).exists() and tts.runtime_backend == "mlx":
+                    wavs, sample_rate = tts.generate_clone_cached(
+                        payload=clone_payload,
+                        speaker_embedding_path=speaker_embedding_path,
+                        ref_text=profile_reference_text,
+                    )
+                else:
+                    audio_path = str(profile.get("audio_path") or "").strip()
+                    if not audio_path or not Path(audio_path).exists():
+                        raise HTTPException(status_code=404, detail=f"Voice '{voice}' audio is missing.")
+                    wavs, sample_rate = tts.generate_clone(
+                        payload=clone_payload,
+                        ref_audio_path=audio_path,
+                        ref_text=profile_reference_text,
+                        x_vector_only_mode=not bool(profile_reference_text),
+                    )
+            else:
+                wavs, sample_rate = tts.generate_custom(
+                    CustomGenerationRequest(
+                        segments=[text],
+                        language="Auto",
+                        speaker=voice,
+                        instruct=instructions,
+                    )
+                )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
