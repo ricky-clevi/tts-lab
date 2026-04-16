@@ -4,6 +4,7 @@ import '../styles/pages/studio.css'
 import { Alert, Badge, Button, Card, CardBody, CardHeader, ConfirmModal, Input, Select, SkeletonTable, useToast } from '../components/ui'
 import { t } from '../i18n'
 import { createSecurePassword } from '../lib/clientIds'
+import { formatAppDate } from '../lib/formatters'
 import type { UserResponse } from '../types'
 
 export default function StudioPage() {
@@ -175,7 +176,7 @@ export default function StudioPage() {
                         <tr key={user.id}>
                           <td><span className="user-name">{user.username}</span></td>
                           <td><Badge variant={user.role === 'admin' ? 'admin' : 'user'}>{user.role === 'admin' ? t('studio.role.admin') : t('studio.role.user')}</Badge></td>
-                          <td className="date-cell">{new Date(user.created_at).toLocaleDateString()}</td>
+                          <td className="date-cell">{formatAppDate(user.created_at)}</td>
                           <td><Badge variant={user.is_active ? 'success' : 'error'}>{user.is_active ? t('studio.status.active') : t('studio.status.inactive')}</Badge></td>
                           <td>
                             <Button variant="danger" size="sm" onClick={() => { setUserToDelete(user); setDeleteModalOpen(true) }} disabled={user.role === 'admin' && adminCount <= 1}>

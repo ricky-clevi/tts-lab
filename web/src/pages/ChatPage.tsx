@@ -4,6 +4,7 @@ import '../styles/pages/chat.css'
 import { Button, Card, CardBody, CardHeader, Input, LoadingState, Select, Textarea, useToast } from '../components/ui'
 import { t } from '../i18n'
 import { createClientId } from '../lib/clientIds'
+import { localizeChatSettings } from '../lib/formatters'
 import type { ChatMessage, ChatSettingsResponse, ConversationServerEvent, ConversationStatus, ProviderId } from '../types'
 
 const STATUS_LABELS: Record<ConversationStatus, string> = {
@@ -43,7 +44,7 @@ export default function ChatPage() {
   useEffect(() => {
     async function loadSettings() {
       try {
-        setSettings(await fetchChatSettings())
+        setSettings(localizeChatSettings(await fetchChatSettings()))
       } catch {
         showError(t('chat.error.loadSettings'))
       } finally {
@@ -90,7 +91,7 @@ export default function ChatPage() {
   const handleServerEvent = useCallback((event: ConversationServerEvent) => {
     switch (event.type) {
       case 'session.ready':
-        setSettings(event.settings)
+        setSettings(localizeChatSettings(event.settings))
         break
       case 'asr.partial':
         setCurrentTranscript(event.text)

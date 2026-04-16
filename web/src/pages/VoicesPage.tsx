@@ -4,10 +4,15 @@ import { deleteVoice, fetchVoices } from '../api'
 import '../styles/pages/voices.css'
 import { Alert, Badge, Button, Card, CardBody, ConfirmModal, Input, Select, Skeleton, useToast } from '../components/ui'
 import { t } from '../i18n'
+import { formatAppDate, formatLanguageLabel, getLanguageFilterValue, localizeKnownReferenceText, localizeKnownVoiceLabel } from '../lib/formatters'
 import type { CloneVoiceProfileResponse } from '../types'
 
 type SortOption = 'newest' | 'oldest' | 'name-asc' | 'name-desc'
 type ViewMode = 'grid' | 'list'
+
+function getLanguageFilterKey(value: string): string {
+  return getLanguageFilterValue(value)
+}
 
 export default function VoicesPage() {
   const { success, error: showError } = useToast()
@@ -40,18 +45,46 @@ export default function VoicesPage() {
     }
   }
 
-  const languages = useMemo(() => [...new Set(voices.map((voice) => voice.language))].sort(), [voices])
+  const languages = useMemo(() => {
+    const options = new Map<string, string>()
+
+    voices.forEach((voice) => {
+      const label = voice.language.trim()
+      if (!label) {
+        return
+      }
+
+      const key = getLanguageFilterKey(label)
+      if (!options.has(key)) {
+        options.set(key, label)
+      }
+    })
+
+    return [...options.entries()]
+      .sort(([, leftLabel], [, rightLabel]) => leftLabel.localeCompare(rightLabel))
+      .map(([value, label]) => ({ value, label }))
+  }, [voices])
 
   const filteredVoices = useMemo(() => {
     let result = [...voices]
 
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase()
-      result = result.filter((voice) => voice.label.toLowerCase().includes(query) || voice.reference_text.toLowerCase().includes(query) || voice.id.toLowerCase().includes(query))
+      result = result.filter((voice) => {
+        const localizedLabel = localizeKnownVoiceLabel(voice.label).toLowerCase()
+        const localizedReferenceText = localizeKnownReferenceText(voice.reference_text).toLowerCase()
+        return (
+          voice.label.toLowerCase().includes(query) ||
+          voice.reference_text.toLowerCase().includes(query) ||
+          localizedLabel.includes(query) ||
+          localizedReferenceText.includes(query) ||
+          voice.id.toLowerCase().includes(query)
+        )
+      })
     }
 
     if (languageFilter !== 'all') {
-      result = result.filter((voice) => voice.language === languageFilter)
+      result = result.filter((voice) => getLanguageFilterKey(voice.language) === languageFilter)
     }
 
     result.sort((a, b) => {
@@ -87,7 +120,7 @@ export default function VoicesPage() {
       await deleteVoice(voiceToDelete.id)
       setDeleteConfirmation(voiceToDelete.id)
       setVoices((prev) => prev.filter((voice) => voice.id !== voiceToDelete.id))
-      success(t('voices.toast.deleted', { label: voiceToDelete.label }))
+      success(t('voices.toast.deleted', { label: localizeKnownVoiceLabel(voiceToDelete.label) }))
       setDeleteModalOpen(false)
       setVoiceToDelete(null)
       setTimeout(() => setDeleteConfirmation(null), 300)
@@ -138,7 +171,7 @@ export default function VoicesPage() {
               <Select
                 value={languageFilter}
                 onChange={(e) => setLanguageFilter(e.target.value)}
-                options={[{ value: 'all', label: t('voices.filter.allLanguages') }, ...languages.map((entry) => ({ value: entry, label: entry === 'en' ? t('language.english') : entry === 'ko' ? t('language.korean') : entry }))]}
+                options={[{ value: 'all', label: t('voices.filter.allLanguages') }, ...languages.map((entry) => ({ value: entry.value, label: formatLanguageLabel(entry.label) }))]}
               />
             </div>
 
@@ -312,7 +345,7 @@ export default function VoicesPage() {
           onClose={() => { setDeleteModalOpen(false); setVoiceToDelete(null) }}
           onConfirm={handleDeleteConfirm}
           title={t('voices.delete.title')}
-          message={t('voices.delete.message', { label: voiceToDelete?.label ?? '' })}
+          message={t('voices.delete.message', { label: localizeKnownVoiceLabel(voiceToDelete?.label) })}
           confirmText={t('voices.delete.confirm')}
           cancelText={t('modal.cancel')}
           variant="danger"
@@ -377,17 +410,15 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
           <div className="voice-card-content">
             <div className="voice-header">
               <div className="voice-info">
-                <h3 className="voice-name">{voice.label}</h3>
+                <h3 className="voice-name">{localizeKnownVoiceLabel(voice.label)}</h3>
                 <div className="voice-meta">
-                  <Badge variant="info">
-                    {voice.language === 'en' ? t('language.english') : voice.language === 'ko' ? t('language.korean') : voice.language}
-                  </Badge>
+                  <Badge variant="info">{formatLanguageLabel(voice.language)}</Badge>
                   <span className="voice-date">
                     <svg className="date-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                       <rect x="2" y="3" width="12" height="11" rx="1" stroke="currentColor" strokeWidth="1.5"/>
                       <path d="M2 6h12M5 1v3M11 1v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                     </svg>
-                    {new Date(voice.created_at).toLocaleDateString()}
+                    {formatAppDate(voice.created_at)}
                   </span>
                 </div>
               </div>
@@ -396,7 +427,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
             <div className="voice-text-section">
               <span className="voice-text-label">{t('voices.referenceText')}</span>
               <p className="voice-text">
-                {voice.reference_text.substring(0, 120)}{voice.reference_text.length > 120 ? '...' : ''}
+                {localizeKnownReferenceText(voice.reference_text).substring(0, 120)}{voice.reference_text.length > 120 ? '...' : ''}
               </p>
             </div>
 
@@ -482,12 +513,10 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
   return (
     <div className={`voice-row ${isDeleting ? 'voice-row--deleting' : ''}`}>
       <div className="voice-row-cell voice-row-cell--name">
-        <span className="voice-name-list">{voice.label}</span>
+        <span className="voice-name-list">{localizeKnownVoiceLabel(voice.label)}</span>
       </div>
       <div className="voice-row-cell voice-row-cell--language">
-        <Badge variant="info" className="badge-compact">
-          {voice.language === 'en' ? t('language.english') : voice.language === 'ko' ? t('language.korean') : voice.language}
-        </Badge>
+        <Badge variant="info" className="badge-compact">{formatLanguageLabel(voice.language)}</Badge>
       </div>
       <div className="voice-row-cell voice-row-cell--id">
         <div className="id-cell">
@@ -511,7 +540,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
         </div>
       </div>
       <div className="voice-row-cell voice-row-cell--date">
-        <span className="date-compact">{new Date(voice.created_at).toLocaleDateString()}</span>
+        <span className="date-compact">{formatAppDate(voice.created_at)}</span>
       </div>
       <div className="voice-row-cell voice-row-cell--actions">
         {voice.audio_path && (

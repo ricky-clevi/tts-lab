@@ -49,11 +49,11 @@
   --space-20: 5rem;
 
   /* Radius */
-  --radius-sm: 0.3rem;
-  --radius-md: 0.65rem;
-  --radius-lg: 0.95rem;
-  --radius-xl: 1.15rem;
-  --radius-2xl: 1.45rem;
+  --radius-sm: 0.75rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 0.75rem;
   --radius-full: 9999px;
 
   /* Core palette */

@@ -3,6 +3,7 @@ import { createReplyVoiceCloneProfile, fetchCapabilities, generateRun } from '..
 import '../styles/pages/tts.css'
 import { Alert, Badge, Button, Card, CardBody, CardHeader, Input, LoadingState, Select, Textarea, useToast } from '../components/ui'
 import { t } from '../i18n'
+import { formatAppDateTime, formatAppTime, formatLanguageLabel, normalizeLanguageValue } from '../lib/formatters'
 import type { AudioClip, CapabilitiesResponse, GenerationRun, Mode } from '../types'
 
 type GenerationSettings = {
@@ -62,7 +63,7 @@ export default function TtsPage() {
   const languageOptions =
     capabilities?.languages.map((entry) => ({
       value: entry,
-      label: entry === 'en' ? t('language.english') : entry === 'ko' ? t('language.korean') : entry === 'auto' ? t('language.auto') : entry,
+      label: formatLanguageLabel(entry),
     })) || []
 
   const handleSegmentChange = (index: number, value: string) => {
@@ -229,7 +230,7 @@ export default function TtsPage() {
                       label={t('field.language')}
                       value={language}
                       onChange={(e) => setLanguage(e.target.value)}
-                      options={languageOptions.map((entry) => ({ ...entry, label: entry.value === 'auto' ? t('tts.autoRecommended') : entry.label }))}
+                      options={languageOptions.map((entry) => ({ ...entry, label: normalizeLanguageValue(entry.value) === 'auto' ? t('tts.autoRecommended') : entry.label }))}
                       hint={t('hint.cloneLanguageAuto')}
                     />
                     <div className="form-group">
@@ -370,7 +371,7 @@ export default function TtsPage() {
                           {runs.map((run) => (
                             <button key={run.run_id} className={`history-item ${selectedRun?.run_id === run.run_id ? 'history-item-active' : ''}`} onClick={() => setSelectedRun(run)}>
                               <strong>{t(`mode.${run.mode}`)}</strong>
-                              <span>{new Date(run.created_at).toLocaleTimeString()}</span>
+                              <span>{formatAppTime(run.created_at)}</span>
                             </button>
                           ))}
                         </div>
@@ -382,7 +383,7 @@ export default function TtsPage() {
                         <div className="run-meta">
                           <Badge variant="primary">{t(`mode.${selectedRun.mode}`)}</Badge>
                           <span>{selectedRun.device}</span>
-                          <span>{new Date(selectedRun.created_at).toLocaleString()}</span>
+                          <span>{formatAppDateTime(selectedRun.created_at)}</span>
                         </div>
                         <div className="clips-list">
                           {selectedRun.clips.map((clip, index) => <ClipCard key={clip.id} clip={clip} index={index} />)}
@@ -421,7 +422,7 @@ function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
           <p className="clip-kicker">{t('results.segment', { index: index + 1 })}</p>
           <strong>{formatDuration(clip.duration_seconds)}</strong>
         </div>
-        <Badge variant="info">{clip.language === 'en' ? t('language.english') : clip.language === 'ko' ? t('language.korean') : clip.language === 'auto' ? t('language.auto') : clip.language}</Badge>
+        <Badge variant="info">{formatLanguageLabel(clip.language)}</Badge>
       </div>
       <p className="clip-text">{clip.text}</p>
       <div className="clip-audio-wrapper">

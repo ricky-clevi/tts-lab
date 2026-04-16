@@ -5,6 +5,7 @@ import '../styles/pages/dashboard.css'
 import { useAuth } from '../auth/useAuth'
 import { Alert, Badge, Card, CardBody, Skeleton, SkeletonText } from '../components/ui'
 import { t } from '../i18n'
+import { formatAppDate, formatLanguageLabel, localizeKnownReferenceText, localizeKnownVoiceLabel } from '../lib/formatters'
 import type { CloneVoiceProfileResponse, HealthResponse } from '../types'
 
 const QUICK_ACTIONS = [
@@ -165,9 +166,9 @@ export default function DashboardPage() {
                 )}
               </div>
               <div className="status-indicators">
-                <span className={`indicator ${health ? 'indicator-active' : ''}`} title="API" />
-                <span className={`indicator ${health?.active_model ? 'indicator-active' : ''}`} title="Model" />
-                <span className={`indicator ${health?.selected_device ? 'indicator-active' : ''}`} title="Device" />
+                <span className={`indicator ${health ? 'indicator-active' : ''}`} title={t('dashboard.runtime.indicator.api')} />
+                <span className={`indicator ${health?.active_model ? 'indicator-active' : ''}`} title={t('dashboard.runtime.indicator.model')} />
+                <span className={`indicator ${health?.selected_device ? 'indicator-active' : ''}`} title={t('dashboard.runtime.indicator.device')} />
               </div>
             </div>
             {isAdmin && (
@@ -250,7 +251,6 @@ export default function DashboardPage() {
                     </div>
                     <div className="stat-value-row">
                       <strong className="stat-value">{voices.length}</strong>
-                      <span className="stat-unit">{voices.length === 1 ? 'profile' : 'profiles'}</span>
                     </div>
                     <p className="stat-note">{t('dashboard.stats.voiceProfiles.note')}</p>
                     <Link to="/voices" className="stat-link">
@@ -327,12 +327,12 @@ export default function DashboardPage() {
                     <CardBody>
                       <div className="voice-preview">
                         <div className="voice-preview-top">
-                          <span className="voice-mark">{voice.language.toUpperCase()}</span>
-                          <Badge variant="info">{new Date(voice.created_at).toLocaleDateString()}</Badge>
+                          <span className="voice-mark">{formatLanguageLabel(voice.language)}</span>
+                          <Badge variant="info">{formatAppDate(voice.created_at)}</Badge>
                         </div>
-                        <h3>{voice.label}</h3>
+                        <h3>{localizeKnownVoiceLabel(voice.label)}</h3>
                         <WaveformPreview />
-                        <p className="voice-preview-text">{voice.reference_text.substring(0, 80)}{voice.reference_text.length > 80 ? '...' : ''}</p>
+                        <p className="voice-preview-text">{localizeKnownReferenceText(voice.reference_text).substring(0, 80)}{voice.reference_text.length > 80 ? '...' : ''}</p>
                         <div className="voice-preview-footer">
                           <code className="voice-id">{voice.id.substring(0, 8)}...</code>
                           <span className="voice-preview-action">
@@ -368,7 +368,7 @@ export default function DashboardPage() {
                           <path d="M2 12h4" />
                           <path d="m4.9 4.9 2.9 2.9" />
                         </svg>
-                        Quick start
+                        {t('dashboard.gettingStarted.badge')}
                       </div>
                     </div>
                     <div className="getting-started-copy">
