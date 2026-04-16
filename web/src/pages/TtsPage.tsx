@@ -277,9 +277,9 @@ export default function TtsPage() {
                 <h3>{t('tts.textSegments')}</h3>
               </CardHeader>
               <CardBody>
-                <div className="segments-list">
+                <div className={`segments-list ${segments.length === 1 ? 'segments-list-single' : ''}`}>
                   {segments.map((segment, index) => (
-                    <div key={index} className="segment-item">
+                    <div key={index} className={`segment-item ${segments.length === 1 ? 'segment-item-single' : ''}`}>
                       {segments.length > 1 && (
                         <div className="segment-header">
                           <span className="segment-number">{index + 1}</span>

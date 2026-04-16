@@ -470,7 +470,7 @@
   width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
   padding: 0.8rem 0.9rem;
   background: transparent;
@@ -503,15 +503,17 @@
 
 .select-option-label {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
 }
 
 .select-option-check {
   width: 1rem;
   height: 1rem;
   color: currentColor;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
 }
 
 @keyframes select-menu-in {

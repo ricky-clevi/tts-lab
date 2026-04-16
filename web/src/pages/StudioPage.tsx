@@ -103,38 +103,16 @@ export default function StudioPage() {
     <div className="page studio-page">
       <div className="page-container">
         <div className="page-header">
-          <p className="studio-kicker">{t('studio.kicker')}</p>
-          <h1>{t('studio.title')}</h1>
-          <p className="page-description">{t('studio.description')}</p>
+          <div className="header-content">
+            <p className="studio-kicker">{t('studio.kicker')}</p>
+            <h1>{t('studio.title')}</h1>
+            <p className="page-description">{t('studio.description')}</p>
+          </div>
         </div>
 
         {error && <Alert variant="error" onDismiss={() => setError('')}>{error}</Alert>}
 
         <div className="studio-layout">
-          <Card className="create-user-card">
-            <CardHeader>
-              <div>
-                <p className="studio-section-kicker">{t('studio.provision.kicker')}</p>
-                <h2>{t('studio.provision.title')}</h2>
-              </div>
-            </CardHeader>
-            <CardBody>
-              <form onSubmit={handleCreateUser} className="create-form">
-                <Input label={t('login.username')} value={username} onChange={(e) => setUsername(e.target.value)} disabled={isCreating} required placeholder={t('studio.form.usernamePlaceholder')} />
-                <div className="password-field">
-                  <Input label={t('login.password')} type="text" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isCreating} required placeholder={t('studio.form.passwordPlaceholder')} />
-                  <Button type="button" variant="secondary" size="sm" onClick={generatePassword} disabled={isCreating} className="generate-btn">
-                    {t('studio.form.generate')}
-                  </Button>
-                </div>
-                <Select label={t('studio.form.role')} value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'user')} disabled={isCreating} options={[{ value: 'user', label: t('studio.role.user') }, { value: 'admin', label: t('studio.role.admin') }]} />
-                <Button type="submit" variant="primary" fullWidth isLoading={isCreating}>
-                  {isCreating ? t('studio.form.creating') : t('studio.form.create')}
-                </Button>
-              </form>
-            </CardBody>
-          </Card>
-
           <Card className="users-card">
             <CardHeader>
               <div className="users-header">
@@ -151,6 +129,7 @@ export default function StudioPage() {
             <CardBody>
               <div className="users-toolbar">
                 <Input placeholder={t('studio.users.searchPlaceholder')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} leftIcon="ID" />
+                <Button variant="primary" onClick={() => setIsCreating(true)}>{t('studio.users.createNew')}</Button>
               </div>
 
               {loading ? (
@@ -192,6 +171,37 @@ export default function StudioPage() {
             </CardBody>
           </Card>
         </div>
+
+        {isCreating && !showCredentials && (
+          <div className="modal-backdrop" onClick={() => setIsCreating(false)}>
+            <div className="modal modal-size-md" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">{t('studio.provision.title')}</h2>
+                <button className="modal-close" onClick={() => setIsCreating(false)} aria-label={t('modal.close')}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+              <div className="modal-body">
+                <form id="create-user-form" onSubmit={handleCreateUser} className="create-form">
+                  <Input label={t('login.username')} value={username} onChange={(e) => setUsername(e.target.value)} required placeholder={t('studio.form.usernamePlaceholder')} />
+                  <div className="password-field">
+                    <Input label={t('login.password')} type="text" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder={t('studio.form.passwordPlaceholder')} />
+                    <Button type="button" variant="secondary" onClick={generatePassword} className="generate-btn">
+                      {t('studio.form.generate')}
+                    </Button>
+                  </div>
+                  <Select label={t('studio.form.role')} value={role} onChange={(e) => setRole(e.target.value as 'admin' | 'user')} options={[{ value: 'user', label: t('studio.role.user') }, { value: 'admin', label: t('studio.role.admin') }]} />
+                </form>
+              </div>
+              <div className="modal-footer">
+                <Button variant="ghost" onClick={() => setIsCreating(false)}>{t('modal.cancel')}</Button>
+                <Button form="create-user-form" type="submit" variant="primary">{t('studio.form.create')}</Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showCredentials && generatedCredentials && (
           <div className="modal-backdrop" onClick={() => setShowCredentials(false)}>

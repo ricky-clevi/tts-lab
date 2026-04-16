@@ -228,8 +228,13 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
       const spaceBelow = viewportHeight - rect.bottom
       const spaceAbove = rect.top
       const shouldOpenUpward = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow
-      const width = Math.min(rect.width, viewportWidth - 24)
-      const left = Math.min(rect.left, viewportWidth - width - 12)
+      const longestLabelLength = options.reduce(
+        (maxLength, option) => Math.max(maxLength, option.label.trim().length),
+        placeholder?.trim().length ?? 0,
+      )
+      const preferredWidth = Math.max(rect.width, Math.min(560, Math.max(260, longestLabelLength * 8.5 + 84)))
+      const width = Math.min(preferredWidth, viewportWidth - 24)
+      const left = Math.min(Math.max(12, rect.left), viewportWidth - width - 12)
 
       setMenuPlacement(shouldOpenUpward ? 'top' : 'bottom')
       setMenuStyle({

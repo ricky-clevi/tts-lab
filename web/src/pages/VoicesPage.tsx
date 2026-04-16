@@ -526,6 +526,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
             onClick={() => onCopyId(voice.id)}
             aria-label={isCopied ? t('voices.copied') : t('voices.copyId')}
           >
+            {isCopied && <span className="copy-tooltip">{t('voices.copied')}</span>}
             {isCopied ? (
               <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>

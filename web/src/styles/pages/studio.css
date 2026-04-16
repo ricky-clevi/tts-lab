@@ -8,20 +8,26 @@
   margin-bottom: var(--space-2);
 }
 
-.studio-page .page-container {
-  max-width: 1200px;
+.studio-page .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  border-color: color-mix(in oklab, var(--color-line) 72%, var(--color-primary-100) 28%);
+  background:
+    radial-gradient(circle at top right, color-mix(in oklab, var(--color-primary-100) 18%, transparent), transparent 28%),
+    linear-gradient(180deg, color-mix(in oklab, var(--color-surface-elevated) 96%, white 4%), color-mix(in oklab, var(--color-surface) 92%, var(--color-primary-50) 8%));
 }
 
-.studio-page .page-header {
-  display: grid;
-  gap: var(--space-3);
+.header-content {
+  flex: 1;
   max-width: 60ch;
 }
 
 .studio-layout {
   display: grid;
-  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.05fr);
-  gap: var(--space-6);
+  grid-template-columns: 1fr;
   align-items: start;
 }
 
@@ -44,6 +50,7 @@
 .generate-btn {
   margin-bottom: 2px;
   white-space: nowrap;
+  height: 48px;
 }
 
 .users-header {
@@ -62,12 +69,22 @@
 }
 
 .users-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: var(--space-5);
   padding: var(--space-4);
   border-radius: var(--radius-lg);
   background: color-mix(in oklab, var(--color-surface-elevated) 94%, white 6%);
   border: 1px solid color-mix(in oklab, var(--color-line) 68%, var(--color-primary-100) 32%);
   box-shadow: var(--shadow-sm);
+  gap: var(--space-4);
+}
+
+.users-toolbar .form-group {
+  margin-bottom: 0;
+  flex: 1;
+  max-width: 400px;
 }
 
 .users-table-container {
@@ -152,20 +169,6 @@
   font-family: var(--font-family-mono);
 }
 
-@media (max-width: 1024px) {
-  .studio-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .create-user-card {
-    order: 2;
-  }
-
-  .users-card {
-    order: 1;
-  }
-}
-
 @media (max-width: 640px) {
   .users-header,
   .password-field {
@@ -174,7 +177,13 @@
   }
 
   .users-toolbar {
+    flex-direction: column;
     padding: var(--space-3);
+    align-items: stretch;
+  }
+
+  .users-toolbar .form-group {
+    max-width: none;
   }
 
   .generate-btn {
