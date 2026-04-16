@@ -210,10 +210,20 @@ class TtsModelManager:
         if language not in LANGUAGES:
             raise ValueError(f"Unsupported language '{language}'.")
 
-    def _ensure_speaker(self, speaker: str) -> None:
-        supported = {item["id"] for item in SPEAKERS}
-        if speaker not in supported:
-            raise ValueError(f"Unsupported speaker '{speaker}'.")
+    def _ensure_speaker(self, speaker: str) -> str:
+        cleaned = speaker.strip()
+        if not cleaned:
+            raise ValueError("Speaker must not be empty.")
+
+        normalized = cleaned.replace("-", "_").lower()
+        for item in SPEAKERS:
+            candidate = item["id"]
+            if cleaned == candidate:
+                return candidate
+            if normalized == candidate.replace("-", "_").lower():
+                return candidate
+
+        raise ValueError(f"Unsupported speaker '{speaker}'.")
 
     def _normalize_language(self, language: str) -> str:
         cleaned = language.strip()
@@ -597,7 +607,7 @@ class TtsModelManager:
 
     def generate_custom(self, request: CustomGenerationRequest) -> tuple[list[Any], int]:
         self._validate_language(request.language)
-        self._ensure_speaker(request.speaker)
+        speaker = self._ensure_speaker(request.speaker)
         with self._runtime_lock, self._inference_lock:
             model = self.ensure_mode("custom")
             self._apply_seed(request.generation.seed)
@@ -611,7 +621,7 @@ class TtsModelManager:
                     wav, sample_rate = self._collect_audio(
                         model.generate_custom_voice(
                             text=segment,
-                            speaker=request.speaker,
+                            speaker=speaker,
                             language=language,
                             instruct=request.instruct,
                             **generation_kwargs,
@@ -626,7 +636,7 @@ class TtsModelManager:
                 generated, sample_rate = model.generate_custom_voice(
                     text=segment,
                     language=language,
-                    speaker=request.speaker,
+                    speaker=speaker,
                     instruct=request.instruct or "",
                     **generation_kwargs,
                 )
@@ -748,7 +758,7 @@ class TtsModelManager:
 
     def stream_custom(self, request: CustomGenerationRequest) -> Iterator[dict[str, Any]]:
         self._validate_language(request.language)
-        self._ensure_speaker(request.speaker)
+        speaker = self._ensure_speaker(request.speaker)
 
         def iterator() -> Iterator[dict[str, Any]]:
             with self._runtime_lock, self._inference_lock:
@@ -767,7 +777,7 @@ class TtsModelManager:
                         yield from self._iter_stream_results(
                             model.generate_custom_voice(
                                 text=segment,
-                                speaker=request.speaker,
+                                speaker=speaker,
                                 language=language,
                                 instruct=request.instruct,
                                 **generation_kwargs,
@@ -783,7 +793,7 @@ class TtsModelManager:
                     wavs, sample_rate = model.generate_custom_voice(
                         text=segment,
                         language=language,
-                        speaker=request.speaker,
+                        speaker=speaker,
                         instruct=request.instruct or "",
                         **generation_kwargs,
                     )
