@@ -7,12 +7,12 @@
   "app.loading.description": "로컬 음성 워크플로를 불러오고 마지막 세션 상태를 복원하고 있습니다.",
   "app.loading.kicker": "작업 공간 준비 중",
   "app.loading.sync": "인터페이스 동기화 중",
-  "app.loading.title": "TTS Lab 여는 중",
+  "app.loading.title": "아이비 보이스 랩 여는 중",
   "app.skipToMain": "본문으로 건너뛰기",
-  "app.title": "Ivy3-TTS Lab",
+  "app.title": "아이비 보이스 랩",
   "auth.checking": "인증 상태를 확인하는 중입니다…",
   "brand.subtitle": "음성 운영 워크스페이스",
-  "brand.title": "TTS Lab",
+  "brand.title": "아이비 보이스 랩",
   "button.addSegment": "세그먼트 추가",
   "button.clearReferenceClip": "클립 지우기",
   "button.clearTranscript": "대화 기록 지우기",
@@ -556,5 +556,5 @@
   "voices.audio.pause": "미리듣기 일시정지",
   "voices.audio.preview": "미리듣기",
   "workspace.chat": "보이스 챗",
-  "workspace.tts": "TTS 랩"
+  "workspace.tts": "아이비 보이스 랩"
 }

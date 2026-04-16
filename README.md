@@ -1,4 +1,4 @@
-# Qwen3 Voice Lab
+# Ivy Voice Lab
 
 FastAPI + React application for local Qwen speech workflows:
 

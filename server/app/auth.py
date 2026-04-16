@@ -1,5 +1,5 @@
 """
-Authentication module for TTS Lab.
+Authentication module for Ivy Voice Lab.
 Handles JWT tokens, password hashing, and FastAPI dependencies.
 """
 

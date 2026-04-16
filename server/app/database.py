@@ -1,5 +1,5 @@
 """
-SQLite database layer for TTS Lab.
+SQLite database layer for Ivy Voice Lab.
 Handles user management, voice profile ownership, and migrations.
 """
 

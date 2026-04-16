@@ -438,7 +438,7 @@ def create_app(
         voice_profiles_dir=root / "generated" / "voice_profiles"
     )
 
-    app = FastAPI(title="Ivy3 Local Voice Lab", version="0.2.0")
+    app = FastAPI(title="Ivy Voice Lab", version="0.2.0")
     app.state.tts_manager = tts
     app.state.asr_manager = asr
     app.state.audio_storage = storage

@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { ToastProvider } from './components/ui'
+import { setLocale } from './i18n'
 
 const OriginalWebSocket = globalThis.WebSocket
 
@@ -21,8 +22,9 @@ function createStoredToken() {
   return `${header}.${payload}.signature`
 }
 
-function renderApp() {
+function renderApp(locale: 'en' | 'ko' = 'en') {
   window.localStorage.setItem('tts-lab-token', createStoredToken())
+  setLocale(locale)
 
   return render(
     <BrowserRouter>
@@ -247,12 +249,11 @@ afterEach(() => {
 
 test('switches the visible chrome to korean', async () => {
   mockFetchSequence()
-  renderApp()
+  renderApp('ko')
 
-  await screen.findByText('Ivy3-TTS Lab')
-  await userEvent.click(screen.getByRole('button', { name: '한국어' }))
+  await screen.findByText('아이비 보이스 랩')
 
-  expect(screen.getByRole('button', { name: '보이스 챗' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /보이스 챗.*실시간 검증/i })).toBeInTheDocument()
   expect(screen.getByText('로컬 음성 평가')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '오디오 생성' })).toBeInTheDocument()
 })
@@ -261,19 +262,19 @@ test('switches to voice chat and shows provider controls', async () => {
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
-  await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
 
   expect(screen.getByRole('heading', { name: 'Voice Chat' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /test connection/i })).toBeInTheDocument()
   expect(screen.getByLabelText(/system prompt/i)).toBeInTheDocument()
 })
 
-test('adds and removes segments in the tts lab', async () => {
+test('adds and removes segments in ivy voice lab', async () => {
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
+  await screen.findByText('Ivy Voice Lab')
   await userEvent.click(screen.getByRole('button', { name: /add segment/i }))
   expect(screen.getAllByLabelText(/text segment/i)).toHaveLength(2)
 
@@ -285,7 +286,7 @@ test('renders generated clips and history after a successful run', async () => {
   mockFetchSequence()
   const { container } = renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
+  await screen.findByText('Ivy Voice Lab')
   await userEvent.clear(screen.getByLabelText(/text segment 1/i))
   await userEvent.type(screen.getByLabelText(/text segment 1/i), 'Hello world')
   await userEvent.click(screen.getByRole('button', { name: /generate audio/i }))
@@ -329,7 +330,7 @@ test('sends structured style controls as part of the tts instruction prompt', as
 
   renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
+  await screen.findByText('Ivy Voice Lab')
   await userEvent.selectOptions(screen.getByLabelText(/mood/i), 'calm')
   await userEvent.type(screen.getByLabelText(/additional instruction/i), 'Keep the delivery broadcast-clean.')
   await userEvent.type(screen.getByLabelText(/text segment 1/i), 'Style control payload test.')
@@ -346,8 +347,8 @@ test('tests the selected provider from the voice chat workspace', async () => {
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
-  await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
   await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
 
   expect(await screen.findByText(/connection ok in 18 ms/i)).toBeInTheDocument()
@@ -357,8 +358,8 @@ test('syncs the conversation provider when a provider tab is selected', async ()
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
-  await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
   await userEvent.click(screen.getByRole('button', { name: 'Gemini' }))
 
   expect(screen.getByLabelText(/active provider/i)).toHaveValue('gemini')
@@ -368,8 +369,8 @@ test('shows clone reply voice controls in voice chat', async () => {
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
-  await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
   await userEvent.selectOptions(screen.getByLabelText(/voice mode/i), 'clone')
 
   expect(screen.getByRole('button', { name: /prepare cloned voice/i })).toBeInTheDocument()
@@ -400,8 +401,8 @@ test('saves raw reply voice guidance without reserializing composed style text',
 
   renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
-  await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
   await userEvent.clear(screen.getByLabelText(/base guidance/i))
   await userEvent.type(screen.getByLabelText(/base guidance/i), 'Keep the reply grounded and unhurried.')
   await userEvent.click(screen.getByRole('button', { name: /save settings/i }))
@@ -446,8 +447,8 @@ test('shows provider test failures without clearing the form', async () => {
 
   renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
-  await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
   const providerModelInput = screen.getAllByLabelText(/model/i)[0]
   await userEvent.clear(providerModelInput)
   await userEvent.type(providerModelInput, 'bad-model')
@@ -531,8 +532,8 @@ test('auto-prepares a cloned reply voice before sending a typed chat message', a
 
   renderApp()
 
-  await screen.findByText('Ivy3-TTS Lab')
-  await userEvent.click(screen.getByRole('button', { name: /voice chat/i }))
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
   await userEvent.selectOptions(screen.getByLabelText(/voice mode/i), 'clone')
   await userEvent.upload(
     screen.getByLabelText(/reference voice clip/i),

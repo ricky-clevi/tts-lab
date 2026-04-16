@@ -7,12 +7,12 @@
   "app.loading.description": "Loading local voice workflows and restoring your last session state.",
   "app.loading.kicker": "Preparing workspace",
   "app.loading.sync": "Syncing interface",
-  "app.loading.title": "Opening TTS Lab",
+  "app.loading.title": "Opening Ivy Voice Lab",
   "app.skipToMain": "Skip to main content",
-  "app.title": "Ivy3-TTS Lab",
+  "app.title": "Ivy Voice Lab",
   "auth.checking": "Checking authentication…",
   "brand.subtitle": "Voice operations workspace",
-  "brand.title": "TTS Lab",
+  "brand.title": "Ivy Voice Lab",
   "button.addSegment": "Add segment",
   "button.clearReferenceClip": "Clear clip",
   "button.clearTranscript": "Clear transcript",
@@ -560,5 +560,5 @@
   "voices.audio.pause": "Pause preview",
   "voices.audio.preview": "Preview",
   "workspace.chat": "Voice Chat",
-  "workspace.tts": "TTS Lab"
+  "workspace.tts": "Ivy Voice Lab"
 }
