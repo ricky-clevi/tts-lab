@@ -133,7 +133,7 @@ def _patch_qwen_tts_tokenizer_loader() -> None:
 
         def __call__(self, raw_audio: Any, sampling_rate: int, return_tensors: str = "pt"):
             batch = self._delegate(
-                raw_audio=raw_audio,
+                raw_speech=raw_audio,
                 sampling_rate=sampling_rate,
                 return_tensors=return_tensors,
                 padding=True,
