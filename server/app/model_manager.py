@@ -66,6 +66,11 @@ def _coerce_wav_list(wavs: Any) -> list[np.ndarray]:
     return [np.asarray(wavs, dtype=np.float32).reshape(-1)]
 
 
+def _is_cuda_oom_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "cuda" in message and "out of memory" in message
+
+
 class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -92,7 +97,8 @@ class TtsModelManager:
             "bfloat16": torch.bfloat16,
             "float32": torch.float32,
         }
-        return mapping.get(self.runtime.torch_dtype_name or "float32", torch.float32)
+        dtype_name = self.runtime_dtype or self.runtime.torch_dtype_name or "float32"
+        return mapping.get(dtype_name, torch.float32)
 
     def _instantiate_model(self, model_id: str) -> tuple[Any, str]:
         if self.runtime_backend == "mlx":
@@ -105,19 +111,37 @@ class TtsModelManager:
             return model, "mlx"
 
         from qwen_tts import Qwen3TTSModel
+        import torch
 
+        device = self.selected_device or self.runtime.device
         kwargs: dict[str, Any] = {
-            "device_map": self.runtime.device,
+            "device_map": device,
             "dtype": self._torch_dtype(),
         }
-        if self.runtime.attn_implementation:
-            kwargs["attn_implementation"] = self.runtime.attn_implementation
+        if self.runtime_attention:
+            kwargs["attn_implementation"] = self.runtime_attention
 
         try:
             model = Qwen3TTSModel.from_pretrained(model_id, **kwargs)
         except Exception as exc:  # pragma: no cover - exercised against real runtime only
+            if device.startswith("cuda") and _is_cuda_oom_error(exc):
+                fallback_kwargs = {
+                    "device_map": "cpu",
+                    "dtype": torch.float32,
+                }
+                try:
+                    model = Qwen3TTSModel.from_pretrained(model_id, **fallback_kwargs)
+                except Exception as fallback_exc:  # pragma: no cover - exercised against real runtime only
+                    raise RuntimeError(
+                        f"Unable to load {model_id} with the Ivy CUDA runtime "
+                        f"(CUDA OOM on {device}; CPU fallback failed: {fallback_exc})."
+                    ) from fallback_exc
+                self.runtime_dtype = "float32"
+                self.runtime_attention = None
+                self.selected_device = "cpu"
+                return model, "cpu"
             raise RuntimeError(f"Unable to load {model_id} with the Ivy CUDA runtime.") from exc
-        return model, self.runtime.device_label
+        return model, device
 
     def _release_current_model(self) -> None:
         if self._model is None:
@@ -1037,7 +1061,8 @@ class AsrModelManager:
             "bfloat16": torch.bfloat16,
             "float32": torch.float32,
         }
-        return mapping.get(self.runtime.torch_dtype_name or "float32", torch.float32)
+        dtype_name = self.runtime_dtype or self.runtime.torch_dtype_name or "float32"
+        return mapping.get(dtype_name, torch.float32)
 
     def _instantiate_model(self, model_id: str) -> tuple[Any, str]:
         if self.runtime_backend == "mlx":
@@ -1050,21 +1075,41 @@ class AsrModelManager:
             return model, "mlx"
 
         from qwen_asr import Qwen3ASRModel
+        import torch
 
+        device = self.selected_device or self.runtime.device
         kwargs: dict[str, Any] = {
-            "device_map": self.runtime.device,
+            "device_map": device,
             "dtype": self._torch_dtype(),
             "max_inference_batch_size": int(os.getenv("QWEN_ASR_MAX_INFERENCE_BATCH_SIZE", "32")),
             "max_new_tokens": int(os.getenv("QWEN_ASR_MAX_NEW_TOKENS", "256")),
         }
-        if self.runtime.attn_implementation:
-            kwargs["attn_implementation"] = self.runtime.attn_implementation
+        if self.runtime_attention:
+            kwargs["attn_implementation"] = self.runtime_attention
 
         try:
             model = Qwen3ASRModel.from_pretrained(model_id, **kwargs)
         except Exception as exc:  # pragma: no cover - exercised against real runtime only
+            if device.startswith("cuda") and _is_cuda_oom_error(exc):
+                fallback_kwargs = {
+                    "device_map": "cpu",
+                    "dtype": torch.float32,
+                    "max_inference_batch_size": kwargs["max_inference_batch_size"],
+                    "max_new_tokens": kwargs["max_new_tokens"],
+                }
+                try:
+                    model = Qwen3ASRModel.from_pretrained(model_id, **fallback_kwargs)
+                except Exception as fallback_exc:  # pragma: no cover - exercised against real runtime only
+                    raise RuntimeError(
+                        f"Unable to load {model_id} with the Ivy CUDA runtime "
+                        f"(CUDA OOM on {device}; CPU fallback failed: {fallback_exc})."
+                    ) from fallback_exc
+                self.runtime_dtype = "float32"
+                self.runtime_attention = None
+                self.selected_device = "cpu"
+                return model, "cpu"
             raise RuntimeError(f"Unable to load {model_id} with the Ivy CUDA runtime.") from exc
-        return model, self.runtime.device_label
+        return model, device
 
     def _release_current_model(self) -> None:
         if self._model is None:
