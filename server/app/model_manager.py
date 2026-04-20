@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import os
 import re
+import shutil
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -71,6 +72,34 @@ def _is_cuda_oom_error(exc: Exception) -> bool:
     return "cuda" in message and "out of memory" in message
 
 
+def _looks_like_corrupt_hf_cache(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "preprocessor_config.json" in message
+        or "can't load feature extractor" in message
+        or "can't load tokenizer" in message
+    )
+
+
+def _purge_hf_model_cache(model_id: str) -> None:
+    cache_key = f"models--{model_id.replace('/', '--')}"
+    roots: set[Path] = set()
+
+    for env_name in ("TRANSFORMERS_CACHE", "HUGGINGFACE_HUB_CACHE", "HF_HOME"):
+        value = os.getenv(env_name)
+        if value:
+            root = Path(value)
+            roots.add(root)
+            if env_name == "HF_HOME":
+                roots.add(root / "hub")
+                roots.add(root / "transformers")
+
+    for root in roots:
+        for candidate in (root / cache_key, root / ".locks" / cache_key):
+            if candidate.exists():
+                shutil.rmtree(candidate, ignore_errors=True)
+
+
 class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -132,10 +161,20 @@ class TtsModelManager:
                 try:
                     model = Qwen3TTSModel.from_pretrained(model_id, **fallback_kwargs)
                 except Exception as fallback_exc:  # pragma: no cover - exercised against real runtime only
-                    raise RuntimeError(
-                        f"Unable to load {model_id} with the Ivy CUDA runtime "
-                        f"(CUDA OOM on {device}; CPU fallback failed: {fallback_exc})."
-                    ) from fallback_exc
+                    if _looks_like_corrupt_hf_cache(fallback_exc):
+                        _purge_hf_model_cache(model_id)
+                        try:
+                            model = Qwen3TTSModel.from_pretrained(model_id, **fallback_kwargs)
+                        except Exception as retry_exc:
+                            raise RuntimeError(
+                                f"Unable to load {model_id} with the Ivy CUDA runtime "
+                                f"(CUDA OOM on {device}; CPU fallback failed after cache reset: {retry_exc})."
+                            ) from retry_exc
+                    else:
+                        raise RuntimeError(
+                            f"Unable to load {model_id} with the Ivy CUDA runtime "
+                            f"(CUDA OOM on {device}; CPU fallback failed: {fallback_exc})."
+                        ) from fallback_exc
                 self.runtime_dtype = "float32"
                 self.runtime_attention = None
                 self.selected_device = "cpu"
@@ -1100,10 +1139,20 @@ class AsrModelManager:
                 try:
                     model = Qwen3ASRModel.from_pretrained(model_id, **fallback_kwargs)
                 except Exception as fallback_exc:  # pragma: no cover - exercised against real runtime only
-                    raise RuntimeError(
-                        f"Unable to load {model_id} with the Ivy CUDA runtime "
-                        f"(CUDA OOM on {device}; CPU fallback failed: {fallback_exc})."
-                    ) from fallback_exc
+                    if _looks_like_corrupt_hf_cache(fallback_exc):
+                        _purge_hf_model_cache(model_id)
+                        try:
+                            model = Qwen3ASRModel.from_pretrained(model_id, **fallback_kwargs)
+                        except Exception as retry_exc:
+                            raise RuntimeError(
+                                f"Unable to load {model_id} with the Ivy CUDA runtime "
+                                f"(CUDA OOM on {device}; CPU fallback failed after cache reset: {retry_exc})."
+                            ) from retry_exc
+                    else:
+                        raise RuntimeError(
+                            f"Unable to load {model_id} with the Ivy CUDA runtime "
+                            f"(CUDA OOM on {device}; CPU fallback failed: {fallback_exc})."
+                        ) from fallback_exc
                 self.runtime_dtype = "float32"
                 self.runtime_attention = None
                 self.selected_device = "cpu"
