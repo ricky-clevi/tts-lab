@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import json
 import os
 import re
 import shutil
@@ -100,6 +101,78 @@ def _purge_hf_model_cache(model_id: str) -> None:
                 shutil.rmtree(candidate, ignore_errors=True)
 
 
+def _patch_qwen_tts_tokenizer_loader() -> None:
+    import qwen_tts.inference.qwen3_tts_tokenizer as tokenizer_module
+    from transformers import AutoConfig, AutoFeatureExtractor, AutoModel, Wav2Vec2FeatureExtractor
+
+    if getattr(tokenizer_module.Qwen3TTSTokenizer, "_ivy_feature_patch_applied", False):
+        return
+
+    class _CompatFeatureExtractor:
+        def __init__(self, sampling_rate: int) -> None:
+            self.sampling_rate = int(sampling_rate)
+            self._delegate = Wav2Vec2FeatureExtractor(
+                feature_size=1,
+                sampling_rate=self.sampling_rate,
+                padding_value=0.0,
+                do_normalize=False,
+                return_attention_mask=True,
+            )
+
+        def __call__(self, raw_audio: Any, sampling_rate: int, return_tensors: str = "pt"):
+            batch = self._delegate(
+                raw_audio=raw_audio,
+                sampling_rate=sampling_rate,
+                return_tensors=return_tensors,
+                padding=True,
+            )
+            attention_mask = batch.pop("attention_mask", None)
+            if attention_mask is not None:
+                batch["padding_mask"] = attention_mask
+            return batch
+
+    @classmethod
+    def _patched_from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs):
+        inst = cls()
+
+        AutoConfig.register("qwen3_tts_tokenizer_25hz", tokenizer_module.Qwen3TTSTokenizerV1Config)
+        AutoModel.register(tokenizer_module.Qwen3TTSTokenizerV1Config, tokenizer_module.Qwen3TTSTokenizerV1Model)
+        AutoConfig.register("qwen3_tts_tokenizer_12hz", tokenizer_module.Qwen3TTSTokenizerV2Config)
+        AutoModel.register(tokenizer_module.Qwen3TTSTokenizerV2Config, tokenizer_module.Qwen3TTSTokenizerV2Model)
+
+        try:
+            inst.feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path)
+        except ValueError as exc:
+            if "Unrecognized feature extractor" not in str(exc):
+                raise
+
+            config_path = Path(pretrained_model_name_or_path) / "config.json"
+            sampling_rate = 24000
+            if config_path.exists():
+                config_payload = json.loads(config_path.read_text(encoding="utf-8"))
+                sampling_rate = int(
+                    config_payload.get("input_sample_rate")
+                    or config_payload.get("encoder_config", {}).get("sampling_rate")
+                    or sampling_rate
+                )
+            inst.feature_extractor = _CompatFeatureExtractor(sampling_rate)
+
+        inst.model = AutoModel.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        inst.config = inst.model.config
+        inst.device = getattr(inst.model, "device", None)
+        if inst.device is None:
+            try:
+                inst.device = next(inst.model.parameters()).device
+            except StopIteration:
+                import torch
+
+                inst.device = torch.device("cpu")
+        return inst
+
+    tokenizer_module.Qwen3TTSTokenizer.from_pretrained = _patched_from_pretrained
+    tokenizer_module.Qwen3TTSTokenizer._ivy_feature_patch_applied = True
+
+
 class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -139,6 +212,7 @@ class TtsModelManager:
                 raise RuntimeError(f"Unable to load {model_id} with the MLX runtime.") from exc
             return model, "mlx"
 
+        _patch_qwen_tts_tokenizer_loader()
         from qwen_tts import Qwen3TTSModel
         import torch
 
