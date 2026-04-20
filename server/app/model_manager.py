@@ -155,8 +155,9 @@ def _patch_qwen_tts_tokenizer_loader() -> None:
 
         try:
             inst.feature_extractor = AutoFeatureExtractor.from_pretrained(pretrained_model_name_or_path)
-        except ValueError as exc:
-            if "Unrecognized feature extractor" not in str(exc):
+        except Exception as exc:
+            message = str(exc)
+            if "Unrecognized feature extractor" not in message and "Can't load feature extractor" not in message:
                 raise
 
             config_path = Path(pretrained_model_name_or_path) / "config.json"
