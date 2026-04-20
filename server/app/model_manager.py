@@ -101,8 +101,20 @@ def _purge_hf_model_cache(model_id: str) -> None:
                 shutil.rmtree(candidate, ignore_errors=True)
 
 
+def _derive_hf_repo_id_from_snapshot_path(path: Path) -> str | None:
+    for part in path.parts:
+        if not part.startswith("models--"):
+            continue
+        repo_bits = part[len("models--") :].split("--", 1)
+        if len(repo_bits) != 2:
+            return None
+        return f"{repo_bits[0]}/{repo_bits[1]}"
+    return None
+
+
 def _patch_qwen_tts_tokenizer_loader() -> None:
     import qwen_tts.inference.qwen3_tts_tokenizer as tokenizer_module
+    from huggingface_hub import snapshot_download
     from transformers import AutoConfig, AutoFeatureExtractor, AutoModel, Wav2Vec2FeatureExtractor
 
     if getattr(tokenizer_module.Qwen3TTSTokenizer, "_ivy_feature_patch_applied", False):
@@ -134,6 +146,7 @@ def _patch_qwen_tts_tokenizer_loader() -> None:
     @classmethod
     def _patched_from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs):
         inst = cls()
+        local_path = Path(pretrained_model_name_or_path)
 
         AutoConfig.register("qwen3_tts_tokenizer_25hz", tokenizer_module.Qwen3TTSTokenizerV1Config)
         AutoModel.register(tokenizer_module.Qwen3TTSTokenizerV1Config, tokenizer_module.Qwen3TTSTokenizerV1Model)
@@ -156,6 +169,21 @@ def _patch_qwen_tts_tokenizer_loader() -> None:
                     or sampling_rate
                 )
             inst.feature_extractor = _CompatFeatureExtractor(sampling_rate)
+
+        if local_path.exists() and local_path.name == "speech_tokenizer":
+            model_files = (
+                local_path / "model.safetensors",
+                local_path / "pytorch_model.bin",
+            )
+            if not any(path.exists() for path in model_files):
+                repo_id = _derive_hf_repo_id_from_snapshot_path(local_path)
+                if repo_id:
+                    snapshot_download(
+                        repo_id,
+                        allow_patterns=["speech_tokenizer/*"],
+                        local_dir=str(local_path.parent),
+                        local_dir_use_symlinks=False,
+                    )
 
         inst.model = AutoModel.from_pretrained(pretrained_model_name_or_path, **kwargs)
         inst.config = inst.model.config
