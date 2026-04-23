@@ -64,6 +64,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_ROOT: ${{ secrets.DEPLOY_ROOT }}
           DEPLOY_GIT_REMOTE_URL: ${{ secrets.DEPLOY_GIT_REMOTE_URL }}
+          DEPLOY_SUDO_PASSWORD: ${{ secrets.DEPLOY_SUDO_PASSWORD }}
         run: |
           set -euo pipefail
           remote_root="${DEPLOY_ROOT:-/home/ricky/tts-lab}"
@@ -74,4 +75,10 @@ jobs:
           ssh -i ~/.ssh/tts_lab_deploy_key \
             -o IdentitiesOnly=yes \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "DEPLOY_BRANCH=windows DEPLOY_ROOT='${remote_root}' DEPLOY_GIT_REMOTE_URL='${DEPLOY_GIT_REMOTE_URL:-}' bash /tmp/tts-lab-deploy.sh"
+            'bash -s' <<REMOTE
+          export DEPLOY_BRANCH=windows
+          export DEPLOY_ROOT=$(printf '%q' "$remote_root")
+          export DEPLOY_GIT_REMOTE_URL=$(printf '%q' "${DEPLOY_GIT_REMOTE_URL:-}")
+          export DEPLOY_SUDO_PASSWORD=$(printf '%q' "${DEPLOY_SUDO_PASSWORD:-}")
+          bash /tmp/tts-lab-deploy.sh
+          REMOTE

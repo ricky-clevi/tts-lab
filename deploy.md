@@ -445,11 +445,12 @@ Required Gitea repository or organization secrets:
 DEPLOY_HOST=10.163.41.43
 DEPLOY_USER=ricky
 DEPLOY_SSH_KEY=<private SSH key allowed to log in as DEPLOY_USER>
+DEPLOY_SUDO_PASSWORD=<optional password for sudo -S when NOPASSWD sudo is not configured>
 DEPLOY_ROOT=/home/ricky/tts-lab
 DEPLOY_GIT_REMOTE_URL=<optional git remote URL the VM should pull from>
 ```
 
-`DEPLOY_ROOT` and `DEPLOY_GIT_REMOTE_URL` may be omitted when the VM already uses `/home/ricky/tts-lab` and its `origin` remote points at the Gitea repository.
+`DEPLOY_ROOT`, `DEPLOY_GIT_REMOTE_URL`, and `DEPLOY_SUDO_PASSWORD` may be omitted when the VM already uses `/home/ricky/tts-lab`, its `origin` remote points at the Gitea repository, and the deploy user has passwordless sudo for the service restart.
 
 The workflow:
 
@@ -461,7 +462,7 @@ The workflow:
 
 The VM deploy script performs an ff-only pull of `windows`, installs runtime dependencies, rebuilds `web/dist`, restarts `qwen3-tts-lab`, and checks `/api/health`.
 
-The deploy user must be able to restart the service non-interactively. One safe sudoers rule is:
+The deploy user must be able to restart the service non-interactively. Prefer a narrow passwordless sudoers rule:
 
 ```text
 ricky ALL=(root) NOPASSWD: /bin/systemctl restart qwen3-tts-lab, /bin/systemctl status qwen3-tts-lab

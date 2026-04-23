@@ -10,18 +10,39 @@ export GIT_TERMINAL_PROMPT=0
 
 cd "$ROOT_DIR"
 
-if [ -n "${DEPLOY_GIT_REMOTE_URL:-}" ]; then
-  git remote set-url "$DEPLOY_REMOTE" "$DEPLOY_GIT_REMOTE_URL"
-fi
+git_source="${DEPLOY_GIT_REMOTE_URL:-$DEPLOY_REMOTE}"
 
-git fetch "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"
+git fetch "$git_source" "$DEPLOY_BRANCH"
 
 current_branch="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$current_branch" != "$DEPLOY_BRANCH" ]; then
-  git checkout "$DEPLOY_BRANCH"
+  if git show-ref --verify --quiet "refs/heads/${DEPLOY_BRANCH}"; then
+    git checkout "$DEPLOY_BRANCH"
+  else
+    git checkout -b "$DEPLOY_BRANCH"
+  fi
 fi
 
-git pull --ff-only "$DEPLOY_REMOTE" "$DEPLOY_BRANCH"
+git merge --ff-only FETCH_HEAD
+
+run_privileged() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+    return
+  fi
+
+  if sudo -n true 2>/dev/null; then
+    sudo "$@"
+    return
+  fi
+
+  if [ -n "${DEPLOY_SUDO_PASSWORD:-}" ]; then
+    printf '%s\n' "$DEPLOY_SUDO_PASSWORD" | sudo -S -p '' "$@"
+    return
+  fi
+
+  sudo "$@"
+}
 
 if [ -d ".venv" ]; then
   source .venv/bin/activate
@@ -41,7 +62,7 @@ npm --prefix web install --include=optional
 npm --prefix web install --no-save @rolldown/binding-linux-x64-gnu
 npm run build
 
-sudo systemctl restart "$SERVICE_NAME"
+run_privileged systemctl restart "$SERVICE_NAME"
 
 for attempt in {1..30}; do
   if curl -fsS "http://127.0.0.1:${APP_PORT}/api/health" >/tmp/tts-lab-health.json; then
@@ -52,7 +73,7 @@ for attempt in {1..30}; do
   sleep 2
 done
 
-sudo systemctl status "$SERVICE_NAME" --no-pager -l || true
+run_privileged systemctl status "$SERVICE_NAME" --no-pager -l || true
 journalctl -u "$SERVICE_NAME" -n 100 --no-pager || true
 echo "Deployment failed: health check did not pass on port ${APP_PORT}." >&2
 exit 1
