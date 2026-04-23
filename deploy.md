@@ -444,7 +444,7 @@ Required Gitea repository or organization secrets:
 ```text
 DEPLOY_HOST=10.163.41.43
 DEPLOY_USER=ricky
-DEPLOY_SSH_KEY=<private SSH key allowed to log in as DEPLOY_USER>
+DEPLOY_SSH_KEY_B64=<base64-encoded private SSH key allowed to log in as DEPLOY_USER>
 DEPLOY_SUDO_PASSWORD=<optional password for sudo -S when NOPASSWD sudo is not configured>
 DEPLOY_ROOT=/home/ricky/tts-lab
 DEPLOY_GIT_REMOTE_URL=<optional git remote URL the VM should pull from>
