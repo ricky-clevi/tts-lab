@@ -439,28 +439,69 @@ The repo includes a Gitea Actions workflow:
 
 It runs automatically on pushes to the `windows` branch and can also be started manually from the Gitea Actions UI.
 
+The deploy job is designed to run on a Gitea runner installed directly on the deployment VM. This avoids relying on a central runner being able to reach `10.163.41.43:22`.
+
+Required runner label:
+
+```text
+tts-lab-deploy:host
+```
+
 Required Gitea repository or organization secrets:
 
 ```text
-DEPLOY_HOST=10.163.41.43
-DEPLOY_USER=ricky
-DEPLOY_SSH_KEY_B64=<base64-encoded private SSH key allowed to log in as DEPLOY_USER>
 DEPLOY_SUDO_PASSWORD=<optional password for sudo -S when NOPASSWD sudo is not configured>
 DEPLOY_ROOT=/home/ricky/tts-lab
-DEPLOY_GIT_REMOTE_URL=<optional git remote URL the VM should pull from>
+DEPLOY_GIT_REMOTE_URL=https://gitea.clevics.co.kr/CleviCS/Onprem.git
 ```
 
-`DEPLOY_ROOT`, `DEPLOY_GIT_REMOTE_URL`, and `DEPLOY_SUDO_PASSWORD` may be omitted when the VM already uses `/home/ricky/tts-lab`, its `origin` remote points at the Gitea repository, and the deploy user has passwordless sudo for the service restart.
+`DEPLOY_ROOT` and `DEPLOY_SUDO_PASSWORD` may be omitted when the VM already uses `/home/ricky/tts-lab` and the deploy user has passwordless sudo for the service restart. Keep `DEPLOY_GIT_REMOTE_URL` set for first deploys or when the VM checkout does not already have a usable `origin`.
 
 The workflow:
 
 1. Installs frontend dependencies.
 2. Builds the React app.
 3. Compiles the FastAPI entrypoint.
-4. SSHes to the VM.
-5. Runs `scripts/deploy_linux_nvidia.sh`.
+4. Schedules deployment on the VM-local runner with label `tts-lab-deploy`.
+5. Updates `/home/ricky/tts-lab` from the `windows` branch.
+6. Runs `scripts/deploy_linux_nvidia.sh`.
 
 The VM deploy script performs an ff-only pull of `windows`, installs runtime dependencies, rebuilds `web/dist`, restarts `qwen3-tts-lab`, and checks `/api/health`.
+
+### Install The VM Gitea Runner
+
+Install the runner on the deployment VM as `ricky`. Use the repository runner registration token from Gitea:
+
+```bash
+cd /home/ricky/tts-lab
+git fetch https://gitea.clevics.co.kr/CleviCS/Onprem.git windows
+git checkout windows
+git merge --ff-only FETCH_HEAD
+chmod +x scripts/install_gitea_runner_tts_lab.sh
+GITEA_RUNNER_REGISTRATION_TOKEN='<repository-runner-token>' ./scripts/install_gitea_runner_tts_lab.sh
+```
+
+The installer:
+
+- downloads the `act_runner` binary
+- registers a repository runner named `tts-lab-deploy-<hostname>`
+- assigns the label `tts-lab-deploy:host`
+- installs and starts a user-level systemd service named `tts-lab-act-runner`
+
+Check the runner service:
+
+```bash
+systemctl --user status tts-lab-act-runner --no-pager -l
+journalctl --user -u tts-lab-act-runner -f
+```
+
+Allow the user service to survive logout and reboot:
+
+```bash
+sudo loginctl enable-linger ricky
+```
+
+After the runner appears online in Gitea, push to `windows` or manually re-run the workflow.
 
 The deploy user must be able to restart the service non-interactively. Prefer a narrow passwordless sudoers rule:
 

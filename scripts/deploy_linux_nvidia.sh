@@ -11,8 +11,13 @@ export GIT_TERMINAL_PROMPT=0
 cd "$ROOT_DIR"
 
 git_source="${DEPLOY_GIT_REMOTE_URL:-$DEPLOY_REMOTE}"
+git_auth_config=()
+if [ -n "${DEPLOY_GIT_AUTH_HEADER:-}" ]; then
+  git_auth_base_url="${DEPLOY_GIT_AUTH_BASE_URL:-https://gitea.clevics.co.kr/}"
+  git_auth_config=(-c "http.${git_auth_base_url}.extraheader=${DEPLOY_GIT_AUTH_HEADER}")
+fi
 
-git fetch "$git_source" "$DEPLOY_BRANCH"
+git "${git_auth_config[@]}" fetch "$git_source" "$DEPLOY_BRANCH"
 
 current_branch="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$current_branch" != "$DEPLOY_BRANCH" ]; then

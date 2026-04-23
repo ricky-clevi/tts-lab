@@ -40,58 +40,52 @@ jobs:
         run: python -m py_compile server/app/main.py
 
   deploy:
-    name: Deploy to VM
-    runs-on: ubuntu-latest
+    name: Deploy on VM
+    runs-on: tts-lab-deploy
     needs: validate
+    env:
+      DEPLOY_BRANCH: windows
+      DEPLOY_ROOT: ${{ secrets.DEPLOY_ROOT }}
+      DEPLOY_GIT_REMOTE_URL: ${{ secrets.DEPLOY_GIT_REMOTE_URL }}
+      DEPLOY_SUDO_PASSWORD: ${{ secrets.DEPLOY_SUDO_PASSWORD }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
-      - name: Configure SSH
+      - name: Run local VM deployment
         shell: bash
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
         run: |
           set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s' "$DEPLOY_SSH_KEY_B64" | base64 -d > ~/.ssh/tts_lab_deploy_key
-          chmod 600 ~/.ssh/tts_lab_deploy_key
-          ssh-keyscan -T 5 -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts || true
+          deploy_root="${DEPLOY_ROOT:-/home/ricky/tts-lab}"
+          remote_url="${DEPLOY_GIT_REMOTE_URL:-}"
+          git_source="${remote_url:-origin}"
+          git_auth_config=()
 
-      - name: Run remote deployment
-        shell: bash
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_ROOT: ${{ secrets.DEPLOY_ROOT }}
-          DEPLOY_GIT_REMOTE_URL: ${{ secrets.DEPLOY_GIT_REMOTE_URL }}
-          DEPLOY_SUDO_PASSWORD: ${{ secrets.DEPLOY_SUDO_PASSWORD }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          remote_root="${DEPLOY_ROOT:-/home/ricky/tts-lab}"
-          checkout_dir="$(mktemp -d)"
-          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w 0)"
-          git -C "$checkout_dir" init
-          git -C "$checkout_dir" remote add origin "https://gitea.clevics.co.kr/CleviCS/Onprem.git"
-          git -C "$checkout_dir" \
-            -c "http.https://gitea.clevics.co.kr/.extraheader=AUTHORIZATION: basic ${auth_header}" \
-            fetch --depth=1 origin "$GITHUB_SHA"
-          git -C "$checkout_dir" checkout --force FETCH_HEAD
-          scp -i ~/.ssh/tts_lab_deploy_key \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            "$checkout_dir/scripts/deploy_linux_nvidia.sh" \
-            "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/tts-lab-deploy.sh"
-          ssh -i ~/.ssh/tts_lab_deploy_key \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            'bash -s' <<REMOTE
-          export DEPLOY_BRANCH=windows
-          export DEPLOY_ROOT=$(printf '%q' "$remote_root")
-          export DEPLOY_GIT_REMOTE_URL=$(printf '%q' "${DEPLOY_GIT_REMOTE_URL:-}")
-          export DEPLOY_SUDO_PASSWORD=$(printf '%q' "${DEPLOY_SUDO_PASSWORD:-}")
-          bash /tmp/tts-lab-deploy.sh
-          REMOTE
+          if [ -n "${GITHUB_TOKEN:-}" ]; then
+            auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+            git_auth_config=(-c "http.https://gitea.clevics.co.kr/.extraheader=AUTHORIZATION: basic ${auth_header}")
+            export DEPLOY_GIT_AUTH_HEADER="AUTHORIZATION: basic ${auth_header}"
+            export DEPLOY_GIT_AUTH_BASE_URL="https://gitea.clevics.co.kr/"
+          fi
+
+          if [ ! -d "$deploy_root/.git" ]; then
+            if [ -z "$remote_url" ]; then
+              echo "DEPLOY_GIT_REMOTE_URL is required for first deploy because ${deploy_root} is not a git checkout." >&2
+              exit 1
+            fi
+            mkdir -p "$(dirname "$deploy_root")"
+            git "${git_auth_config[@]}" clone --branch "$DEPLOY_BRANCH" "$remote_url" "$deploy_root"
+          fi
+
+          cd "$deploy_root"
+          git "${git_auth_config[@]}" fetch "$git_source" "$DEPLOY_BRANCH"
+          current_branch="$(git rev-parse --abbrev-ref HEAD)"
+          if [ "$current_branch" != "$DEPLOY_BRANCH" ]; then
+            if git show-ref --verify --quiet "refs/heads/${DEPLOY_BRANCH}"; then
+              git checkout "$DEPLOY_BRANCH"
+            else
+              git checkout -b "$DEPLOY_BRANCH"
+            fi
+          fi
+          git merge --ff-only FETCH_HEAD
+
+          chmod +x scripts/deploy_linux_nvidia.sh
+          bash scripts/deploy_linux_nvidia.sh
