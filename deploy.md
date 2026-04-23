@@ -429,6 +429,46 @@ npm run build
 sudo systemctl restart qwen3-tts-lab
 ```
 
+## Gitea CI/CD
+
+The repo includes a Gitea Actions workflow:
+
+```text
+.gitea/workflows/deploy-windows.yml
+```
+
+It runs automatically on pushes to the `windows` branch and can also be started manually from the Gitea Actions UI.
+
+Required Gitea repository or organization secrets:
+
+```text
+DEPLOY_HOST=10.163.41.43
+DEPLOY_USER=ricky
+DEPLOY_SSH_KEY=<private SSH key allowed to log in as DEPLOY_USER>
+DEPLOY_ROOT=/home/ricky/tts-lab
+DEPLOY_GIT_REMOTE_URL=<optional git remote URL the VM should pull from>
+```
+
+`DEPLOY_ROOT` and `DEPLOY_GIT_REMOTE_URL` may be omitted when the VM already uses `/home/ricky/tts-lab` and its `origin` remote points at the Gitea repository.
+
+The workflow:
+
+1. Installs frontend dependencies.
+2. Builds the React app.
+3. Compiles the FastAPI entrypoint.
+4. SSHes to the VM.
+5. Runs `scripts/deploy_linux_nvidia.sh`.
+
+The VM deploy script performs an ff-only pull of `windows`, installs runtime dependencies, rebuilds `web/dist`, restarts `qwen3-tts-lab`, and checks `/api/health`.
+
+The deploy user must be able to restart the service non-interactively. One safe sudoers rule is:
+
+```text
+ricky ALL=(root) NOPASSWD: /bin/systemctl restart qwen3-tts-lab, /bin/systemctl status qwen3-tts-lab
+```
+
+Adjust `/bin/systemctl` to the actual path from `command -v systemctl` on the VM if needed.
+
 ## Qwen3-Embedding-8B Deployment (4x RTX 6000 Ada)
 
 This section documents the exact runbook that worked on `10.163.41.43` on April 13, 2026 for serving embeddings with vLLM.
