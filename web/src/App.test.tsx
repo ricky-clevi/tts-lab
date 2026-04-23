@@ -296,6 +296,59 @@ test('renders generated clips and history after a successful run', async () => {
   expect(container.querySelector('audio')).not.toBeNull()
 })
 
+test('sends clone generation with backend multipart field names', async () => {
+  let cloneFormData: FormData | null = null
+  vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
+    const url = String(input)
+
+    if (url.endsWith('/api/capabilities')) {
+      return Promise.resolve(new Response(JSON.stringify(capabilities)))
+    }
+    if (url.endsWith('/api/health')) {
+      return Promise.resolve(new Response(JSON.stringify(health)))
+    }
+    if (url.endsWith('/api/settings/chat')) {
+      return Promise.resolve(new Response(JSON.stringify(chatSettings)))
+    }
+    if (url.endsWith('/api/generate/clone')) {
+      cloneFormData = init?.body instanceof FormData ? init.body : null
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            run_id: 'run-clone',
+            mode: 'clone',
+            model_id: 'clone-model',
+            device: 'cpu',
+            created_at: '2026-03-27T14:00:00Z',
+            clips: [],
+          }),
+        ),
+      )
+    }
+
+    return Promise.resolve(new Response('{}', { status: 404 }))
+  })
+
+  window.history.pushState({}, '', '/tts')
+  renderApp()
+
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getByRole('tab', { name: /voice clone/i }))
+  await userEvent.upload(
+    screen.getByLabelText(/reference audio/i),
+    new File(['fake-audio'], 'voice.wav', { type: 'audio/wav' }),
+  )
+  await userEvent.type(screen.getByLabelText(/reference transcript/i), 'Uploaded reference transcript.')
+  await userEvent.type(screen.getByPlaceholderText(/paste text to synthesize/i), 'Clone this sentence.')
+  await userEvent.click(screen.getByRole('button', { name: /generate audio/i }))
+
+  await waitFor(() => expect(cloneFormData).not.toBeNull())
+  expect(cloneFormData?.get('ref_audio')).toBeInstanceOf(File)
+  expect(cloneFormData?.get('audio')).toBeNull()
+  expect(cloneFormData?.get('ref_text')).toBe('Uploaded reference transcript.')
+  expect(cloneFormData?.get('reference_text')).toBeNull()
+})
+
 test('sends structured style controls as part of the tts instruction prompt', async () => {
   let customRequestBody = ''
   vi.spyOn(global, 'fetch').mockImplementation((input, init) => {

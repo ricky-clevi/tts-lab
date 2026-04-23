@@ -89,10 +89,10 @@ export default function TtsPage() {
       let result: GenerationRun
       if (mode === 'clone') {
         const formData = new FormData()
-        formData.append('audio', referenceFile!)
+        formData.append('ref_audio', referenceFile!)
         formData.append('language', language)
         formData.append('segments', JSON.stringify(validSegments))
-        formData.append('reference_text', referenceText)
+        formData.append('ref_text', referenceText)
         formData.append('generation', JSON.stringify(settings))
         result = await generateRun(mode, formData)
       } else {
@@ -237,9 +237,9 @@ export default function TtsPage() {
                       hint={t('hint.cloneLanguageAuto')}
                     />
                     <div className="form-group">
-                      <label className="form-label">{t('field.referenceAudio')}</label>
+                      <label htmlFor="tts-reference-audio" className="form-label">{t('field.referenceAudio')}</label>
                       <div className="file-upload-area">
-                        <input type="file" accept="audio/*" onChange={(e) => setReferenceFile(e.target.files?.[0] || null)} className="file-input" />
+                        <input id="tts-reference-audio" type="file" accept="audio/*" onChange={(e) => setReferenceFile(e.target.files?.[0] || null)} className="file-input" />
                         {referenceFile ? (
                           <div className="file-selected">
                             <div>

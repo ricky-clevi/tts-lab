@@ -24,6 +24,36 @@ function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+function formatErrorDetail(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string') return detail
+
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (typeof item === 'string') return item
+        if (!item || typeof item !== 'object') return ''
+
+        const error = item as { loc?: unknown; msg?: unknown }
+        const location = Array.isArray(error.loc) ? error.loc.filter((part) => part !== 'body').join('.') : ''
+        const message = typeof error.msg === 'string' ? error.msg : ''
+        return [location, message].filter(Boolean).join(': ')
+      })
+      .filter(Boolean)
+
+    if (messages.length > 0) return messages.join('; ')
+  }
+
+  if (detail && typeof detail === 'object') {
+    try {
+      return JSON.stringify(detail)
+    } catch {
+      return fallback
+    }
+  }
+
+  return fallback
+}
+
 async function parseJson<T>(response: Response): Promise<T> {
   // Handle unauthorized - redirect to login
   if (response.status === 401) {
@@ -36,7 +66,7 @@ async function parseJson<T>(response: Response): Promise<T> {
     let detail = response.statusText
     try {
       const body = await response.json()
-      detail = body.detail ?? detail
+      detail = formatErrorDetail(body.detail, detail)
     } catch {
       // Fall back to the status text when the body is not JSON.
     }
@@ -263,7 +293,7 @@ export async function* generateRunStream(
     let detail = response.statusText
     try {
       const body = await response.json()
-      detail = body.detail ?? detail
+      detail = formatErrorDetail(body.detail, detail)
     } catch {
       // Ignore non-JSON error bodies.
     }

@@ -718,6 +718,27 @@ def test_clone_generation_auto_transcribes_reference_when_text_is_missing(client
     assert asr_manager.transcribe_file_calls == 1
 
 
+def test_clone_generation_accepts_legacy_frontend_field_names(client):
+    test_client, manager, asr_manager, _settings = client
+    response = test_client.post(
+        "/api/generate/clone",
+        data={
+            "segments": json.dumps(["Clone this sentence in the uploaded voice."]),
+            "language": "English",
+            "generation": json.dumps({}),
+            "reference_text": "Legacy reference transcript.",
+        },
+        files={"audio": ("reference.wav", make_wav_bytes(), "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "clone"
+    assert body["clips"][0]["instruct"] == "Legacy reference transcript."
+    assert manager.clone_calls == 1
+    assert asr_manager.transcribe_file_calls == 0
+
+
 def test_clone_generation_supports_x_vector_only_mode_without_reference_text(client):
     test_client, manager, asr_manager, _settings = client
     response = test_client.post(

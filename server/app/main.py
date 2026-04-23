@@ -362,6 +362,23 @@ async def persist_upload_to_tempfile(upload: UploadFile, fallback_name: str) -> 
         return temp_file.name
 
 
+def resolve_clone_upload(ref_audio: UploadFile | None, legacy_audio: UploadFile | None) -> UploadFile:
+    upload = ref_audio or legacy_audio
+    if upload is None:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "type": "missing",
+                    "loc": ["body", "ref_audio"],
+                    "msg": "Field required",
+                    "input": None,
+                }
+            ],
+        )
+    return upload
+
+
 def cleanup_temp_paths(*paths: str | Path | None) -> None:
     for path in paths:
         if path is None:
@@ -1161,8 +1178,10 @@ def create_app(
         language: str = Form("Auto"),
         generation: str | None = Form(None),
         ref_text: str | None = Form(None),
+        reference_text: str | None = Form(None),
         x_vector_only_mode: bool = Form(False),
-        ref_audio: UploadFile = File(...),
+        ref_audio: UploadFile | None = File(None),
+        audio: UploadFile | None = File(None),
     ) -> GenerationRunResponse:
         try:
             payload = BaseGenerationRequest(
@@ -1172,7 +1191,9 @@ def create_app(
             )
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=exc.errors()) from exc
-        temp_path = await persist_upload_to_tempfile(ref_audio, "reference.wav")
+        reference_upload = resolve_clone_upload(ref_audio, audio)
+        resolved_form_ref_text = ref_text if ref_text is not None else reference_text
+        temp_path = await persist_upload_to_tempfile(reference_upload, "reference.wav")
         cleanup_paths: list[Path] = []
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
@@ -1183,7 +1204,7 @@ def create_app(
             resolved_ref_text = resolve_clone_reference_text(
                 asr=asr,
                 ref_audio_path=prompt_path,
-                provided_ref_text=None if prompt_excerpted else ref_text,
+                provided_ref_text=None if prompt_excerpted else resolved_form_ref_text,
                 language=language,
                 x_vector_only_mode=x_vector_only_mode,
                 target_segments=payload.segments,
@@ -1231,8 +1252,10 @@ def create_app(
         generation: str | None = Form(None),
         streaming_interval: float = Form(0.32),
         ref_text: str | None = Form(None),
+        reference_text: str | None = Form(None),
         x_vector_only_mode: bool = Form(False),
-        ref_audio: UploadFile = File(...),
+        ref_audio: UploadFile | None = File(None),
+        audio: UploadFile | None = File(None),
     ) -> StreamingResponse:
         try:
             payload = BaseGenerationRequest(
@@ -1244,7 +1267,9 @@ def create_app(
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
-        temp_path = await persist_upload_to_tempfile(ref_audio, "reference.wav")
+        reference_upload = resolve_clone_upload(ref_audio, audio)
+        resolved_form_ref_text = ref_text if ref_text is not None else reference_text
+        temp_path = await persist_upload_to_tempfile(reference_upload, "reference.wav")
         cleanup_paths: list[Path] = []
         run_id = uuid4().hex
         created_at = datetime.now(timezone.utc)
@@ -1258,7 +1283,7 @@ def create_app(
             resolved_ref_text = resolve_clone_reference_text(
                 asr=asr,
                 ref_audio_path=prompt_path,
-                provided_ref_text=None if prompt_excerpted else ref_text,
+                provided_ref_text=None if prompt_excerpted else resolved_form_ref_text,
                 language=language,
                 x_vector_only_mode=x_vector_only_mode,
                 target_segments=payload.segments,
