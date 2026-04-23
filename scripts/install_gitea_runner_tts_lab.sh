@@ -48,6 +48,56 @@ if [ ! -f "$config_path" ]; then
   "$binary" generate-config > "$config_path"
 fi
 
+python3 - "$config_path" "$RUNNER_LABELS" <<'PY'
+import sys
+
+path = sys.argv[1]
+labels = [label.strip() for label in sys.argv[2].split(",") if label.strip()]
+if not labels:
+    raise SystemExit("At least one runner label is required.")
+
+with open(path, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+
+out = []
+in_runner = False
+skipping_labels = False
+replaced = False
+
+for line in lines:
+    stripped = line.strip()
+
+    if line.startswith("runner:"):
+        in_runner = True
+    elif in_runner and stripped and not line.startswith((" ", "#")):
+        if not replaced:
+            out.append("  labels:\n")
+            out.extend(f'    - "{label}"\n' for label in labels)
+            replaced = True
+        in_runner = False
+
+    if skipping_labels:
+        if line.startswith("    - ") or not stripped:
+            continue
+        skipping_labels = False
+
+    if in_runner and line.startswith("  labels:"):
+        out.append("  labels:\n")
+        out.extend(f'    - "{label}"\n' for label in labels)
+        replaced = True
+        skipping_labels = True
+        continue
+
+    out.append(line)
+
+if in_runner and not replaced:
+    out.append("  labels:\n")
+    out.extend(f'    - "{label}"\n' for label in labels)
+
+with open(path, "w", encoding="utf-8") as f:
+    f.writelines(out)
+PY
+
 cd "$RUNNER_DIR"
 
 if [ ! -f ".runner" ]; then
