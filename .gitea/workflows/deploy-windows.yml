@@ -55,7 +55,7 @@ jobs:
           chmod 700 ~/.ssh
           printf '%s' "$DEPLOY_SSH_KEY_B64" | base64 -d > ~/.ssh/tts_lab_deploy_key
           chmod 600 ~/.ssh/tts_lab_deploy_key
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -T 5 -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts || true
 
       - name: Run remote deployment
         shell: bash
@@ -79,10 +79,14 @@ jobs:
           git -C "$checkout_dir" checkout --force FETCH_HEAD
           scp -i ~/.ssh/tts_lab_deploy_key \
             -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
             "$checkout_dir/scripts/deploy_linux_nvidia.sh" \
             "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/tts-lab-deploy.sh"
           ssh -i ~/.ssh/tts_lab_deploy_key \
             -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
             'bash -s' <<REMOTE
           export DEPLOY_BRANCH=windows
