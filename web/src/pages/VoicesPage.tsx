@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { deleteVoice, fetchVoices } from '../api'
+import { authenticatedMediaUrl, deleteVoice, fetchVoices } from '../api'
 import '../styles/pages/voices.css'
 import { Alert, Badge, Button, Card, CardBody, ConfirmModal, Input, Select, Skeleton, useToast } from '../components/ui'
 import { t } from '../i18n'
@@ -371,6 +371,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
   const audioRef = useRef<HTMLAudioElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(0)
+  const previewUrl = authenticatedMediaUrl(voice.audio_url || voice.audio_path)
 
   const handlePlayPause = () => {
     if (!audioRef.current) return
@@ -456,7 +457,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
               <p className="voice-id-hint">{t('voices.usageHint')}</p>
             </div>
 
-            {voice.audio_path && (
+            {previewUrl && (
               <div className="audio-player">
                 <audio
                   ref={audioRef}
@@ -465,7 +466,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
                   onPause={() => setIsPlaying(false)}
                   onPlay={() => setIsPlaying(true)}
                 >
-                  <source src={voice.audio_path} type="audio/wav" />
+                  <source src={previewUrl} type="audio/wav" />
                 </audio>
                 <button
                   className={`audio-play-btn ${isPlaying ? 'audio-play-btn--playing' : ''}`}
@@ -544,7 +545,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
         <span className="date-compact">{formatAppDate(voice.created_at)}</span>
       </div>
       <div className="voice-row-cell voice-row-cell--actions">
-        {voice.audio_path && (
+        {previewUrl && (
           <button
             className={`action-btn action-btn--play ${isPlaying ? 'action-btn--playing' : ''}`}
             onClick={handlePlayPause}
@@ -556,7 +557,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
               onPause={() => setIsPlaying(false)}
               onPlay={() => setIsPlaying(true)}
             >
-              <source src={voice.audio_path} type="audio/wav" />
+              <source src={previewUrl} type="audio/wav" />
             </audio>
             {isPlaying ? (
               <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">

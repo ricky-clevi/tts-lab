@@ -69,6 +69,19 @@ class Database:
                 )
             """)
 
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS service_tokens (
+                    id TEXT PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    token_hash TEXT UNIQUE NOT NULL,
+                    scopes TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    last_used_at TEXT,
+                    expires_at TEXT,
+                    revoked_at TEXT
+                )
+            """)
+
     def seed_admin(self, username: str, hashed_password: str) -> None:
         """Create admin user if one doesn't exist."""
         with self._get_cursor() as cursor:
@@ -182,6 +195,49 @@ class Database:
         """Delete a voice profile by ID."""
         with self._get_cursor() as cursor:
             cursor.execute("DELETE FROM voice_profiles WHERE id = ?", (profile_id,))
+
+    def upsert_service_token(
+        self,
+        name: str,
+        token_hash: str,
+        scopes: list[str],
+        expires_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create or update a hashed service token."""
+        token_id = str(uuid.uuid4().hex)
+        now = datetime.utcnow().isoformat()
+        scopes_json = json.dumps(scopes)
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO service_tokens (id, name, token_hash, scopes, created_at, expires_at, revoked_at)
+                VALUES (?, ?, ?, ?, ?, ?, NULL)
+                ON CONFLICT(name) DO UPDATE SET
+                    token_hash = excluded.token_hash,
+                    scopes = excluded.scopes,
+                    expires_at = excluded.expires_at,
+                    revoked_at = NULL
+            """, (token_id, name, token_hash, scopes_json, now, expires_at))
+            cursor.execute("SELECT * FROM service_tokens WHERE name = ?", (name,))
+            row = cursor.fetchone()
+            return dict(row) if row else {}
+
+    def get_service_token_by_hash(self, token_hash: str) -> Optional[Dict[str, Any]]:
+        """Look up an active service token by hash."""
+        with self._get_cursor() as cursor:
+            cursor.execute("""
+                SELECT * FROM service_tokens
+                WHERE token_hash = ? AND revoked_at IS NULL
+            """, (token_hash,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def touch_service_token(self, token_id: str) -> None:
+        """Record service-token use without changing scopes."""
+        with self._get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE service_tokens SET last_used_at = ? WHERE id = ?",
+                (datetime.utcnow().isoformat(), token_id),
+            )
 
     def migrate_orphaned_profiles(self, admin_user_id: str, voice_profiles_dir: Path) -> None:
         """

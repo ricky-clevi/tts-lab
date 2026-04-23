@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import './protected-route.css'
 import { t } from '../i18n'
+import NotFoundPage from '../pages/NotFoundPage'
 import { useAuth } from './useAuth'
 
 type ProtectedRouteProps = {
@@ -27,9 +28,9 @@ export function ProtectedRoute({ children, adminOnly = false }: ProtectedRoutePr
     return <Navigate to="/login" replace />
   }
 
-  // Redirect to home if user tries to access admin-only route without admin role
+  // Hide admin-only routes from non-admin users.
   if (adminOnly && user.role !== 'admin') {
-    return <Navigate to="/" replace />
+    return <NotFoundPage />
   }
 
   return <>{children}</>

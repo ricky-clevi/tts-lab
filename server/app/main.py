@@ -28,12 +28,15 @@ from pydantic import ValidationError
 load_dotenv()
 
 from .auth import (
+    extract_bearer_or_api_key,
     get_current_user,
     require_admin,
     hash_password,
+    hash_service_token,
     verify_password,
     create_access_token,
     decode_token,
+    require_runtime_api_key,
     validate_jwt_secret,
 )
 from .branding import (
@@ -401,6 +404,7 @@ def build_generation_run_response(
     model_id: str,
     device: str,
     clips: list,
+    saved_voice_profile: CloneVoiceProfileResponse | None = None,
 ) -> GenerationRunResponse:
     return brand_generation_run_response(
         GenerationRunResponse(
@@ -410,6 +414,7 @@ def build_generation_run_response(
             device=device,
             created_at=datetime.now(timezone.utc),
             clips=clips,
+            saved_voice_profile=saved_voice_profile,
         )
     )
 
@@ -450,6 +455,17 @@ def create_app(
     admin_password_hashed = hash_password(admin_password)
     db.seed_admin(admin_username, admin_password_hashed)
 
+    service_token = (
+        os.getenv("TTS_LAB_SERVICE_TOKEN", "").strip()
+        or os.getenv("TTS_LAB_ADMIN_TOKEN", "").strip()
+    )
+    if service_token:
+        db.upsert_service_token(
+            name=os.getenv("TTS_LAB_SERVICE_TOKEN_NAME", "default-export"),
+            token_hash=hash_service_token(service_token),
+            scopes=["voices:export"],
+        )
+
     # Migrate orphaned voice profiles (from disk to DB)
     db.migrate_orphaned_profiles(
         admin_user_id=db.get_user_by_username(admin_username)["id"],
@@ -464,6 +480,107 @@ def create_app(
     app.state.settings_store = settings
     app.state.provider_service = providers
     app.state.db = db
+
+    def profile_response_from_row(profile: dict[str, object]) -> CloneVoiceProfileResponse:
+        profile_id = str(profile["id"])
+        return CloneVoiceProfileResponse(
+            id=profile_id,
+            label=str(profile["label"]),
+            language=str(profile["language"]),
+            reference_text=str(profile["reference_text"]),
+            audio_file_name=str(profile["audio_file_name"]),
+            audio_path=str(profile["audio_path"]),
+            audio_url=f"/api/voices/{profile_id}/preview",
+            speaker_embedding_path=str(profile.get("speaker_embedding_path") or "") or None,
+            created_at=parse_stored_datetime(str(profile["created_at"])),
+            user_id=str(profile.get("user_id") or "") or None,
+        )
+
+    def persist_clone_profile(
+        profile: CloneVoiceProfileResponse,
+        user_id: str,
+    ) -> CloneVoiceProfileResponse:
+        db.save_voice_profile(
+            profile_id=profile.id,
+            user_id=user_id,
+            label=profile.label,
+            language=profile.language,
+            reference_text=profile.reference_text,
+            audio_file_name=profile.audio_file_name,
+            audio_path=profile.audio_path,
+            speaker_embedding_path=profile.speaker_embedding_path,
+        )
+        row = db.get_profile_by_id(profile.id)
+        if not row:
+            raise HTTPException(status_code=500, detail="Saved voice profile could not be loaded.")
+        return profile_response_from_row(row)
+
+    async def save_clone_profile_from_upload(
+        *,
+        upload: UploadFile,
+        language: str,
+        label: str | None,
+        reference_text: str | None,
+        current_user: dict,
+    ) -> CloneVoiceProfileResponse:
+        temp_path = await persist_upload_to_tempfile(upload, "reference.wav")
+        cleanup_paths: list[Path] = []
+        try:
+            prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
+            prompt_path, prompt_cleanup_paths, prompt_excerpted = prepare_clone_reference_audio(
+                prepared_path
+            )
+            cleanup_paths.extend(prompt_cleanup_paths)
+            resolved_reference_text = resolve_clone_reference_text(
+                asr=asr,
+                ref_audio_path=prompt_path,
+                provided_ref_text=None if prompt_excerpted else reference_text,
+                language=language,
+                x_vector_only_mode=False,
+            )
+            speaker_embedding, ref_codes = run_or_http_error(
+                lambda: tts.prepare_clone_conditioning_assets(
+                    ref_audio_path=prompt_path
+                )
+            )
+            profile = voice_profiles.save_profile(
+                source_path=prompt_path,
+                source_name=f"{Path(upload.filename or 'reference').stem}{Path(prompt_path).suffix}",
+                language=language,
+                reference_text=resolved_reference_text or "",
+                label=label,
+                speaker_embedding=speaker_embedding,
+                ref_codes=ref_codes,
+            )
+            return persist_clone_profile(profile, str(current_user["sub"]))
+        finally:
+            cleanup_temp_paths(temp_path, *cleanup_paths)
+
+    def require_voice_export_auth(request: Request) -> dict[str, object]:
+        credential = extract_bearer_or_api_key(request)
+        if credential:
+            try:
+                user = decode_token(credential)
+                if user.get("role") == "admin":
+                    return {"type": "admin", "sub": user.get("sub")}
+            except HTTPException:
+                pass
+
+            token = db.get_service_token_by_hash(hash_service_token(credential))
+            if token:
+                expires_at = str(token.get("expires_at") or "").strip()
+                if expires_at and parse_stored_datetime(expires_at) <= datetime.now(timezone.utc):
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Service token expired")
+                scopes = json.loads(str(token.get("scopes") or "[]"))
+                if "voices:export" in scopes:
+                    db.touch_service_token(str(token["id"]))
+                    return {"type": "service", "sub": token.get("name")}
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="voices:export service token or admin token required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     # Configure CORS
     allowed_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
@@ -615,23 +732,10 @@ def create_app(
     def list_user_voices(current_user: dict = Depends(get_current_user)) -> list[CloneVoiceProfileResponse]:
         """List all voice profiles for the current user."""
         profiles = db.list_profiles_for_user(current_user["sub"])
-        return [
-            CloneVoiceProfileResponse(
-                id=p["id"],
-                label=p["label"],
-                language=p["language"],
-                reference_text=p["reference_text"],
-                audio_file_name=p["audio_file_name"],
-                audio_path=p["audio_path"],
-                speaker_embedding_path=p["speaker_embedding_path"],
-                created_at=parse_stored_datetime(p["created_at"]),
-                user_id=p["user_id"],
-            )
-            for p in profiles
-        ]
+        return [profile_response_from_row(p) for p in profiles]
 
     @app.get("/api/admin/voices/exportable")
-    def list_exportable_voices(current_user: dict = Depends(require_admin)) -> list[dict[str, object]]:
+    def list_exportable_voices(_auth: dict = Depends(require_voice_export_auth)) -> list[dict[str, object]]:
         """List all voice profiles that can be exported to Onprem."""
         profiles = db.list_all_profiles()
         exportable_profiles: list[dict[str, object]] = []
@@ -659,7 +763,7 @@ def create_app(
     @app.get("/api/admin/voices/export/{voice_id}")
     def export_voice_profile(
         voice_id: str,
-        current_user: dict = Depends(require_admin),
+        _auth: dict = Depends(require_voice_export_auth),
     ) -> StreamingResponse:
         """Export a saved voice profile and its associated assets as a zip archive."""
         profile = db.get_profile_by_id(voice_id)
@@ -712,6 +816,37 @@ def create_app(
         }
         return StreamingResponse(archive, media_type="application/zip", headers=headers)
 
+    @app.get("/api/voices/{profile_id}", response_model=CloneVoiceProfileResponse)
+    def get_user_voice(
+        profile_id: str,
+        current_user: dict = Depends(get_current_user),
+    ) -> CloneVoiceProfileResponse:
+        profile = db.get_profile_by_id(profile_id)
+        if not profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice profile not found")
+        if profile["user_id"] != current_user["sub"] and current_user.get("role") != "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Voice profile access denied")
+        return profile_response_from_row(profile)
+
+    @app.get("/api/voices/{profile_id}/preview")
+    def get_voice_preview(
+        profile_id: str,
+        current_user: dict = Depends(get_current_user),
+    ) -> FileResponse:
+        profile = db.get_profile_by_id(profile_id)
+        if not profile:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice profile not found")
+        if profile["user_id"] != current_user["sub"] and current_user.get("role") != "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Voice profile access denied")
+        audio_path = voice_profiles.resolve_audio_path(
+            profile["id"],
+            profile.get("audio_file_name"),
+            profile.get("audio_path"),
+        )
+        if audio_path is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Voice audio file is missing")
+        return FileResponse(audio_path, media_type="audio/wav", filename=audio_path.name)
+
     @app.delete("/api/voices/{profile_id}")
     def delete_user_voice(
         profile_id: str,
@@ -762,7 +897,7 @@ def create_app(
         return brand_health_response(response)
 
     @app.get("/v1/models")
-    def openai_models() -> dict[str, object]:
+    def openai_models(_auth: None = Depends(require_runtime_api_key)) -> dict[str, object]:
         now = int(datetime.now(timezone.utc).timestamp())
         return {
             "object": "list",
@@ -783,7 +918,10 @@ def create_app(
         }
 
     @app.post("/v1/audio/speech")
-    def openai_audio_speech(payload: dict[str, object]) -> Response:
+    def openai_audio_speech(
+        payload: dict[str, object],
+        _auth: None = Depends(require_runtime_api_key),
+    ) -> Response:
         model = str(payload.get("model", "")).strip()
         text = str(payload.get("input", "")).strip()
         voice = str(payload.get("voice", "Ryan")).strip() or "Ryan"
@@ -859,6 +997,7 @@ def create_app(
         file: UploadFile = File(...),
         model: str = Form(...),
         language: str = Form("Auto"),
+        _auth: None = Depends(require_runtime_api_key),
     ) -> dict[str, object]:
         if model.strip() != OPENAI_ASR_MODEL_ID:
             raise HTTPException(status_code=400, detail=f"Unsupported model '{model}'.")
@@ -885,27 +1024,33 @@ def create_app(
         }
 
     @app.get("/api/metrics", response_model=MetricsResponse)
-    def metrics() -> MetricsResponse:
+    def metrics(current_user: dict = Depends(get_current_user)) -> MetricsResponse:
         from .metrics import collect_metrics
 
         return MetricsResponse(**collect_metrics())
 
     @app.get("/api/capabilities")
-    def capabilities():
+    def capabilities(current_user: dict = Depends(get_current_user)):
         return brand_capabilities_response(tts.capabilities())
 
     @app.get("/api/settings/chat", response_model=ChatSettingsResponse)
-    def get_chat_settings() -> ChatSettingsResponse:
+    def get_chat_settings(current_user: dict = Depends(get_current_user)) -> ChatSettingsResponse:
         return brand_chat_settings_response(settings.redact(settings.load()))
 
     @app.put("/api/settings/chat", response_model=ChatSettingsResponse)
-    def put_chat_settings(payload: ChatSettingsInput) -> ChatSettingsResponse:
+    def put_chat_settings(
+        payload: ChatSettingsInput,
+        current_user: dict = Depends(get_current_user),
+    ) -> ChatSettingsResponse:
         normalized_payload = unbrand_chat_settings_input(payload)
         saved = settings.save(settings.merge_preserving_secrets(normalized_payload))
         return brand_chat_settings_response(settings.redact(saved))
 
     @app.post("/api/settings/chat/test", response_model=ProviderTestResponse)
-    async def test_chat_settings(payload: ProviderTestRequest) -> ProviderTestResponse:
+    async def test_chat_settings(
+        payload: ProviderTestRequest,
+        current_user: dict = Depends(get_current_user),
+    ) -> ProviderTestResponse:
         if not payload.config.api_key:
             saved = settings.load()
             saved_provider = getattr(saved, payload.provider, None)
@@ -924,6 +1069,7 @@ def create_app(
         model_id: str = Form(...),
         language: str = Form("Auto"),
         send_to_chat: bool = Form(False),
+        current_user: dict = Depends(get_current_user),
     ):
         temp_path = await persist_upload_to_tempfile(audio, "audio.wav")
         cleanup_paths: list[Path] = []
@@ -947,41 +1093,21 @@ def create_app(
         language: str = Form("Auto"),
         label: str | None = Form(None),
         reference_text: str | None = Form(None),
+        current_user: dict = Depends(get_current_user),
     ) -> CloneVoiceProfileResponse:
-        temp_path = await persist_upload_to_tempfile(audio, "reference.wav")
-        cleanup_paths: list[Path] = []
-        try:
-            prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
-            prompt_path, prompt_cleanup_paths, prompt_excerpted = prepare_clone_reference_audio(
-                prepared_path
-            )
-            cleanup_paths.extend(prompt_cleanup_paths)
-            resolved_reference_text = resolve_clone_reference_text(
-                asr=asr,
-                ref_audio_path=prompt_path,
-                provided_ref_text=None if prompt_excerpted else reference_text,
-                language=language,
-                x_vector_only_mode=False,
-            )
-            speaker_embedding, ref_codes = run_or_http_error(
-                lambda: tts.prepare_clone_conditioning_assets(
-                    ref_audio_path=prompt_path
-                )
-            )
-            return voice_profiles.save_profile(
-                source_path=prompt_path,
-                source_name=f"{Path(audio.filename or 'reference').stem}{Path(prompt_path).suffix}",
-                language=language,
-                reference_text=resolved_reference_text or "",
-                label=label,
-                speaker_embedding=speaker_embedding,
-                ref_codes=ref_codes,
-            )
-        finally:
-            cleanup_temp_paths(temp_path, *cleanup_paths)
+        return await save_clone_profile_from_upload(
+            upload=audio,
+            language=language,
+            label=label,
+            reference_text=reference_text,
+            current_user=current_user,
+        )
 
     @app.post("/api/generate/custom", response_model=GenerationRunResponse)
-    def generate_custom(payload: CustomGenerationRequest) -> GenerationRunResponse:
+    def generate_custom(
+        payload: CustomGenerationRequest,
+        current_user: dict = Depends(get_current_user),
+    ) -> GenerationRunResponse:
         wavs, sample_rate = run_or_http_error(lambda: tts.generate_custom(payload))
 
         clips = [
@@ -1108,7 +1234,10 @@ def create_app(
         return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
     @app.post("/api/generate/design", response_model=GenerationRunResponse)
-    def generate_design(payload: DesignGenerationRequest) -> GenerationRunResponse:
+    def generate_design(
+        payload: DesignGenerationRequest,
+        current_user: dict = Depends(get_current_user),
+    ) -> GenerationRunResponse:
         wavs, sample_rate = run_or_http_error(lambda: tts.generate_design(payload))
 
         clips = [
@@ -1130,7 +1259,10 @@ def create_app(
         )
 
     @app.post("/api/stream/custom")
-    def stream_custom(payload: CustomGenerationRequest) -> StreamingResponse:
+    def stream_custom(
+        payload: CustomGenerationRequest,
+        current_user: dict = Depends(get_current_user),
+    ) -> StreamingResponse:
         run_id = uuid4().hex
         created_at = datetime.now(timezone.utc)
         stream_iter = run_or_http_error(lambda: tts.stream_custom(payload))
@@ -1152,7 +1284,10 @@ def create_app(
         )
 
     @app.post("/api/stream/design")
-    def stream_design(payload: DesignGenerationRequest) -> StreamingResponse:
+    def stream_design(
+        payload: DesignGenerationRequest,
+        current_user: dict = Depends(get_current_user),
+    ) -> StreamingResponse:
         run_id = uuid4().hex
         created_at = datetime.now(timezone.utc)
         stream_iter = run_or_http_error(lambda: tts.stream_design(payload))
@@ -1180,8 +1315,11 @@ def create_app(
         ref_text: str | None = Form(None),
         reference_text: str | None = Form(None),
         x_vector_only_mode: bool = Form(False),
+        save_profile: bool = Form(False),
+        label: str | None = Form(None),
         ref_audio: UploadFile | None = File(None),
         audio: UploadFile | None = File(None),
+        current_user: dict = Depends(get_current_user),
     ) -> GenerationRunResponse:
         try:
             payload = BaseGenerationRequest(
@@ -1195,6 +1333,7 @@ def create_app(
         resolved_form_ref_text = ref_text if ref_text is not None else reference_text
         temp_path = await persist_upload_to_tempfile(reference_upload, "reference.wav")
         cleanup_paths: list[Path] = []
+        saved_profile: CloneVoiceProfileResponse | None = None
         try:
             prepared_path, cleanup_paths = prepare_audio_upload(temp_path)
             prompt_path, prompt_cleanup_paths, prompt_excerpted = prepare_clone_reference_audio(
@@ -1223,6 +1362,22 @@ def create_app(
                     x_vector_only_mode=x_vector_only_mode,
                 )
             )
+            if save_profile:
+                speaker_embedding, ref_codes = run_or_http_error(
+                    lambda: tts.prepare_clone_conditioning_assets(
+                        ref_audio_path=prompt_path
+                    )
+                )
+                profile = voice_profiles.save_profile(
+                    source_path=prompt_path,
+                    source_name=f"{Path(reference_upload.filename or 'reference').stem}{Path(prompt_path).suffix}",
+                    language=payload.language,
+                    reference_text=resolved_ref_text or "",
+                    label=label,
+                    speaker_embedding=speaker_embedding,
+                    ref_codes=ref_codes,
+                )
+                saved_profile = persist_clone_profile(profile, str(current_user["sub"]))
         finally:
             cleanup_temp_paths(temp_path, *cleanup_paths)
 
@@ -1243,6 +1398,7 @@ def create_app(
             model_id=tts.model_ids["clone"],
             device=tts.selected_device,
             clips=clips,
+            saved_voice_profile=saved_profile,
         )
 
     @app.post("/api/stream/clone")
@@ -1256,6 +1412,7 @@ def create_app(
         x_vector_only_mode: bool = Form(False),
         ref_audio: UploadFile | None = File(None),
         audio: UploadFile | None = File(None),
+        current_user: dict = Depends(get_current_user),
     ) -> StreamingResponse:
         try:
             payload = BaseGenerationRequest(
@@ -1402,7 +1559,10 @@ def create_app(
                 logger.exception("Conversation session cleanup failed")
 
     @app.get("/api/audio/{audio_id}")
-    def get_audio(audio_id: str) -> FileResponse:
+    def get_audio(
+        audio_id: str,
+        current_user: dict = Depends(get_current_user),
+    ) -> FileResponse:
         try:
             path = storage.get_path(audio_id)
         except FileNotFoundError as exc:

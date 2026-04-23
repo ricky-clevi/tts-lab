@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { createReplyVoiceCloneProfile, fetchCapabilities, generateRun } from '../api'
+import { authenticatedMediaUrl, createReplyVoiceCloneProfile, fetchCapabilities, generateRun } from '../api'
 import '../styles/pages/tts.css'
 import { Alert, Badge, Button, Card, CardBody, CardHeader, Input, LoadingState, Select, Textarea, useToast } from '../components/ui'
 import { t } from '../i18n'
@@ -94,6 +94,10 @@ export default function TtsPage() {
         formData.append('segments', JSON.stringify(validSegments))
         formData.append('ref_text', referenceText)
         formData.append('generation', JSON.stringify(settings))
+        if (cloneLabel.trim()) {
+          formData.append('save_profile', 'true')
+          formData.append('label', cloneLabel.trim())
+        }
         result = await generateRun(mode, formData)
       } else {
         result = await generateRun(mode, {
@@ -107,7 +111,7 @@ export default function TtsPage() {
 
       setRuns((prev) => [result, ...prev])
       setSelectedRun(result)
-      success(t('tts.toast.generated'))
+      success(result.saved_voice_profile ? `${t('tts.toast.generated')} Voice ID: ${result.saved_voice_profile.id}` : t('tts.toast.generated'))
     } catch (err) {
       const message = err instanceof Error ? err.message : t('error.generationFailed')
       setGenerationError(message)
@@ -407,7 +411,7 @@ export default function TtsPage() {
 function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
   const handleDownload = () => {
     const link = document.createElement('a')
-    link.href = clip.audio_url
+    link.href = authenticatedMediaUrl(clip.audio_url)
     link.download = clip.file_name
     link.click()
   }
@@ -429,7 +433,7 @@ function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
       </div>
       <p className="clip-text">{clip.text}</p>
       <div className="clip-audio-wrapper">
-        <audio src={clip.audio_url} controls className="clip-audio" />
+        <audio src={authenticatedMediaUrl(clip.audio_url)} controls className="clip-audio" />
       </div>
       <div className="clip-meta">
         <span>{t('tts.sampleRateMeta', { sampleRate: clip.sample_rate })}</span>

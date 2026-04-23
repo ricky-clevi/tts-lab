@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,10 @@ import pytest
 import soundfile as sf
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
+os.environ.setdefault("ADMIN_PASSWORD", "test-admin-password")
+os.environ.setdefault("RUNTIME_API_KEY", "test-runtime-key")
 
 from server.app.auth import create_access_token
 from server.app.chat_store import ChatSettingsStore
@@ -312,6 +317,18 @@ def make_wav_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def auth_token(user_id: str = "test-user", username: str = "admin", role: str = "admin") -> str:
+    return create_access_token(user_id=user_id, username=username, role=role)
+
+
+def auth_headers() -> dict[str, str]:
+    return {"Authorization": f"Bearer {auth_token()}"}
+
+
+def ws_path() -> str:
+    return f"/api/conversation/ws?token={auth_token()}"
+
+
 def test_collect_audio_concatenates_all_non_streaming_results():
     manager = TtsModelManager()
 
@@ -472,6 +489,7 @@ def test_chat_settings_store_migrates_old_asr_model_ids_to_active_runtime(
 
 @pytest.fixture
 def client(tmp_path: Path):
+    os.environ["RUNTIME_API_KEY"] = "test-runtime-key"
     tts_manager = FakeTtsManager()
     asr_manager = FakeAsrManager()
     storage = AudioStorage(tmp_path / "audio")
@@ -488,6 +506,7 @@ def client(tmp_path: Path):
         provider_service=FakeProviderService(),
     )
     with TestClient(app) as test_client:
+        test_client.headers.update(auth_headers())
         yield test_client, tts_manager, asr_manager, settings_store
 
 
@@ -611,7 +630,7 @@ def test_asr_invalid_media_returns_400(client):
 
 def test_openai_models_lists_qwen_audio_models(client):
     test_client, _tts, _asr, _settings = client
-    response = test_client.get("/v1/models")
+    response = test_client.get("/v1/models", headers={"X-API-Key": "test-runtime-key"})
 
     assert response.status_code == 200
     body = response.json()
@@ -623,6 +642,7 @@ def test_openai_audio_speech_returns_wav(client):
     test_client, manager, _asr, _settings = client
     response = test_client.post(
         "/v1/audio/speech",
+        headers={"X-API-Key": "test-runtime-key"},
         json={
             "model": "qwen3-tts",
             "input": "Hello from the OpenAI style TTS endpoint.",
@@ -642,6 +662,7 @@ def test_openai_audio_speech_returns_pcm(client):
     test_client, manager, _asr, _settings = client
     response = test_client.post(
         "/v1/audio/speech",
+        headers={"X-API-Key": "test-runtime-key"},
         json={
             "model": "qwen3-tts",
             "input": "Return raw PCM audio please.",
@@ -661,6 +682,7 @@ def test_openai_audio_transcriptions_returns_openai_shape(client):
     test_client, _tts, asr_manager, _settings = client
     response = test_client.post(
         "/v1/audio/transcriptions",
+        headers={"X-API-Key": "test-runtime-key"},
         data={"model": "qwen3-asr", "language": "English"},
         files={"file": ("sample.wav", make_wav_bytes(), "audio/wav")},
     )
@@ -844,7 +866,7 @@ def test_stream_custom_generation_emits_chunks_and_final_run(client):
 def test_conversation_websocket_streams_text_and_tts(client):
     test_client, _tts, _asr, _settings = client
 
-    with test_client.websocket_connect("/api/conversation/ws") as websocket:
+    with test_client.websocket_connect(ws_path()) as websocket:
         ready = websocket.receive_json()
         assert ready["type"] == "session.ready"
         saved_settings = ready["settings"]
@@ -873,7 +895,7 @@ def test_conversation_websocket_streams_text_and_tts(client):
 def test_conversation_turn_commit_does_not_drop_socket_when_cancelling_speech(client):
     test_client, _tts, _asr, _settings = client
 
-    with test_client.websocket_connect("/api/conversation/ws") as websocket:
+    with test_client.websocket_connect(ws_path()) as websocket:
         websocket.receive_json()
         websocket.send_json({"type": "text.submit", "text": "Say hello."})
 
@@ -919,7 +941,7 @@ def test_conversation_turn_commit_returns_error_without_disconnect_on_asr_failur
     pcm16 = base64.b64encode((np.zeros(1600, dtype=np.int16)).tobytes()).decode("ascii")
 
     with TestClient(app) as test_client:
-        with test_client.websocket_connect("/api/conversation/ws") as websocket:
+        with test_client.websocket_connect(ws_path()) as websocket:
             assert websocket.receive_json()["type"] == "session.ready"
             websocket.send_json(
                 {
@@ -947,7 +969,7 @@ def test_conversation_can_speak_with_cloned_reply_voice(client, tmp_path: Path):
     embedding_path = tmp_path / "clone-reference.speaker.npy"
     np.save(embedding_path, np.asarray([[0.1, 0.2, 0.3]], dtype=np.float32))
 
-    with test_client.websocket_connect("/api/conversation/ws") as websocket:
+    with test_client.websocket_connect(ws_path()) as websocket:
         ready = websocket.receive_json()
         settings = ready["settings"]
         settings["defaults"]["reply_voice"]["mode"] = "clone"
@@ -991,7 +1013,7 @@ def test_conversation_strips_markdown_before_speaking(tmp_path: Path):
     )
 
     with TestClient(app) as test_client:
-        with test_client.websocket_connect("/api/conversation/ws") as websocket:
+        with test_client.websocket_connect(ws_path()) as websocket:
             assert websocket.receive_json()["type"] == "session.ready"
             websocket.send_json({"type": "text.submit", "text": "Explain React."})
 

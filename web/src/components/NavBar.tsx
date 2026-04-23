@@ -101,11 +101,6 @@ export default function NavBar() {
                   <span className="dropdown-user-name">{user?.username}</span>
                   <span className="dropdown-user-role">{user?.role}</span>
                 </div>
-                {isAdmin && (
-                  <Link to="/studio" className="dropdown-item" role="menuitem" onClick={() => setShowUserMenu(false)}>
-                    {t('nav.adminStudio')}
-                  </Link>
-                )}
                 <button onClick={handleLogout} className="dropdown-item dropdown-item-danger" role="menuitem">
                   {t('nav.logout')}
                 </button>

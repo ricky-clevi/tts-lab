@@ -124,6 +124,7 @@ export type GenerationRun = {
   device: string
   created_at: string
   clips: AudioClip[]
+  saved_voice_profile?: CloneVoiceProfileResponse | null
 }
 
 export type StreamRunEvent =
@@ -261,6 +262,7 @@ export type CloneVoiceProfileResponse = {
   reference_text: string
   audio_file_name: string
   audio_path: string
+  audio_url?: string | null
   speaker_embedding_path: string | null
   created_at: string
   user_id?: string

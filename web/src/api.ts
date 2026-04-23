@@ -24,6 +24,15 @@ function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+export function authenticatedMediaUrl(path: string | null | undefined): string {
+  if (!path) return ''
+  const token = localStorage.getItem('tts-lab-token')
+  if (!token) return path
+  const url = new URL(path, window.location.origin)
+  url.searchParams.set('token', token)
+  return `${url.pathname}${url.search}${url.hash}`
+}
+
 function formatErrorDetail(detail: unknown, fallback: string): string {
   if (typeof detail === 'string') return detail
 
@@ -159,22 +168,34 @@ export async function fetchHealth() {
 }
 
 export async function fetchMetrics() {
-  return parseJson<MetricsResponse>(await fetch(`${API_ROOT}/metrics`))
+  return parseJson<MetricsResponse>(
+    await fetch(`${API_ROOT}/metrics`, {
+      headers: authHeaders(),
+    }),
+  )
 }
 
 export async function fetchCapabilities() {
-  return parseJson<CapabilitiesResponse>(await fetch(`${API_ROOT}/capabilities`))
+  return parseJson<CapabilitiesResponse>(
+    await fetch(`${API_ROOT}/capabilities`, {
+      headers: authHeaders(),
+    }),
+  )
 }
 
 export async function fetchChatSettings() {
-  return parseJson<ChatSettingsResponse>(await fetch(`${API_ROOT}/settings/chat`))
+  return parseJson<ChatSettingsResponse>(
+    await fetch(`${API_ROOT}/settings/chat`, {
+      headers: authHeaders(),
+    }),
+  )
 }
 
 export async function saveChatSettings(payload: ChatSettingsDraft) {
   return parseJson<ChatSettingsResponse>(
     await fetch(`${API_ROOT}/settings/chat`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(payload),
     }),
   )
@@ -184,7 +205,7 @@ export async function testChatProvider(provider: ProviderId, config: ProviderSet
   return parseJson<ProviderTestResponse>(
     await fetch(`${API_ROOT}/settings/chat/test`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ provider, config }),
     }),
   )
@@ -204,6 +225,7 @@ export async function transcribeAsrFile(payload: {
   return parseJson<AsrTranscriptionResponse>(
     await fetch(`${API_ROOT}/asr/transcribe`, {
       method: 'POST',
+      headers: authHeaders(),
       body: formData,
     }),
   )
@@ -223,6 +245,7 @@ export async function createReplyVoiceCloneProfile(payload: {
   return parseJson<CloneVoiceProfileResponse>(
     await fetch(`${API_ROOT}/chat/reply-voice/clone-profile`, {
       method: 'POST',
+      headers: authHeaders(),
       body: formData,
     }),
   )
@@ -249,10 +272,10 @@ export async function generateRun(
 
   const init: RequestInit =
     payload instanceof FormData
-      ? { method: 'POST', body: payload }
+      ? { method: 'POST', headers: authHeaders(), body: payload }
       : {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify(payload),
         }
 
@@ -281,10 +304,10 @@ export async function* generateRunStream(
 
   const init: RequestInit =
     payload instanceof FormData
-      ? { method: 'POST', body: payload }
+      ? { method: 'POST', headers: authHeaders(), body: payload }
       : {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
           body: JSON.stringify(payload),
         }
 

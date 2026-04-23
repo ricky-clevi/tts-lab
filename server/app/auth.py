@@ -3,12 +3,15 @@ Authentication module for Ivy Voice Lab.
 Handles JWT tokens, password hashing, and FastAPI dependencies.
 """
 
+import hmac
 import os
+import secrets
+from hashlib import sha256
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any
+import bcrypt
 from jose import jwt
 from jose.exceptions import JWTError, ExpiredSignatureError
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 
 # JWT configuration
@@ -16,8 +19,14 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
 JWT_SECRET = os.getenv("JWT_SECRET", "")
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+MAX_BCRYPT_PASSWORD_BYTES = 72
+
+
+def _password_bytes(plain_password: str) -> bytes:
+    data = plain_password.encode("utf-8")
+    if len(data) > MAX_BCRYPT_PASSWORD_BYTES:
+        raise ValueError("Password cannot be longer than 72 bytes.")
+    return data
 
 
 def validate_jwt_secret() -> None:
@@ -28,12 +37,15 @@ def validate_jwt_secret() -> None:
 
 def hash_password(plain_password: str) -> str:
     """Hash a plain text password using bcrypt."""
-    return pwd_context.hash(plain_password)
+    return bcrypt.hashpw(_password_bytes(plain_password), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain text password against a bcrypt hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(_password_bytes(plain_password), hashed_password.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 def create_access_token(user_id: str, username: str, role: str) -> str:
@@ -92,6 +104,53 @@ def decode_token(token: str) -> Dict[str, Any]:
         )
 
 
+def hash_service_token(token: str) -> str:
+    """Hash a long-lived service token for constant-time database lookup."""
+    return sha256(token.encode("utf-8")).hexdigest()
+
+
+def generate_service_token() -> str:
+    """Generate a new service token value suitable for bootstrap env configuration."""
+    return secrets.token_urlsafe(40)
+
+
+def extract_bearer_or_api_key(request: Request) -> str | None:
+    """Extract Bearer, X-API-Key, or query token credentials from a request."""
+    api_key = request.headers.get("X-API-Key")
+    if api_key:
+        return api_key.strip()
+
+    auth_header = request.headers.get("Authorization")
+    if auth_header:
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            return parts[1].strip()
+
+    query_token = request.query_params.get("token")
+    if query_token:
+        return query_token.strip()
+
+    return None
+
+
+def verify_runtime_api_key(provided: str | None) -> bool:
+    configured = os.getenv("RUNTIME_API_KEY", "").strip()
+    if not configured or not provided:
+        return False
+    return hmac.compare_digest(provided, configured)
+
+
+def require_runtime_api_key(request: Request) -> None:
+    """Require the OpenAI-compatible runtime API key."""
+    if verify_runtime_api_key(extract_bearer_or_api_key(request)):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing runtime API key",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def get_current_user(request: Request) -> Dict[str, Any]:
     """
     FastAPI dependency to extract and validate the current user from the Authorization header.
@@ -105,23 +164,14 @@ def get_current_user(request: Request) -> Dict[str, Any]:
     Raises:
         HTTPException: If no token or invalid token
     """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
+    token = extract_bearer_or_api_key(request)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing authorization header",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    parts = auth_header.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header format",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    token = parts[1]
     return decode_token(token)
 
 

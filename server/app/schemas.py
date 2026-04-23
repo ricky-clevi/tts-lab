@@ -307,6 +307,7 @@ class CloneVoiceProfileResponse(BaseModel):
     reference_text: str
     audio_file_name: str
     audio_path: str
+    audio_url: str | None = None
     speaker_embedding_path: str | None = None
     created_at: datetime
     user_id: str | None = None
@@ -319,6 +320,7 @@ class GenerationRunResponse(BaseModel):
     device: str
     created_at: datetime
     clips: list[AudioClipResponse]
+    saved_voice_profile: CloneVoiceProfileResponse | None = None
 
 
 # Auth schemas
