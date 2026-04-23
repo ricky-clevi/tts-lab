@@ -44,9 +44,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: validate
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
       - name: Configure SSH
         shell: bash
         env:
@@ -68,12 +65,21 @@ jobs:
           DEPLOY_ROOT: ${{ secrets.DEPLOY_ROOT }}
           DEPLOY_GIT_REMOTE_URL: ${{ secrets.DEPLOY_GIT_REMOTE_URL }}
           DEPLOY_SUDO_PASSWORD: ${{ secrets.DEPLOY_SUDO_PASSWORD }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           remote_root="${DEPLOY_ROOT:-/home/ricky/tts-lab}"
+          checkout_dir="$(mktemp -d)"
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 -w 0)"
+          git -C "$checkout_dir" init
+          git -C "$checkout_dir" remote add origin "https://gitea.clevics.co.kr/CleviCS/Onprem.git"
+          git -C "$checkout_dir" \
+            -c "http.https://gitea.clevics.co.kr/.extraheader=AUTHORIZATION: basic ${auth_header}" \
+            fetch --depth=1 origin "$GITHUB_SHA"
+          git -C "$checkout_dir" checkout --force FETCH_HEAD
           scp -i ~/.ssh/tts_lab_deploy_key \
             -o IdentitiesOnly=yes \
-            scripts/deploy_linux_nvidia.sh \
+            "$checkout_dir/scripts/deploy_linux_nvidia.sh" \
             "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/tts-lab-deploy.sh"
           ssh -i ~/.ssh/tts_lab_deploy_key \
             -o IdentitiesOnly=yes \
