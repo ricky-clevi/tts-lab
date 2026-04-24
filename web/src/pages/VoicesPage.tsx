@@ -371,7 +371,7 @@ function VoiceCard({ voice, viewMode, copiedId, onCopyId, onDelete, isDeleting }
   const audioRef = useRef<HTMLAudioElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [audioProgress, setAudioProgress] = useState(0)
-  const previewUrl = authenticatedMediaUrl(voice.audio_url || voice.audio_path)
+  const previewUrl = authenticatedMediaUrl(voice.audio_url)
 
   const handlePlayPause = () => {
     if (!audioRef.current) return

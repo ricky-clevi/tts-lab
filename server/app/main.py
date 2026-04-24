@@ -489,15 +489,13 @@ def create_app(
             language=str(profile["language"]),
             reference_text=str(profile["reference_text"]),
             audio_file_name=str(profile["audio_file_name"]),
-            audio_path=str(profile["audio_path"]),
             audio_url=f"/api/voices/{profile_id}/preview",
-            speaker_embedding_path=str(profile.get("speaker_embedding_path") or "") or None,
             created_at=parse_stored_datetime(str(profile["created_at"])),
             user_id=str(profile.get("user_id") or "") or None,
         )
 
     def persist_clone_profile(
-        profile: CloneVoiceProfileResponse,
+        profile,
         user_id: str,
     ) -> CloneVoiceProfileResponse:
         db.save_voice_profile(

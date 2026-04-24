@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from uuid import uuid4
+from dataclasses import dataclass
 
 import numpy as np
 import soundfile as sf
@@ -10,6 +11,18 @@ import json
 import shutil
 
 from .schemas import AudioClipResponse, CloneVoiceProfileResponse
+
+
+@dataclass
+class StoredVoiceProfile:
+    id: str
+    label: str
+    language: str
+    reference_text: str
+    audio_file_name: str
+    audio_path: str
+    speaker_embedding_path: str | None
+    created_at: datetime
 
 
 class AudioStorage:
@@ -71,7 +84,7 @@ class VoiceProfileStorage:
         label: str | None = None,
         speaker_embedding: np.ndarray | None = None,
         ref_codes: np.ndarray | None = None,
-    ) -> CloneVoiceProfileResponse:
+    ) -> StoredVoiceProfile:
         profile_id = uuid4().hex
         extension = Path(source_name).suffix or ".wav"
         audio_file_name = f"{profile_id}{extension}"
@@ -88,7 +101,7 @@ class VoiceProfileStorage:
             np.savez(embedding_path, **payload)
             speaker_embedding_path = str(embedding_path)
         created_at = datetime.now(timezone.utc)
-        response = CloneVoiceProfileResponse(
+        profile = StoredVoiceProfile(
             id=profile_id,
             label=(label or Path(source_name).stem or "Cloned voice").strip(),
             language=language,
@@ -100,10 +113,23 @@ class VoiceProfileStorage:
         )
         metadata_path = self.root / f"{profile_id}.json"
         metadata_path.write_text(
-            json.dumps(response.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            json.dumps(
+                {
+                    "id": profile.id,
+                    "label": profile.label,
+                    "language": profile.language,
+                    "reference_text": profile.reference_text,
+                    "audio_file_name": profile.audio_file_name,
+                    "audio_path": profile.audio_path,
+                    "speaker_embedding_path": profile.speaker_embedding_path,
+                    "created_at": profile.created_at.isoformat(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
-        return response
+        return profile
 
     def _candidate_path(self, raw_path: str | None) -> Path | None:
         if not raw_path:
@@ -151,23 +177,32 @@ class VoiceProfileStorage:
                 return candidate
         return None
 
-    def get_profile(self, profile_id: str) -> CloneVoiceProfileResponse:
+    def get_profile(self, profile_id: str) -> StoredVoiceProfile:
         metadata_path = self.root / f"{profile_id}.json"
         if not metadata_path.exists():
             raise FileNotFoundError(profile_id)
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-        response = CloneVoiceProfileResponse.model_validate(payload)
-        audio_path = self.resolve_audio_path(response.id, response.audio_file_name, response.audio_path)
+        profile = StoredVoiceProfile(
+            id=str(payload["id"]),
+            label=str(payload["label"]),
+            language=str(payload["language"]),
+            reference_text=str(payload["reference_text"]),
+            audio_file_name=str(payload["audio_file_name"]),
+            audio_path=str(payload["audio_path"]),
+            speaker_embedding_path=str(payload.get("speaker_embedding_path") or "") or None,
+            created_at=datetime.fromisoformat(str(payload["created_at"]).replace("Z", "+00:00")),
+        )
+        audio_path = self.resolve_audio_path(profile.id, profile.audio_file_name, profile.audio_path)
         if audio_path is None:
             raise FileNotFoundError(profile_id)
-        response.audio_path = str(audio_path)
+        profile.audio_path = str(audio_path)
 
-        embedding_path = self.resolve_embedding_path(response.id, response.speaker_embedding_path)
+        embedding_path = self.resolve_embedding_path(profile.id, profile.speaker_embedding_path)
         if embedding_path is None:
-            response.speaker_embedding_path = None
+            profile.speaker_embedding_path = None
         else:
-            response.speaker_embedding_path = str(embedding_path)
-        return response
+            profile.speaker_embedding_path = str(embedding_path)
+        return profile
 
     def get_path(self, profile_id: str) -> Path:
         path = Path(self.get_profile(profile_id).audio_path)

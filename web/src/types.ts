@@ -261,9 +261,7 @@ export type CloneVoiceProfileResponse = {
   language: string
   reference_text: string
   audio_file_name: string
-  audio_path: string
   audio_url?: string | null
-  speaker_embedding_path: string | null
   created_at: string
   user_id?: string
 }

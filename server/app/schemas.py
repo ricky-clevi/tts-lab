@@ -306,9 +306,7 @@ class CloneVoiceProfileResponse(BaseModel):
     language: str
     reference_text: str
     audio_file_name: str
-    audio_path: str
     audio_url: str | None = None
-    speaker_embedding_path: str | None = None
     created_at: datetime
     user_id: str | None = None
 

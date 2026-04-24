@@ -792,8 +792,9 @@ def test_create_clone_voice_profile_auto_transcribes_reference(client):
     body = response.json()
     assert body["label"] == "Agent Voice"
     assert body["reference_text"] == "Uploaded sample transcript."
-    assert body["audio_path"].endswith(".wav")
-    assert body["speaker_embedding_path"].endswith(".speaker.npz")
+    assert body["audio_url"].startswith("/api/voices/")
+    assert "audio_path" not in body
+    assert "speaker_embedding_path" not in body
     assert asr_manager.transcribe_file_calls == 1
     assert manager.prepare_clone_embedding_calls == 1
 
