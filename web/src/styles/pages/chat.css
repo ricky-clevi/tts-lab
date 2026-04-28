@@ -88,8 +88,84 @@
   gap: var(--space-5);
 }
 
-.settings-full-width {
+.settings-section {
+  padding-top: var(--space-5);
+  margin-top: var(--space-5);
+  border-top: 1px solid color-mix(in oklab, var(--color-line) 72%, white 28%);
+}
+
+.settings-full-width,
+.settings-grid > .form-group:has(.settings-full-width) {
   grid-column: 1 / -1;
+}
+
+.provider-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.provider-tab {
+  min-height: 2.75rem;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in oklab, var(--color-line) 76%, white 24%);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--color-surface) 92%, white 8%);
+  color: var(--color-gray-700);
+  font-size: var(--text-sm);
+  font-weight: var(--font-bold);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.provider-tab:hover {
+  border-color: color-mix(in oklab, var(--color-primary-400) 72%, white 28%);
+  background: color-mix(in oklab, var(--color-primary-50) 64%, white 36%);
+}
+
+.provider-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.provider-tab-active {
+  border-color: var(--color-primary-500);
+  background: color-mix(in oklab, var(--color-primary-100) 78%, white 22%);
+  color: var(--color-primary-800);
+}
+
+.settings-hint {
+  margin: 0;
+  color: var(--color-gray-600);
+  font-size: var(--text-sm);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding-top: var(--space-5);
+  margin-top: var(--space-5);
+  border-top: 1px solid color-mix(in oklab, var(--color-line) 72%, white 28%);
+}
+
+.chat-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-gray-700);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+}
+
+.chat-checkbox input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--color-primary-600);
 }
 
 /* ============================================
@@ -722,5 +798,14 @@
 
   .empty-instructions {
     width: 100%;
+  }
+
+  .provider-tabs,
+  .settings-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-actions {
+    flex-direction: column;
   }
 }

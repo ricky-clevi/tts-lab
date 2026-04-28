@@ -160,6 +160,7 @@
   "field.activeProvider": "활성 프로바이더",
   "field.additionalInstruction": "추가 지시문",
   "field.apiKey": "API 키",
+  "field.asrModel": "ASR 모델",
   "field.baseGuidance": "기본 가이드",
   "field.baseUrl": "기본 URL",
   "field.blockHoldMs": "블록 대기 시간(ms)",

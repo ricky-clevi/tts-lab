@@ -160,6 +160,7 @@
   "field.activeProvider": "Active provider",
   "field.additionalInstruction": "Additional instruction",
   "field.apiKey": "API key",
+  "field.asrModel": "ASR model",
   "field.baseGuidance": "Base guidance",
   "field.baseUrl": "Base URL",
   "field.blockHoldMs": "Block hold ms",
