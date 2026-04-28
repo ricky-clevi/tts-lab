@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioCapture } from '../audioCapture'
 import {
+  createReplyVoiceCloneProfile,
   createConversationSocket,
   fetchChatSettings,
   saveChatSettings,
@@ -20,6 +21,7 @@ import type {
   ConversationStatus,
   ProviderId,
   ProviderSettingsDraft,
+  ReplyVoiceMode,
 } from '../types'
 
 type ProviderSettingsForm = ProviderSettingsDraft & {
@@ -35,6 +37,8 @@ type ChatSettingsForm = {
 }
 
 const PROVIDERS: ProviderId[] = ['openai_compatible', 'gemini', 'anthropic']
+const REPLY_VOICE_MODES: ReplyVoiceMode[] = ['custom', 'design', 'clone']
+const REPLY_VOICE_LANGUAGES = ['English', 'Korean', 'Auto']
 
 const STATUS_LABELS: Record<ConversationStatus, string> = {
   idle: 'chat.status.idle',
@@ -125,6 +129,7 @@ export default function ChatPage() {
   const [showSettings, setShowSettings] = useState(false)
   const [isSavingSettings, setIsSavingSettings] = useState(false)
   const [isTestingProvider, setIsTestingProvider] = useState(false)
+  const [isPreparingClone, setIsPreparingClone] = useState(false)
   const [providerTab, setProviderTab] = useState<ProviderId>('openai_compatible')
   const [isConnected, setIsConnected] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -132,6 +137,7 @@ export default function ChatPage() {
   const [status, setStatus] = useState<ConversationStatus>('idle')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
+  const [replyReferenceFile, setReplyReferenceFile] = useState<File | null>(null)
   const [currentTranscript, setCurrentTranscript] = useState('')
   const [currentAssistantText, setCurrentAssistantText] = useState('')
 
@@ -164,7 +170,10 @@ export default function ChatPage() {
   }, [showError])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const scrollIntoView = messagesEndRef.current?.scrollIntoView
+    if (typeof scrollIntoView === 'function') {
+      scrollIntoView.call(messagesEndRef.current, { behavior: 'smooth' })
+    }
   }, [messages, currentTranscript, currentAssistantText])
 
   const addMessage = useCallback((message: Omit<ChatMessage, 'id'>) => {
@@ -175,6 +184,19 @@ export default function ChatPage() {
     setSettings((current) => {
       if (!current) return current
       return { ...current, [provider]: updater(current[provider]) }
+    })
+  }, [])
+
+  const setReplyVoice = useCallback((updater: (value: ChatSettingsForm['defaults']['reply_voice']) => ChatSettingsForm['defaults']['reply_voice']) => {
+    setSettings((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        defaults: {
+          ...current.defaults,
+          reply_voice: updater(current.defaults.reply_voice),
+        },
+      }
     })
   }, [])
 
@@ -354,11 +376,63 @@ export default function ChatPage() {
     }
   }
 
+  const prepareReplyCloneProfile = async (automatic = false): Promise<ChatSettingsForm | null> => {
+    if (!settings) return null
+    if (!replyReferenceFile) {
+      showError(t('error.chooseReferenceVoiceClip'))
+      return null
+    }
+
+    setIsPreparingClone(true)
+    try {
+      const currentReplyVoice = settings.defaults.reply_voice
+      const fallbackLabel = replyReferenceFile.name.replace(/\.[^.]+$/, '').trim() || t('voices.defaultLabel.agent')
+      const profile = await createReplyVoiceCloneProfile({
+        file: replyReferenceFile,
+        language: currentReplyVoice.language,
+        label: currentReplyVoice.clone_profile_label?.trim() || fallbackLabel,
+        referenceText: currentReplyVoice.clone_reference_text ?? '',
+      })
+      const nextSettings: ChatSettingsForm = {
+        ...settings,
+        defaults: {
+          ...settings.defaults,
+          reply_voice: {
+            ...currentReplyVoice,
+            mode: 'clone',
+            clone_profile_id: profile.id,
+            clone_profile_label: profile.label,
+            clone_reference_text: profile.reference_text,
+            clone_audio_path: null,
+            clone_embedding_path: null,
+          },
+        },
+      }
+      setSettings(nextSettings)
+      configureOpenSocket(nextSettings)
+      success(t(automatic ? 'toast.clonePreparedAuto' : 'toast.clonePrepared', { label: profile.label }))
+      return nextSettings
+    } catch (err) {
+      showError(err instanceof Error ? err.message : t('error.prepareClonedReplyVoiceFailed'))
+      return null
+    } finally {
+      setIsPreparingClone(false)
+    }
+  }
+
   const handleSendText = async () => {
     const cleaned = inputText.trim()
     if (!cleaned || !isConnected) return
+    let activeSettings = settings
+    if (activeSettings?.defaults.reply_voice.mode === 'clone' && !activeSettings.defaults.reply_voice.clone_profile_id && replyReferenceFile) {
+      activeSettings = await prepareReplyCloneProfile(true)
+      if (!activeSettings) return
+    }
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       await stopPlayback()
+      if (activeSettings) {
+        socketRef.current.send(JSON.stringify({ type: 'session.configure', settings: serializeSettings(activeSettings) }))
+      }
       socketRef.current.send(JSON.stringify({ type: 'text.submit', text: cleaned }))
       addMessage({ role: 'user', text: cleaned })
       setInputText('')
@@ -629,6 +703,104 @@ export default function ChatPage() {
                       />
                       <span>{t('toggle.liveCaptions')}</span>
                     </label>
+                  </div>
+
+                  <div className="settings-grid settings-section">
+                    <Select
+                      label={t('field.voiceMode')}
+                      value={settings.defaults.reply_voice.mode}
+                      onChange={(event) => {
+                        const nextMode = event.target.value as ReplyVoiceMode
+                        setReplyVoice((current) => ({ ...current, mode: nextMode }))
+                      }}
+                      options={REPLY_VOICE_MODES.map((mode) => ({ value: mode, label: t(`mode.reply.${mode}`) }))}
+                    />
+                    <Select
+                      label={t('field.language')}
+                      value={settings.defaults.reply_voice.language}
+                      onChange={(event) => setReplyVoice((current) => ({ ...current, language: event.target.value }))}
+                      options={REPLY_VOICE_LANGUAGES.map((language) => ({ value: language, label: language }))}
+                    />
+                    {settings.defaults.reply_voice.mode === 'custom' ? (
+                      <Input
+                        label={t('field.speaker')}
+                        value={settings.defaults.reply_voice.speaker}
+                        onChange={(event) => setReplyVoice((current) => ({ ...current, speaker: event.target.value }))}
+                      />
+                    ) : null}
+                    <Textarea
+                      label={t('field.baseGuidance')}
+                      value={settings.defaults.reply_voice.instruct}
+                      onChange={(event) => setReplyVoice((current) => ({ ...current, instruct: event.target.value }))}
+                      rows={3}
+                      className="settings-full-width"
+                    />
+                    {settings.defaults.reply_voice.mode === 'clone' ? (
+                      <>
+                        <Input
+                          label={t('field.voiceLabel')}
+                          value={settings.defaults.reply_voice.clone_profile_label ?? ''}
+                          onChange={(event) =>
+                            setReplyVoice((current) => ({
+                              ...current,
+                              clone_profile_label: event.target.value,
+                              clone_profile_id: null,
+                              clone_audio_path: null,
+                              clone_embedding_path: null,
+                            }))
+                          }
+                        />
+                        <div className="form-group">
+                          <label htmlFor="chat-reference-voice-clip" className="form-label">
+                            {t('field.referenceVoiceClip')}
+                          </label>
+                          <input
+                            id="chat-reference-voice-clip"
+                            type="file"
+                            accept="audio/*"
+                            className="form-input"
+                            onChange={(event) => {
+                              setReplyReferenceFile(event.target.files?.[0] ?? null)
+                              setReplyVoice((current) => ({
+                                ...current,
+                                clone_profile_id: null,
+                                clone_audio_path: null,
+                                clone_embedding_path: null,
+                              }))
+                            }}
+                          />
+                        </div>
+                        <Textarea
+                          label={t('field.referenceTranscript')}
+                          value={settings.defaults.reply_voice.clone_reference_text ?? ''}
+                          onChange={(event) =>
+                            setReplyVoice((current) => ({
+                              ...current,
+                              clone_reference_text: event.target.value,
+                              clone_profile_id: null,
+                              clone_audio_path: null,
+                              clone_embedding_path: null,
+                            }))
+                          }
+                          placeholder={t('placeholder.referenceTranscript')}
+                          hint={
+                            settings.defaults.reply_voice.clone_profile_label
+                              ? t('hint.replyCloneReady', { label: settings.defaults.reply_voice.clone_profile_label })
+                              : t('hint.replyClonePrepare')
+                          }
+                          rows={3}
+                          className="settings-full-width"
+                        />
+                        <Button
+                          variant="secondary"
+                          onClick={() => void prepareReplyCloneProfile(false)}
+                          disabled={!replyReferenceFile}
+                          isLoading={isPreparingClone}
+                        >
+                          {t('button.prepareClonedVoice')}
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
 
                   <div className="settings-actions">

@@ -37,6 +37,22 @@ function renderApp(locale: 'en' | 'ko' = 'en') {
   )
 }
 
+const authUser = {
+  id: 'test-user-id',
+  username: 'admin',
+  role: 'admin',
+  created_at: '2026-03-27T14:00:00Z',
+  is_active: true,
+}
+
+function mockAuthMe(url: string) {
+  if (url.endsWith('/api/auth/me')) {
+    return new Response(JSON.stringify(authUser))
+  }
+
+  return null
+}
+
 const capabilities = {
   active_mode: null,
   selected_device: 'cpu',
@@ -147,6 +163,8 @@ const chatSettings = {
 function mockFetchSequence() {
   vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
     const url = String(input)
+    const authResponse = mockAuthMe(url)
+    if (authResponse) return Promise.resolve(authResponse)
 
     if (url.endsWith('/api/capabilities')) {
       return Promise.resolve(new Response(JSON.stringify(capabilities)))
@@ -241,10 +259,29 @@ function mockFetchSequence() {
   })
 }
 
+async function openTtsWorkspace() {
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getAllByRole('link', { name: /tts.*synthesis/i })[0])
+  await screen.findByRole('button', { name: /generate audio/i })
+}
+
+async function openChatWorkspaceSettings() {
+  await screen.findByText('Ivy Voice Lab')
+  await userEvent.click(screen.getAllByRole('link', { name: /chat.*realtime/i })[0])
+  await userEvent.click(screen.getByRole('button', { name: /settings/i }))
+  await screen.findByRole('button', { name: /test connection/i })
+}
+
+async function selectCombobox(label: RegExp, option: RegExp | string) {
+  await userEvent.click(screen.getByLabelText(label))
+  await userEvent.click(await screen.findByRole('option', { name: option }))
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   globalThis.WebSocket = OriginalWebSocket
   window.localStorage.clear()
+  window.history.pushState({}, '', '/')
 })
 
 test('switches the visible chrome to korean', async () => {
@@ -253,17 +290,15 @@ test('switches the visible chrome to korean', async () => {
 
   await screen.findByText('아이비 보이스 랩')
 
-  expect(screen.getByRole('link', { name: /보이스 챗.*실시간 검증/i })).toBeInTheDocument()
-  expect(screen.getByText('로컬 음성 평가')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '오디오 생성' })).toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: /실시간/i }).length).toBeGreaterThan(0)
+  expect(screen.getByText('런타임을 항상 확인하세요.')).toBeInTheDocument()
 })
 
 test('switches to voice chat and shows provider controls', async () => {
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
-  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
+  await openChatWorkspaceSettings()
 
   expect(screen.getByRole('heading', { name: 'Voice Chat' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /test connection/i })).toBeInTheDocument()
@@ -274,7 +309,7 @@ test('adds and removes segments in ivy voice lab', async () => {
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
+  await openTtsWorkspace()
   await userEvent.click(screen.getByRole('button', { name: /add segment/i }))
   expect(screen.getAllByLabelText(/text segment/i)).toHaveLength(2)
 
@@ -286,12 +321,11 @@ test('renders generated clips and history after a successful run', async () => {
   mockFetchSequence()
   const { container } = renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
+  await openTtsWorkspace()
   await userEvent.clear(screen.getByLabelText(/text segment 1/i))
   await userEvent.type(screen.getByLabelText(/text segment 1/i), 'Hello world')
   await userEvent.click(screen.getByRole('button', { name: /generate audio/i }))
 
-  expect(await screen.findByText('Run history')).toBeInTheDocument()
   expect(await screen.findByText('clip-1.wav')).toBeInTheDocument()
   expect(container.querySelector('audio')).not.toBeNull()
 })
@@ -300,6 +334,8 @@ test('sends clone generation with backend multipart field names', async () => {
   let cloneFormData: FormData | null = null
   vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
     const url = String(input)
+    const authResponse = mockAuthMe(url)
+    if (authResponse) return Promise.resolve(authResponse)
 
     if (url.endsWith('/api/capabilities')) {
       return Promise.resolve(new Response(JSON.stringify(capabilities)))
@@ -332,7 +368,7 @@ test('sends clone generation with backend multipart field names', async () => {
   window.history.pushState({}, '', '/tts')
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
+  await screen.findByRole('button', { name: /generate audio/i })
   await userEvent.click(screen.getByRole('tab', { name: /voice clone/i }))
   await userEvent.upload(
     screen.getByLabelText(/reference audio/i),
@@ -353,6 +389,8 @@ test('sends structured style controls as part of the tts instruction prompt', as
   let customRequestBody = ''
   vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
     const url = String(input)
+    const authResponse = mockAuthMe(url)
+    if (authResponse) return Promise.resolve(authResponse)
 
     if (url.endsWith('/api/capabilities')) {
       return Promise.resolve(new Response(JSON.stringify(capabilities)))
@@ -383,8 +421,8 @@ test('sends structured style controls as part of the tts instruction prompt', as
 
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
-  await userEvent.selectOptions(screen.getByLabelText(/mood/i), 'calm')
+  await openTtsWorkspace()
+  await selectCombobox(/mood/i, /^calm$/i)
   await userEvent.type(screen.getByLabelText(/additional instruction/i), 'Keep the delivery broadcast-clean.')
   await userEvent.type(screen.getByLabelText(/text segment 1/i), 'Style control payload test.')
   await userEvent.click(screen.getByRole('button', { name: /generate audio/i }))
@@ -400,8 +438,7 @@ test('tests the selected provider from the voice chat workspace', async () => {
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
-  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
+  await openChatWorkspaceSettings()
   await userEvent.click(screen.getByRole('button', { name: /test connection/i }))
 
   expect(await screen.findByText(/connection ok in 18 ms/i)).toBeInTheDocument()
@@ -411,20 +448,18 @@ test('syncs the conversation provider when a provider tab is selected', async ()
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
-  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
-  await userEvent.click(screen.getByRole('button', { name: 'Gemini' }))
+  await openChatWorkspaceSettings()
+  await userEvent.click(screen.getByRole('tab', { name: 'Gemini' }))
 
-  expect(screen.getByLabelText(/active provider/i)).toHaveValue('gemini')
+  expect(screen.getByLabelText(/active provider/i)).toHaveTextContent('Gemini')
 })
 
 test('shows clone reply voice controls in voice chat', async () => {
   mockFetchSequence()
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
-  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
-  await userEvent.selectOptions(screen.getByLabelText(/voice mode/i), 'clone')
+  await openChatWorkspaceSettings()
+  await selectCombobox(/voice mode/i, /cloned voice/i)
 
   expect(screen.getByRole('button', { name: /prepare cloned voice/i })).toBeInTheDocument()
   expect(
@@ -436,6 +471,8 @@ test('saves raw reply voice guidance without reserializing composed style text',
   let savedPayload = ''
   vi.spyOn(global, 'fetch').mockImplementation((input, init) => {
     const url = String(input)
+    const authResponse = mockAuthMe(url)
+    if (authResponse) return Promise.resolve(authResponse)
 
     if (url.endsWith('/api/capabilities')) {
       return Promise.resolve(new Response(JSON.stringify(capabilities)))
@@ -454,8 +491,7 @@ test('saves raw reply voice guidance without reserializing composed style text',
 
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
-  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
+  await openChatWorkspaceSettings()
   await userEvent.clear(screen.getByLabelText(/base guidance/i))
   await userEvent.type(screen.getByLabelText(/base guidance/i), 'Keep the reply grounded and unhurried.')
   await userEvent.click(screen.getByRole('button', { name: /save settings/i }))
@@ -470,6 +506,8 @@ test('saves raw reply voice guidance without reserializing composed style text',
 test('shows provider test failures without clearing the form', async () => {
   vi.spyOn(global, 'fetch').mockImplementation((input) => {
     const url = String(input)
+    const authResponse = mockAuthMe(url)
+    if (authResponse) return Promise.resolve(authResponse)
 
     if (url.endsWith('/api/capabilities')) {
       return Promise.resolve(new Response(JSON.stringify(capabilities)))
@@ -500,8 +538,7 @@ test('shows provider test failures without clearing the form', async () => {
 
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
-  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
+  await openChatWorkspaceSettings()
   const providerModelInput = screen.getAllByLabelText(/model/i)[0]
   await userEvent.clear(providerModelInput)
   await userEvent.type(providerModelInput, 'bad-model')
@@ -553,6 +590,8 @@ test('auto-prepares a cloned reply voice before sending a typed chat message', a
 
   vi.spyOn(global, 'fetch').mockImplementation((input) => {
     const url = String(input)
+    const authResponse = mockAuthMe(url)
+    if (authResponse) return Promise.resolve(authResponse)
 
     if (url.endsWith('/api/capabilities')) {
       return Promise.resolve(new Response(JSON.stringify(capabilities)))
@@ -584,15 +623,16 @@ test('auto-prepares a cloned reply voice before sending a typed chat message', a
 
   renderApp()
 
-  await screen.findByText('Ivy Voice Lab')
-  await userEvent.click(screen.getByRole('link', { name: /chat.*realtime/i }))
-  await userEvent.selectOptions(screen.getByLabelText(/voice mode/i), 'clone')
+  await openChatWorkspaceSettings()
+  await userEvent.click(screen.getByRole('button', { name: /^connect$/i }))
+  await waitFor(() => expect(screen.getByPlaceholderText(/type a message for the connected llm/i)).not.toBeDisabled())
+  await selectCombobox(/voice mode/i, /cloned voice/i)
   await userEvent.upload(
     screen.getByLabelText(/reference voice clip/i),
     new File(['fake-audio'], 'voice.wav', { type: 'audio/wav' }),
   )
   await userEvent.type(screen.getByPlaceholderText(/type a message for the connected llm/i), '안녕하세요')
-  await userEvent.click(screen.getByRole('button', { name: /send message/i }))
+  await userEvent.click(screen.getByRole('button', { name: /send/i }))
 
   await waitFor(() => {
     expect(clonePrepareCalls).toBe(1)

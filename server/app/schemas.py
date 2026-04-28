@@ -346,4 +346,4 @@ class UserResponse(BaseModel):
 class CreateUserRequest(BaseModel):
     username: str
     password: str
-    role: str = "user"
+    role: Literal["admin", "user"] = "user"

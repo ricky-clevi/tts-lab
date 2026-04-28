@@ -104,6 +104,46 @@ def decode_token(token: str) -> Dict[str, Any]:
         )
 
 
+def validate_user_payload(payload: Dict[str, Any], db: Any) -> Dict[str, Any]:
+    """Validate JWT claims against the current database user state."""
+    user_id = str(payload.get("sub") or "").strip()
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = db.get_user_by_id(user_id) if db is not None else None
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User no longer exists",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not bool(user.get("is_active")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User is inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    role = str(user.get("role") or "")
+    if role not in {"admin", "user"}:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User role is invalid",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return {
+        "sub": str(user["id"]),
+        "username": str(user["username"]),
+        "role": role,
+    }
+
+
 def hash_service_token(token: str) -> str:
     """Hash a long-lived service token for constant-time database lookup."""
     return sha256(token.encode("utf-8")).hexdigest()
@@ -172,7 +212,9 @@ def get_current_user(request: Request) -> Dict[str, Any]:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return decode_token(token)
+    payload = decode_token(token)
+    db = getattr(getattr(request.app, "state", None), "db", None)
+    return validate_user_payload(payload, db)
 
 
 def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:

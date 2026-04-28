@@ -37,6 +37,7 @@ from .auth import (
     create_access_token,
     decode_token,
     require_runtime_api_key,
+    validate_user_payload,
     validate_jwt_secret,
 )
 from .branding import (
@@ -558,7 +559,7 @@ def create_app(
         credential = extract_bearer_or_api_key(request)
         if credential:
             try:
-                user = decode_token(credential)
+                user = validate_user_payload(decode_token(credential), db)
                 if user.get("role") == "admin":
                     return {"type": "admin", "sub": user.get("sub")}
             except HTTPException:
@@ -1360,22 +1361,21 @@ def create_app(
                     x_vector_only_mode=x_vector_only_mode,
                 )
             )
-            if save_profile:
-                speaker_embedding, ref_codes = run_or_http_error(
-                    lambda: tts.prepare_clone_conditioning_assets(
-                        ref_audio_path=prompt_path
-                    )
+            speaker_embedding, ref_codes = run_or_http_error(
+                lambda: tts.prepare_clone_conditioning_assets(
+                    ref_audio_path=prompt_path
                 )
-                profile = voice_profiles.save_profile(
-                    source_path=prompt_path,
-                    source_name=f"{Path(reference_upload.filename or 'reference').stem}{Path(prompt_path).suffix}",
-                    language=payload.language,
-                    reference_text=resolved_ref_text or "",
-                    label=label,
-                    speaker_embedding=speaker_embedding,
-                    ref_codes=ref_codes,
-                )
-                saved_profile = persist_clone_profile(profile, str(current_user["sub"]))
+            )
+            profile = voice_profiles.save_profile(
+                source_path=prompt_path,
+                source_name=f"{Path(reference_upload.filename or 'reference').stem}{Path(prompt_path).suffix}",
+                language=payload.language,
+                reference_text=resolved_ref_text or "",
+                label=label,
+                speaker_embedding=speaker_embedding,
+                ref_codes=ref_codes,
+            )
+            saved_profile = persist_clone_profile(profile, str(current_user["sub"]))
         finally:
             cleanup_temp_paths(temp_path, *cleanup_paths)
 
@@ -1496,7 +1496,7 @@ def create_app(
             if not token:
                 await websocket.close(code=4001, reason="Missing authentication token")
                 return
-            current_user = decode_token(token)
+            current_user = validate_user_payload(decode_token(token), db)
         except HTTPException as e:
             await websocket.close(code=4001, reason="Invalid authentication token")
             return
@@ -1509,10 +1509,12 @@ def create_app(
             audio_storage=storage,
             settings_store=settings,
             provider_service=providers,
+            db=db,
         )
         # Store the authenticated user in session state
         session.user_id = current_user["sub"]
         session.username = current_user["username"]
+        session.user_role = str(current_user.get("role") or "user")
         await session.on_connect()
 
         try:

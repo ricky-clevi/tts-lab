@@ -4,7 +4,7 @@ import '../styles/pages/tts.css'
 import { Alert, Badge, Button, Card, CardBody, CardHeader, Input, LoadingState, Select, Textarea, useToast } from '../components/ui'
 import { t } from '../i18n'
 import { formatAppDateTime, formatAppTime, formatBuiltInSpeakerLabel, formatLanguageLabel, normalizeLanguageValue } from '../lib/formatters'
-import type { AudioClip, CapabilitiesResponse, GenerationRun, Mode } from '../types'
+import type { AudioClip, CapabilitiesResponse, GenerationRun, Mode, StyleControlsApi } from '../types'
 
 type GenerationSettings = {
   temperature: number
@@ -18,10 +18,56 @@ const DEFAULT_SETTINGS: GenerationSettings = {
   max_new_tokens: 2048,
 }
 
+const DEFAULT_STYLE: StyleControlsApi = {
+  mood: 'neutral',
+  emotion_intensity: 'restrained',
+  pace: 'steady',
+  energy: 'balanced',
+  expressiveness: 'controlled',
+}
+
 const MODE_META: Record<Mode, { mark: string; titleKey: string; summaryKey: string }> = {
   custom: { mark: 'BASE', titleKey: 'tts.mode.custom.title', summaryKey: 'tts.mode.custom.summary' },
   design: { mark: 'STYLE', titleKey: 'tts.mode.design.title', summaryKey: 'tts.mode.design.summary' },
   clone: { mark: 'CLONE', titleKey: 'tts.mode.clone.title', summaryKey: 'tts.mode.clone.summary' },
+}
+
+const STYLE_OPTIONS: Record<keyof StyleControlsApi, string[]> = {
+  mood: ['neutral', 'calm', 'warm', 'happy', 'confident', 'serious', 'empathetic', 'sad'],
+  emotion_intensity: ['restrained', 'balanced', 'expressive'],
+  pace: ['slower', 'steady', 'faster'],
+  energy: ['soft', 'balanced', 'high'],
+  expressiveness: ['controlled', 'natural', 'dramatic'],
+}
+
+const STYLE_CONTROL_META: Array<{ key: keyof StyleControlsApi; translationKey: string }> = [
+  { key: 'mood', translationKey: 'mood' },
+  { key: 'emotion_intensity', translationKey: 'emotionIntensity' },
+  { key: 'pace', translationKey: 'pace' },
+  { key: 'energy', translationKey: 'energy' },
+  { key: 'expressiveness', translationKey: 'expressiveness' },
+]
+
+function composeInstruction(baseInstruction: string, style: StyleControlsApi, mode: Mode): string {
+  const guidance = [
+    mode === 'custom' ? t('style.prompt.preservePreset') : '',
+    t(`style.prompt.mood.${style.mood}`),
+    t(`style.prompt.emotionIntensity.${style.emotion_intensity}`),
+    t(`style.prompt.pace.${style.pace}`),
+    t(`style.prompt.energy.${style.energy}`),
+    t(`style.prompt.expressiveness.${style.expressiveness}`),
+  ]
+
+  if (style.mood !== 'sad' && (style.emotion_intensity === 'restrained' || style.expressiveness === 'controlled')) {
+    guidance.push(t('style.prompt.avoidSadness'))
+  }
+
+  const trimmedBase = baseInstruction.trim()
+  if (trimmedBase) {
+    guidance.push(t('style.prompt.additionalGuidance', { text: trimmedBase }))
+  }
+
+  return guidance.filter(Boolean).join(' ')
 }
 
 export default function TtsPage() {
@@ -36,6 +82,8 @@ export default function TtsPage() {
   const [referenceFile, setReferenceFile] = useState<File | null>(null)
   const [referenceText, setReferenceText] = useState('')
   const [cloneLabel, setCloneLabel] = useState('')
+  const [style, setStyle] = useState<StyleControlsApi>(DEFAULT_STYLE)
+  const [additionalInstruction, setAdditionalInstruction] = useState('')
   const [settings, setSettings] = useState<GenerationSettings>(DEFAULT_SETTINGS)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -100,11 +148,12 @@ export default function TtsPage() {
         }
         result = await generateRun(mode, formData)
       } else {
+        const instructionBase = mode === 'design' ? voicePersona : additionalInstruction
         result = await generateRun(mode, {
           segments: validSegments,
           language,
           speaker: mode === 'custom' ? speaker : undefined,
-          instruct: mode === 'design' ? voicePersona : undefined,
+          instruct: composeInstruction(instructionBase, style, mode),
           generation: settings,
         })
       }
@@ -277,6 +326,38 @@ export default function TtsPage() {
             </Card>
 
             <Card>
+              <CardHeader><h3>{t('style.title')}</h3></CardHeader>
+              <CardBody>
+                <div className="settings-grid">
+                  {STYLE_CONTROL_META.map(({ key, translationKey }) => (
+                    <Select
+                      key={key}
+                      label={t(`style.category.${translationKey}`)}
+                      value={style[key]}
+                      onChange={(event) =>
+                        setStyle((current) => ({
+                          ...current,
+                          [key]: event.target.value,
+                        }))
+                      }
+                      options={STYLE_OPTIONS[key].map((value) => ({
+                        value,
+                        label: t(`style.option.${translationKey}.${value}`),
+                      }))}
+                    />
+                  ))}
+                  <Textarea
+                    label={t('field.additionalInstruction')}
+                    value={additionalInstruction}
+                    onChange={(event) => setAdditionalInstruction(event.target.value)}
+                    className="settings-full-width"
+                    rows={3}
+                  />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
               <CardHeader>
                 <h3>{t('tts.textSegments')}</h3>
               </CardHeader>
@@ -293,6 +374,7 @@ export default function TtsPage() {
                         </div>
                       )}
                       <Textarea
+                        label={t('field.textSegment', { index: index + 1 })}
                         value={segment}
                         onChange={(e) => handleSegmentChange(index, e.target.value)}
                         placeholder={t('placeholder.pasteText')}
@@ -436,6 +518,7 @@ function ClipCard({ clip, index }: { clip: AudioClip; index: number }) {
         <audio src={authenticatedMediaUrl(clip.audio_url)} controls className="clip-audio" />
       </div>
       <div className="clip-meta">
+        <span>{clip.file_name}</span>
         <span>{t('tts.sampleRateMeta', { sampleRate: clip.sample_rate })}</span>
         {clip.speaker && <span>{t('tts.speakerMeta', { speaker: clip.speaker })}</span>}
       </div>

@@ -95,8 +95,11 @@ class ChatSettingsStore:
         return incoming
 
     def redact(self, settings: ChatSettingsInput) -> ChatSettingsResponse:
+        defaults = settings.defaults.model_copy(deep=True)
+        defaults.reply_voice.clone_audio_path = None
+        defaults.reply_voice.clone_embedding_path = None
         response = ChatSettingsResponse(
-            defaults=settings.defaults,
+            defaults=defaults,
             openai_compatible=self._redact_provider(settings.openai_compatible),
             gemini=self._redact_provider(settings.gemini),
             anthropic=self._redact_provider(settings.anthropic),

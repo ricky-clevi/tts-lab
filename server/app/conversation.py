@@ -15,6 +15,7 @@ from fastapi import WebSocket
 from .branding import brand_chat_settings_response, unbrand_chat_settings_input
 from .chat_store import ChatSettingsStore
 from .constants import CONVERSATION_SAMPLE_RATE, PARTIAL_TRANSCRIPTION_MIN_SECONDS
+from .database import Database
 from .llm import ProviderService
 from .model_manager import AsrModelManager, TtsModelManager
 from .schemas import (
@@ -147,6 +148,7 @@ class ConversationSession:
         audio_storage: AudioStorage,
         settings_store: ChatSettingsStore,
         provider_service: ProviderService,
+        db: Database | None = None,
     ) -> None:
         self.websocket = websocket
         self.tts_manager = tts_manager
@@ -154,6 +156,7 @@ class ConversationSession:
         self.audio_storage = audio_storage
         self.settings_store = settings_store
         self.provider_service = provider_service
+        self.db = db
         self.send_lock = asyncio.Lock()
         self.settings = settings_store.load()
         self.messages: list[dict[str, str]] = [
@@ -168,6 +171,9 @@ class ConversationSession:
         self.last_partial_buffer_seconds = 0.0
         self.tts_segment_index = 0
         self.clone_warmup_task: asyncio.Task[None] | None = None
+        self.user_id = ""
+        self.username = ""
+        self.user_role = "user"
 
     async def send(self, payload: dict[str, Any]) -> None:
         async with self.send_lock:
@@ -194,6 +200,30 @@ class ConversationSession:
             message for message in self.messages if message["role"] != "system"
         ]
         self._schedule_clone_warmup()
+
+    def _resolve_clone_reply_voice_profile(self) -> None:
+        reply_voice = self.settings.defaults.reply_voice
+        if reply_voice.mode != "clone" or not reply_voice.clone_profile_id or not self.db:
+            return
+
+        profile = self.db.get_profile_by_id(reply_voice.clone_profile_id)
+        if not profile:
+            return
+
+        profile_user_id = str(profile.get("user_id") or "")
+        if profile_user_id and profile_user_id != self.user_id and self.user_role != "admin":
+            return
+
+        reply_voice.clone_profile_label = reply_voice.clone_profile_label or str(profile.get("label") or "")
+        reply_voice.clone_reference_text = reply_voice.clone_reference_text or str(
+            profile.get("reference_text") or ""
+        )
+        reply_voice.clone_audio_path = reply_voice.clone_audio_path or str(
+            profile.get("audio_path") or ""
+        ) or None
+        reply_voice.clone_embedding_path = reply_voice.clone_embedding_path or str(
+            profile.get("speaker_embedding_path") or ""
+        ) or None
 
     async def append_audio(self, payload: dict[str, Any]) -> None:
         if self.assistant_task and not self.assistant_task.done():
@@ -335,6 +365,7 @@ class ConversationSession:
         await self.send(payload)
 
     def _schedule_clone_warmup(self) -> None:
+        self._resolve_clone_reply_voice_profile()
         reply_voice = self.settings.defaults.reply_voice
         if (
             reply_voice.mode != "clone"
@@ -559,6 +590,8 @@ class ConversationSession:
             self.tts_segment_index += 1
             segment_started_at = time.monotonic()
 
+            reply_voice = self.settings.defaults.reply_voice
+            self._resolve_clone_reply_voice_profile()
             reply_voice = self.settings.defaults.reply_voice
             if reply_voice.mode == "custom":
                 request = CustomGenerationRequest(

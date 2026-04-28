@@ -6,6 +6,7 @@ import os
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 import wave
 
 import numpy as np
@@ -317,16 +318,29 @@ def make_wav_bytes() -> bytes:
     return buffer.getvalue()
 
 
+_TEST_AUTH_TOKEN: str | None = None
+
+
 def auth_token(user_id: str = "test-user", username: str = "admin", role: str = "admin") -> str:
     return create_access_token(user_id=user_id, username=username, role=role)
 
 
+def auth_token_for_app(app) -> str:
+    admin_user = app.state.db.get_user_by_username("admin")
+    assert admin_user is not None
+    return create_access_token(
+        user_id=admin_user["id"],
+        username=admin_user["username"],
+        role=admin_user["role"],
+    )
+
+
 def auth_headers() -> dict[str, str]:
-    return {"Authorization": f"Bearer {auth_token()}"}
+    return {"Authorization": f"Bearer {_TEST_AUTH_TOKEN or auth_token()}"}
 
 
-def ws_path() -> str:
-    return f"/api/conversation/ws?token={auth_token()}"
+def ws_path(token: str | None = None) -> str:
+    return f"/api/conversation/ws?token={token or _TEST_AUTH_TOKEN or auth_token()}"
 
 
 def test_collect_audio_concatenates_all_non_streaming_results():
@@ -489,6 +503,7 @@ def test_chat_settings_store_migrates_old_asr_model_ids_to_active_runtime(
 
 @pytest.fixture
 def client(tmp_path: Path):
+    global _TEST_AUTH_TOKEN
     os.environ["RUNTIME_API_KEY"] = "test-runtime-key"
     tts_manager = FakeTtsManager()
     asr_manager = FakeAsrManager()
@@ -506,8 +521,16 @@ def client(tmp_path: Path):
         provider_service=FakeProviderService(),
     )
     with TestClient(app) as test_client:
+        admin_user = app.state.db.get_user_by_username("admin")
+        assert admin_user is not None
+        _TEST_AUTH_TOKEN = create_access_token(
+            user_id=admin_user["id"],
+            username=admin_user["username"],
+            role=admin_user["role"],
+        )
         test_client.headers.update(auth_headers())
         yield test_client, tts_manager, asr_manager, settings_store
+    _TEST_AUTH_TOKEN = None
 
 
 def test_health_and_capabilities(client):
@@ -520,6 +543,25 @@ def test_health_and_capabilities(client):
     assert capabilities.json()["selected_device"] == "cpu"
     assert capabilities.json()["asr"]["default_model"] == "mlx-community/Ivy3-ASR-1.7B-8bit"
     assert capabilities.json()["chat"]["providers"][0]["id"] == "openai_compatible"
+
+
+def test_deleted_user_token_is_rejected(client):
+    test_client, _tts, _asr, _settings = client
+    db = test_client.app.state.db
+    user = db.create_user(f"revoked-user-{uuid4().hex}", "not-used", "user")
+    token = create_access_token(
+        user_id=user["id"],
+        username=user["username"],
+        role=user["role"],
+    )
+    db.delete_user(user["id"])
+
+    response = test_client.get(
+        "/api/capabilities",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
 
 
 def test_settings_roundtrip_and_redaction(client):
@@ -736,7 +778,11 @@ def test_clone_generation_auto_transcribes_reference_when_text_is_missing(client
     body = response.json()
     assert body["mode"] == "clone"
     assert body["clips"][0]["instruct"] == "Uploaded sample transcript."
+    assert body["saved_voice_profile"]["id"]
+    assert body["saved_voice_profile"]["label"] == "reference"
+    assert body["saved_voice_profile"]["reference_text"] == "Uploaded sample transcript."
     assert manager.clone_calls == 1
+    assert manager.prepare_clone_embedding_calls == 1
     assert asr_manager.transcribe_file_calls == 1
 
 
@@ -757,7 +803,10 @@ def test_clone_generation_accepts_legacy_frontend_field_names(client):
     body = response.json()
     assert body["mode"] == "clone"
     assert body["clips"][0]["instruct"] == "Legacy reference transcript."
+    assert body["saved_voice_profile"]["id"]
+    assert body["saved_voice_profile"]["reference_text"] == "Legacy reference transcript."
     assert manager.clone_calls == 1
+    assert manager.prepare_clone_embedding_calls == 1
     assert asr_manager.transcribe_file_calls == 0
 
 
@@ -775,8 +824,11 @@ def test_clone_generation_supports_x_vector_only_mode_without_reference_text(cli
     )
 
     assert response.status_code == 200
-    assert response.json()["clips"][0]["x_vector_only_mode"] is True
+    body = response.json()
+    assert body["clips"][0]["x_vector_only_mode"] is True
+    assert body["saved_voice_profile"]["id"]
     assert manager.clone_calls == 1
+    assert manager.prepare_clone_embedding_calls == 1
     assert asr_manager.transcribe_file_calls == 0
 
 
@@ -801,7 +853,16 @@ def test_create_clone_voice_profile_auto_transcribes_reference(client):
 
 def test_list_user_voices_accepts_utc_z_timestamps(client, monkeypatch):
     test_client, _manager, _asr_manager, _settings = client
-    token = create_access_token(user_id="user-123", username="admin", role="admin")
+    user = test_client.app.state.db.create_user(
+        f"voice-owner-{uuid4().hex}",
+        "not-used",
+        "user",
+    )
+    token = create_access_token(
+        user_id=user["id"],
+        username=user["username"],
+        role=user["role"],
+    )
     headers = {"Authorization": f"Bearer {token}"}
 
     monkeypatch.setattr(
@@ -827,7 +888,7 @@ def test_list_user_voices_accepts_utc_z_timestamps(client, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body[0]["id"] == "voice-1"
-    assert body[0]["user_id"] == "user-123"
+    assert body[0]["user_id"] == user["id"]
     assert body[0]["created_at"].startswith("2026-04-10T07:56:20.268575")
 
 
@@ -942,7 +1003,7 @@ def test_conversation_turn_commit_returns_error_without_disconnect_on_asr_failur
     pcm16 = base64.b64encode((np.zeros(1600, dtype=np.int16)).tobytes()).decode("ascii")
 
     with TestClient(app) as test_client:
-        with test_client.websocket_connect(ws_path()) as websocket:
+        with test_client.websocket_connect(ws_path(auth_token_for_app(app))) as websocket:
             assert websocket.receive_json()["type"] == "session.ready"
             websocket.send_json(
                 {
@@ -969,6 +1030,18 @@ def test_conversation_can_speak_with_cloned_reply_voice(client, tmp_path: Path):
     reference_path.write_bytes(make_wav_bytes())
     embedding_path = tmp_path / "clone-reference.speaker.npy"
     np.save(embedding_path, np.asarray([[0.1, 0.2, 0.3]], dtype=np.float32))
+    admin_user = test_client.app.state.db.get_user_by_username("admin")
+    assert admin_user is not None
+    test_client.app.state.db.save_voice_profile(
+        profile_id="clone-voice",
+        user_id=admin_user["id"],
+        label="Clone Voice",
+        language="English",
+        reference_text="Uploaded sample transcript.",
+        audio_file_name=reference_path.name,
+        audio_path=str(reference_path),
+        speaker_embedding_path=str(embedding_path),
+    )
 
     with test_client.websocket_connect(ws_path()) as websocket:
         ready = websocket.receive_json()
@@ -976,9 +1049,6 @@ def test_conversation_can_speak_with_cloned_reply_voice(client, tmp_path: Path):
         settings["defaults"]["reply_voice"]["mode"] = "clone"
         settings["defaults"]["reply_voice"]["clone_profile_id"] = "clone-voice"
         settings["defaults"]["reply_voice"]["clone_profile_label"] = "Clone Voice"
-        settings["defaults"]["reply_voice"]["clone_audio_path"] = str(reference_path)
-        settings["defaults"]["reply_voice"]["clone_reference_text"] = "Uploaded sample transcript."
-        settings["defaults"]["reply_voice"]["clone_embedding_path"] = str(embedding_path)
 
         websocket.send_json({"type": "session.configure", "settings": settings})
         websocket.receive_json()
@@ -1014,7 +1084,7 @@ def test_conversation_strips_markdown_before_speaking(tmp_path: Path):
     )
 
     with TestClient(app) as test_client:
-        with test_client.websocket_connect(ws_path()) as websocket:
+        with test_client.websocket_connect(ws_path(auth_token_for_app(app))) as websocket:
             assert websocket.receive_json()["type"] == "session.ready"
             websocket.send_json({"type": "text.submit", "text": "Explain React."})
 
