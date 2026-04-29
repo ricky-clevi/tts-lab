@@ -38,6 +38,10 @@ class RuntimeSelection:
     backend: RuntimeBackend
     device: str
     device_label: str
+    tts_device: str
+    tts_device_label: str
+    asr_device: str
+    asr_device_label: str
     torch_dtype_name: str | None
     attn_implementation: str | None
     tts_model_ids: dict[str, str]
@@ -156,6 +160,10 @@ def resolve_runtime_selection() -> RuntimeSelection:
             backend="mlx",
             device="mlx",
             device_label="mlx",
+            tts_device="mlx",
+            tts_device_label="mlx",
+            asr_device="mlx",
+            asr_device_label="mlx",
             torch_dtype_name=None,
             attn_implementation=None,
             tts_model_ids=_resolve_tts_model_ids("mlx"),
@@ -164,6 +172,8 @@ def resolve_runtime_selection() -> RuntimeSelection:
         )
 
     device, device_label = _resolve_qwen_device(_env("QWEN_AUDIO_DEVICE", "auto"))
+    tts_device, tts_device_label = _resolve_qwen_device(_env("QWEN_TTS_DEVICE", device))
+    asr_device, asr_device_label = _resolve_qwen_device(_env("QWEN_ASR_DEVICE", device))
     dtype_name = _resolve_qwen_dtype_name(device, _env("QWEN_AUDIO_TORCH_DTYPE", "auto"))
     attn_implementation = _resolve_attn_implementation(
         device,
@@ -173,6 +183,10 @@ def resolve_runtime_selection() -> RuntimeSelection:
         backend="qwen",
         device=device,
         device_label=device_label,
+        tts_device=tts_device,
+        tts_device_label=tts_device_label,
+        asr_device=asr_device,
+        asr_device_label=asr_device_label,
         torch_dtype_name=dtype_name,
         attn_implementation=attn_implementation,
         tts_model_ids=_resolve_tts_model_ids("qwen"),

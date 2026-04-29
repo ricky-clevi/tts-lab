@@ -38,7 +38,7 @@ from server.app.main import (
     prepare_clone_reference_audio,
     should_override_reference_text,
 )
-from server.app.runtime import RuntimeSelection
+from server.app.runtime import RuntimeSelection, resolve_runtime_selection
 from server.app.model_manager import TtsModelManager
 from server.app.schemas import (
     AsrCapabilityResponse,
@@ -454,6 +454,20 @@ def estimate_wav_duration_seconds(path: Path) -> float:
         return float(wav.getnframes()) / float(wav.getframerate())
 
 
+def test_runtime_selection_allows_split_qwen_audio_devices(monkeypatch):
+    monkeypatch.setenv("QWEN_AUDIO_BACKEND", "qwen")
+    monkeypatch.setenv("QWEN_AUDIO_DEVICE", "cuda:0")
+    monkeypatch.setenv("QWEN_TTS_DEVICE", "cuda:0")
+    monkeypatch.setenv("QWEN_ASR_DEVICE", "cuda:1")
+    monkeypatch.setattr("server.app.runtime._has_module", lambda name: name in {"qwen_tts", "qwen_asr"})
+
+    runtime = resolve_runtime_selection()
+
+    assert runtime.device == "cuda:0"
+    assert runtime.tts_device == "cuda:0"
+    assert runtime.asr_device == "cuda:1"
+
+
 def test_chat_settings_store_defaults_follow_active_runtime(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         "server.app.chat_store.resolve_runtime_selection",
@@ -461,6 +475,10 @@ def test_chat_settings_store_defaults_follow_active_runtime(tmp_path: Path, monk
             backend="qwen",
             device="cuda:0",
             device_label="cuda:0",
+            tts_device="cuda:0",
+            tts_device_label="cuda:0",
+            asr_device="cuda:1",
+            asr_device_label="cuda:1",
             torch_dtype_name="bfloat16",
             attn_implementation="flash_attention_2",
             tts_model_ids={"custom": "custom", "design": "design", "clone": "clone"},
@@ -484,6 +502,10 @@ def test_chat_settings_store_migrates_old_asr_model_ids_to_active_runtime(
             backend="qwen",
             device="cuda:0",
             device_label="cuda:0",
+            tts_device="cuda:0",
+            tts_device_label="cuda:0",
+            asr_device="cuda:1",
+            asr_device_label="cuda:1",
             torch_dtype_name="bfloat16",
             attn_implementation="flash_attention_2",
             tts_model_ids={"custom": "custom", "design": "design", "clone": "clone"},

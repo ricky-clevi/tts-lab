@@ -45,6 +45,13 @@ from .schemas import (
 _RUNTIME_LOCK = threading.RLock()
 
 
+def _runtime_lock_for_manager() -> threading.RLock:
+    serialize = os.getenv("QWEN_AUDIO_SERIALIZE_GLOBAL", "").strip().lower()
+    if serialize in {"1", "true", "yes", "on"}:
+        return _RUNTIME_LOCK
+    return threading.RLock()
+
+
 def _estimate_file_duration_seconds(path: str) -> float:
     try:
         info = sf.info(path)
@@ -206,7 +213,7 @@ class TtsModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._inference_lock = threading.Lock()
-        self._runtime_lock = _RUNTIME_LOCK
+        self._runtime_lock = _runtime_lock_for_manager()
         self._clone_embedding_cache: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
         self._clone_prompt_cache: dict[str, Any] = {}
         self._model: Any | None = None
@@ -218,7 +225,7 @@ class TtsModelManager:
         self.runtime_dtype = self.runtime.torch_dtype_name
         self.runtime_attention = self.runtime.attn_implementation
         self.model_ids = self.runtime.tts_model_ids
-        self.selected_device = self.runtime.device_label
+        self.selected_device = self.runtime.tts_device_label
 
     def _torch_dtype(self):
         import torch
@@ -245,7 +252,7 @@ class TtsModelManager:
         from qwen_tts import Qwen3TTSModel
         import torch
 
-        device = self.selected_device or self.runtime.device
+        device = self.selected_device or self.runtime.tts_device
         kwargs: dict[str, Any] = {
             "device_map": device,
             "dtype": self._torch_dtype(),
@@ -1184,7 +1191,7 @@ class AsrModelManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._inference_lock = threading.Lock()
-        self._runtime_lock = _RUNTIME_LOCK
+        self._runtime_lock = _runtime_lock_for_manager()
         self._model: Any | None = None
         self.active_model_id: str | None = None
         self.runtime: RuntimeSelection = resolve_runtime_selection()
@@ -1193,7 +1200,7 @@ class AsrModelManager:
         self.runtime_dtype = self.runtime.torch_dtype_name
         self.runtime_attention = self.runtime.attn_implementation
         self.model_ids = self.runtime.asr_model_ids
-        self.selected_device = self.runtime.device_label
+        self.selected_device = self.runtime.asr_device_label
 
     def _torch_dtype(self):
         import torch
@@ -1219,7 +1226,7 @@ class AsrModelManager:
         from qwen_asr import Qwen3ASRModel
         import torch
 
-        device = self.selected_device or self.runtime.device
+        device = self.selected_device or self.runtime.asr_device
         kwargs: dict[str, Any] = {
             "device_map": device,
             "dtype": self._torch_dtype(),
