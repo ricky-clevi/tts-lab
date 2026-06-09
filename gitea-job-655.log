@@ -1,0 +1,145 @@
+2026-04-23T03:44:22.7286790Z clevifin-runner-01(version:v0.2.11) received task 638 of job deploy, be triggered by event: push
+2026-04-23T03:44:22.7288921Z workflow prepared
+2026-04-23T03:44:22.7289311Z evaluating expression 'success()'
+2026-04-23T03:44:22.7289813Z expression 'success()' evaluated to 'true'
+2026-04-23T03:44:22.7289868Z 'runs-on' key not defined in Deploy windows branch/validate
+2026-04-23T03:44:22.7289922Z No steps found
+2026-04-23T03:44:22.7290268Z evaluating expression 'success()'
+2026-04-23T03:44:22.7290559Z expression 'success()' evaluated to 'true'
+2026-04-23T03:44:22.7290651Z 🚀  Start image=catthehacker/ubuntu:act-latest
+2026-04-23T03:44:22.7343426Z   🐳  docker pull image=catthehacker/ubuntu:act-latest platform= username= forcePull=false
+2026-04-23T03:44:22.7343536Z   🐳  docker pull catthehacker/ubuntu:act-latest
+2026-04-23T03:44:22.7423719Z Image exists? true
+2026-04-23T03:44:22.7833376Z Cleaning up network for job Deploy to VM, and network name is: GITEA-ACTIONS-TASK-638_WORKFLOW-Deploy-windows-branch_JOB-Deploy-to-VM-deploy-network
+2026-04-23T03:44:22.8609683Z   🐳  docker create image=catthehacker/ubuntu:act-latest platform= entrypoint=["/bin/sleep" "10800"] cmd=[] network="GITEA-ACTIONS-TASK-638_WORKFLOW-Deploy-windows-branch_JOB-Deploy-to-VM-deploy-network"
+2026-04-23T03:44:22.9389967Z Created container name=GITEA-ACTIONS-TASK-638_WORKFLOW-Deploy-windows-branch_JOB-Deploy-to-VM id=2fb9a349873d68eef51b093d889a55cd199a354aedcb81ba3586f2a7178be41a from image catthehacker/ubuntu:act-latest (platform: )
+2026-04-23T03:44:22.9390296Z ENV ==> [RUNNER_TOOL_CACHE=/opt/hostedtoolcache RUNNER_OS=Linux RUNNER_ARCH=X64 RUNNER_TEMP=/tmp LANG=C.UTF-8]
+2026-04-23T03:44:22.9390383Z   🐳  docker run image=catthehacker/ubuntu:act-latest platform= entrypoint=["/bin/sleep" "10800"] cmd=[] network="GITEA-ACTIONS-TASK-638_WORKFLOW-Deploy-windows-branch_JOB-Deploy-to-VM-deploy-network"
+2026-04-23T03:44:22.9390589Z Starting container: 2fb9a349873d68eef51b093d889a55cd199a354aedcb81ba3586f2a7178be41a
+2026-04-23T03:44:23.0416394Z Started container: 2fb9a349873d68eef51b093d889a55cd199a354aedcb81ba3586f2a7178be41a
+2026-04-23T03:44:23.0776940Z Writing entry to tarball workflow/event.json len:4604
+2026-04-23T03:44:23.0777149Z Writing entry to tarball workflow/envs.txt len:0
+2026-04-23T03:44:23.0777229Z Extracting content to '/var/run/act/'
+2026-04-23T03:44:23.0880210Z   ☁  git clone 'https://github.com/actions/checkout' # ref=v4
+2026-04-23T03:44:23.0880352Z   cloning https://github.com/actions/checkout to /home/ivycs/.cache/act/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab
+2026-04-23T03:44:23.4831422Z Non-terminating error while running 'git clone': some refs were not updated
+2026-04-23T03:44:23.4981568Z evaluating expression ''
+2026-04-23T03:44:23.4982073Z expression '' evaluated to 'true'
+2026-04-23T03:44:23.4982156Z ⭐ Run Main Check out repository
+2026-04-23T03:44:23.4982298Z Writing entry to tarball workflow/outputcmd.txt len:0
+2026-04-23T03:44:23.4982417Z Writing entry to tarball workflow/statecmd.txt len:0
+2026-04-23T03:44:23.4982486Z Writing entry to tarball workflow/pathcmd.txt len:0
+2026-04-23T03:44:23.4982552Z Writing entry to tarball workflow/envs.txt len:0
+2026-04-23T03:44:23.4982695Z Writing entry to tarball workflow/SUMMARY.md len:0
+2026-04-23T03:44:23.4982771Z Extracting content to '/var/run/act'
+2026-04-23T03:44:23.5043780Z expression '${{ github.token }}' rewritten to 'format('{0}', github.token)'
+2026-04-23T03:44:23.5043897Z evaluating expression 'format('{0}', github.token)'
+2026-04-23T03:44:23.5044102Z expression 'format('{0}', github.token)' evaluated to '%!t(string=***)'
+2026-04-23T03:44:23.5044498Z expression '${{ github.repository }}' rewritten to 'format('{0}', github.repository)'
+2026-04-23T03:44:23.5044560Z evaluating expression 'format('{0}', github.repository)'
+2026-04-23T03:44:23.5044677Z expression 'format('{0}', github.repository)' evaluated to '%!t(string=CleviCS/Onprem)'
+2026-04-23T03:44:23.5044771Z type=remote-action actionDir=/home/ivycs/.cache/act/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab actionPath= workdir=/workspace/CleviCS/Onprem actionCacheDir=/home/ivycs/.cache/act actionName=c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab containerActionDir=/var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab
+2026-04-23T03:44:23.5044878Z /var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab
+2026-04-23T03:44:23.5044989Z   🐳  docker cp src=/home/ivycs/.cache/act/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/ dst=/var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/
+2026-04-23T03:44:23.5047264Z Writing tarball /tmp/act3663887936 from /home/ivycs/.cache/act/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/
+2026-04-23T03:44:23.5047361Z Stripping prefix:/home/ivycs/.cache/act/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/ src:/home/ivycs/.cache/act/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/
+2026-04-23T03:44:23.5439774Z Extracting content from '/tmp/act3663887936' to '/var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/'
+2026-04-23T03:44:23.6666752Z executing remote job container: [node /var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/dist/index.js]
+2026-04-23T03:44:23.6667099Z   🐳  docker exec cmd=[node /var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/dist/index.js] user= workdir=
+2026-04-23T03:44:23.6667199Z Exec command '[node /var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/dist/index.js]'
+2026-04-23T03:44:23.6667568Z Working directory '/workspace/CleviCS/Onprem'
+2026-04-23T03:44:23.7369564Z ::add-matcher::/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/dist/problem-matcher.json
+2026-04-23T03:44:23.7369729Z ::add-matcher::/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/dist/problem-matcher.json
+2026-04-23T03:44:23.7370801Z Syncing repository: CleviCS/Onprem
+2026-04-23T03:44:23.7372233Z ::group::Getting Git version info
+2026-04-23T03:44:23.7372516Z Working directory is '/workspace/CleviCS/Onprem'
+2026-04-23T03:44:23.7389851Z [command]/usr/bin/git version
+2026-04-23T03:44:23.7411758Z git version 2.53.0
+2026-04-23T03:44:23.7422623Z ::endgroup::
+2026-04-23T03:44:23.7429845Z Temporarily overriding HOME='/tmp/ae3e3ac4-8d03-41df-8687-8b136fe229dd' before making global git config changes
+2026-04-23T03:44:23.7430140Z Adding repository directory to the temporary git global config as a safe directory
+2026-04-23T03:44:23.7432191Z [command]/usr/bin/git config --global --add safe.directory /workspace/CleviCS/Onprem
+2026-04-23T03:44:23.7450375Z Deleting the contents of '/workspace/CleviCS/Onprem'
+2026-04-23T03:44:23.7452573Z ::group::Initializing the repository
+2026-04-23T03:44:23.7454169Z [command]/usr/bin/git init /workspace/CleviCS/Onprem
+2026-04-23T03:44:23.7495635Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-04-23T03:44:23.7495796Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-04-23T03:44:23.7495895Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-04-23T03:44:23.7495975Z hint: call:
+2026-04-23T03:44:23.7496037Z hint:
+2026-04-23T03:44:23.7496098Z hint: 	git config --global init.defaultBranch <name>
+2026-04-23T03:44:23.7496174Z hint:
+2026-04-23T03:44:23.7496233Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-04-23T03:44:23.7496311Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-04-23T03:44:23.7496383Z hint:
+2026-04-23T03:44:23.7496447Z hint: 	git branch -m <name>
+2026-04-23T03:44:23.7496508Z hint:
+2026-04-23T03:44:23.7496564Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-04-23T03:44:23.7496681Z Initialized empty Git repository in /workspace/CleviCS/Onprem/.git/
+2026-04-23T03:44:23.7502724Z [command]/usr/bin/git remote add origin https://gitea.clevics.co.kr/CleviCS/Onprem
+2026-04-23T03:44:23.7553144Z ::endgroup::
+2026-04-23T03:44:23.7553263Z ::group::Disabling automatic garbage collection
+2026-04-23T03:44:23.7555134Z [command]/usr/bin/git config --local gc.auto 0
+2026-04-23T03:44:23.7571508Z ::endgroup::
+2026-04-23T03:44:23.7571633Z ::group::Setting up auth
+2026-04-23T03:44:23.7574360Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-04-23T03:44:23.7592332Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-04-23T03:44:23.7765376Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/gitea\.clevics\.co\.kr\/\.extraheader
+2026-04-23T03:44:23.7783464Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/gitea\.clevics\.co\.kr\/\.extraheader' && git config --local --unset-all 'http.https://gitea.clevics.co.kr/.extraheader' || :"
+2026-04-23T03:44:23.7942189Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-04-23T03:44:23.7960419Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-04-23T03:44:23.8123514Z [command]/usr/bin/git config --local http.https://gitea.clevics.co.kr/.extraheader AUTHORIZATION: basic ***
+2026-04-23T03:44:23.8145547Z ::endgroup::
+2026-04-23T03:44:23.8145810Z ::group::Fetching the repository
+2026-04-23T03:44:23.8149984Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +8a7d6cca9aeac6e7851f00332cd2ae29e764737a:refs/remotes/origin/windows
+2026-04-23T03:44:24.0049114Z From https://gitea.clevics.co.kr/CleviCS/Onprem
+2026-04-23T03:44:24.0049329Z  * [new ref]         8a7d6cca9aeac6e7851f00332cd2ae29e764737a -> origin/windows
+2026-04-23T03:44:24.0066911Z ::endgroup::
+2026-04-23T03:44:24.0067154Z ::group::Determining the checkout info
+2026-04-23T03:44:24.0068558Z ::endgroup::
+2026-04-23T03:44:24.0071315Z [command]/usr/bin/git sparse-checkout disable
+2026-04-23T03:44:24.0094620Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-04-23T03:44:24.0112702Z ::group::Checking out the ref
+2026-04-23T03:44:24.0115035Z [command]/usr/bin/git checkout --progress --force -B windows refs/remotes/origin/windows
+2026-04-23T03:44:24.0194228Z Switched to a new branch 'windows'
+2026-04-23T03:44:24.0196658Z branch 'windows' set up to track 'origin/windows'.
+2026-04-23T03:44:24.0200341Z ::endgroup::
+2026-04-23T03:44:24.0221543Z [command]/usr/bin/git log -1 --format=%H
+2026-04-23T03:44:24.0234929Z 8a7d6cca9aeac6e7851f00332cd2ae29e764737a
+2026-04-23T03:44:24.0243234Z ::remove-matcher owner=checkout-git::
+2026-04-23T03:44:29.1267805Z evaluating expression 'always()'
+2026-04-23T03:44:29.1268057Z expression 'always()' evaluated to 'true'
+2026-04-23T03:44:29.1268144Z ⭐ Run Post Check out repository
+2026-04-23T03:44:29.1268279Z Writing entry to tarball workflow/outputcmd.txt len:0
+2026-04-23T03:44:29.1268385Z Writing entry to tarball workflow/statecmd.txt len:0
+2026-04-23T03:44:29.1268454Z Writing entry to tarball workflow/pathcmd.txt len:0
+2026-04-23T03:44:29.1268526Z Writing entry to tarball workflow/envs.txt len:0
+2026-04-23T03:44:29.1268584Z Writing entry to tarball workflow/SUMMARY.md len:0
+2026-04-23T03:44:29.1268653Z Extracting content to '/var/run/act'
+2026-04-23T03:44:29.1282321Z run post step for 'Check out repository'
+2026-04-23T03:44:29.1282674Z executing remote job container: [node /var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/dist/index.js]
+2026-04-23T03:44:29.1282779Z   🐳  docker exec cmd=[node /var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/dist/index.js] user= workdir=
+2026-04-23T03:44:29.1282865Z Exec command '[node /var/run/act/actions/c3fe249fe73091a17d6638fe1341e7bd0bcc3466ce52323c0688e83e2463a4ab/dist/index.js]'
+2026-04-23T03:44:29.1283110Z Working directory '/workspace/CleviCS/Onprem'
+2026-04-23T03:44:29.1991071Z [command]/usr/bin/git version
+2026-04-23T03:44:29.2012698Z git version 2.53.0
+2026-04-23T03:44:29.2025171Z ***
+2026-04-23T03:44:29.2033345Z Temporarily overriding HOME='/tmp/29567207-5745-4ef7-9a24-4dd142cf64e9' before making global git config changes
+2026-04-23T03:44:29.2033557Z Adding repository directory to the temporary git global config as a safe directory
+2026-04-23T03:44:29.2037158Z [command]/usr/bin/git config --global --add safe.directory /workspace/CleviCS/Onprem
+2026-04-23T03:44:29.2058790Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-04-23T03:44:29.2079478Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-04-23T03:44:29.2292682Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/gitea\.clevics\.co\.kr\/\.extraheader
+2026-04-23T03:44:29.2307884Z http.https://gitea.clevics.co.kr/.extraheader
+2026-04-23T03:44:29.2313176Z [command]/usr/bin/git config --local --unset-all http.https://gitea.clevics.co.kr/.extraheader
+2026-04-23T03:44:29.2356542Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/gitea\.clevics\.co\.kr\/\.extraheader' && git config --local --unset-all 'http.https://gitea.clevics.co.kr/.extraheader' || :"
+2026-04-23T03:44:29.2535800Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-04-23T03:44:29.2554462Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-04-23T03:44:29.2793019Z   ✅  Success - Post Check out repository
+2026-04-23T03:44:29.2843061Z Cleaning up container for job Deploy to VM
+2026-04-23T03:44:29.4222993Z Removed container: 2fb9a349873d68eef51b093d889a55cd199a354aedcb81ba3586f2a7178be41a
+2026-04-23T03:44:29.4233144Z   🐳  docker volume rm GITEA-ACTIONS-TASK-638_WORKFLOW-Deploy-windows-branch_JOB-Deploy-to-VM
+2026-04-23T03:44:29.4294467Z   🐳  docker volume rm GITEA-ACTIONS-TASK-638_WORKFLOW-Deploy-windows-branch_JOB-Deploy-to-VM-env
+2026-04-23T03:44:29.4736002Z Cleaning up network for job Deploy to VM, and network name is: GITEA-ACTIONS-TASK-638_WORKFLOW-Deploy-windows-branch_JOB-Deploy-to-VM-deploy-network
+2026-04-23T03:44:29.5881846Z 🏁  Job failed
+2026-04-23T03:44:29.5926227Z Job 'Deploy to VM' failed
